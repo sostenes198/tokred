@@ -1,0 +1,1 @@
+{"session_id":"e2e-session","transcript_path":"/work/proj/t.jsonl","cwd":"/work/proj","permission_mode":"default","hook_event_name":"UserPromptSubmit","prompt":"Implementa a paginação da listagem de usuários em src/users/list.ts e adiciona testes"}
