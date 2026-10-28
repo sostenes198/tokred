@@ -33,15 +33,20 @@ fn main() -> ExitCode {
     }
 }
 
+/// Runs `tokred hook <name>`. The *whole* body is inside `catch_unwind` (not just the handler),
+/// so a panic while resolving paths or starting logging also ends in exit code 0.
 fn run_hook(name: Option<&str>) -> ExitCode {
     std::panic::set_hook(Box::new(|_| {}));
-    logging::init_for_hook();
-    if let Some(event) = name.and_then(HookEvent::from_arg)
-        && let Some(output) = tokred_hooks::run_fail_open(event, std::io::stdin().lock())
-    {
-        let mut stdout = std::io::stdout().lock();
-        let _ = stdout.write_all(output.as_bytes());
-        let _ = stdout.flush();
-    }
+    let name = name.map(str::to_owned);
+    let _ = std::panic::catch_unwind(move || {
+        logging::init_for_hook();
+        if let Some(event) = name.as_deref().and_then(HookEvent::from_arg)
+            && let Some(output) = tokred_hooks::run_fail_open(event, std::io::stdin().lock())
+        {
+            let mut stdout = std::io::stdout().lock();
+            let _ = stdout.write_all(output.as_bytes());
+            let _ = stdout.flush();
+        }
+    });
     ExitCode::SUCCESS
 }

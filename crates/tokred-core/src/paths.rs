@@ -34,6 +34,40 @@ pub fn resolve_data_dir(env: Option<PathBuf>, platform_default: PathBuf) -> Path
     env.unwrap_or(platform_default)
 }
 
+/// Home folder used for the default Claude Code folder (`<home>/.claude`).
+///
+/// On Windows the spec says `%USERPROFILE%\.claude`, so that variable wins over the OS lookup.
+/// This also lets tests redirect the folder: the OS lookup ignores environment variables on
+/// Windows, which would otherwise point a sandboxed run at the developer's real profile.
+#[must_use]
+pub fn home_dir(
+    is_windows: bool,
+    userprofile: Option<PathBuf>,
+    os_home: Option<PathBuf>,
+) -> Option<PathBuf> {
+    if is_windows {
+        userprofile.or(os_home)
+    } else {
+        os_home
+    }
+}
+
+/// Platform default of the tokred data folder: `<base>/tokred`, where `<base>` is
+/// `%APPDATA%` on Windows (spec: `%APPDATA%\tokred`) and the OS data folder elsewhere.
+#[must_use]
+pub fn platform_data_dir(
+    is_windows: bool,
+    appdata: Option<PathBuf>,
+    os_data_dir: Option<PathBuf>,
+) -> Option<PathBuf> {
+    let base = if is_windows {
+        appdata.or(os_data_dir)
+    } else {
+        os_data_dir
+    };
+    base.map(|dir| dir.join("tokred"))
+}
+
 /// Locations inside the tokred data folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DataLayout {
@@ -100,6 +134,38 @@ mod tests {
             PathBuf::from("/x")
         );
         assert_eq!(resolve_data_dir(None, "/d".into()), PathBuf::from("/d"));
+    }
+
+    #[test]
+    fn windows_prefers_userprofile_over_the_os_lookup() {
+        let userprofile = Some(PathBuf::from("/sandbox"));
+        let os_home = Some(PathBuf::from("/real/home"));
+        assert_eq!(
+            home_dir(true, userprofile.clone(), os_home.clone()),
+            userprofile
+        );
+        assert_eq!(home_dir(true, None, os_home.clone()), os_home);
+        // Elsewhere the OS lookup (which honours $HOME) is used and USERPROFILE is ignored.
+        assert_eq!(home_dir(false, userprofile, os_home.clone()), os_home);
+    }
+
+    #[test]
+    fn data_dir_is_appdata_on_windows_and_the_os_folder_elsewhere() {
+        let appdata = Some(PathBuf::from("/appdata"));
+        let os = Some(PathBuf::from("/os-data"));
+        assert_eq!(
+            platform_data_dir(true, appdata.clone(), os.clone()),
+            Some("/appdata/tokred".into())
+        );
+        assert_eq!(
+            platform_data_dir(true, None, os.clone()),
+            Some("/os-data/tokred".into())
+        );
+        assert_eq!(
+            platform_data_dir(false, appdata, os),
+            Some("/os-data/tokred".into())
+        );
+        assert_eq!(platform_data_dir(false, None, None), None);
     }
 
     #[test]
