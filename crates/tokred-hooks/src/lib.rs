@@ -20,6 +20,7 @@ pub mod ports;
 mod route;
 mod runtime;
 mod session;
+mod suggest;
 pub mod watchdog;
 
 pub use bench::bench_fixtures;
@@ -28,6 +29,8 @@ pub use error::HookError;
 pub use guard::MAX_HASH_BYTES;
 pub use io::HookInput;
 pub use ports::{EventNote, FileMeta, FileStat, HookDeps, HookResponse};
-pub use runtime::{HookRun, MAX_STDIN_BYTES, handle, record_timeout, run_hook};
+pub use runtime::{
+    HookRun, MAX_STDIN_BYTES, handle, handle_with, record_timeout, run_hook, run_hook_with,
+};
 pub use session::last_context_tokens;
 pub use tokred_core::cache::{cache_prune, cache_stats};

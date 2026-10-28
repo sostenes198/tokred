@@ -95,6 +95,27 @@ pub fn system_message(text: &str) -> String {
     json!({ "systemMessage": text }).to_string()
 }
 
+/// The `UserPromptSubmit` answer: an optional line of context for the model and an optional
+/// message for the user (`systemMessage`, which never reaches the model), in one JSON object.
+#[must_use]
+pub fn prompt_answer(context_line: Option<&str>, message: Option<&str>) -> Option<String> {
+    match (context_line, message) {
+        (None, None) => None,
+        (Some(line), None) => Some(context("UserPromptSubmit", line)),
+        (None, Some(text)) => Some(system_message(text)),
+        (Some(line), Some(text)) => Some(
+            json!({
+                "systemMessage": text,
+                "hookSpecificOutput": {
+                    "hookEventName": "UserPromptSubmit",
+                    "additionalContext": line,
+                }
+            })
+            .to_string(),
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +176,30 @@ mod tests {
 
         let msg: Value = serde_json::from_str(&system_message("hey")).unwrap();
         assert_eq!(msg, json!({"systemMessage": "hey"}));
+    }
+
+    #[test]
+    fn a_prompt_answer_carries_context_and_message_separately() {
+        assert_eq!(prompt_answer(None, None), None);
+        assert_eq!(
+            prompt_answer(Some("ctx"), None).unwrap(),
+            context("UserPromptSubmit", "ctx")
+        );
+        assert_eq!(
+            prompt_answer(None, Some("note")).unwrap(),
+            system_message("note")
+        );
+        let both: Value =
+            serde_json::from_str(&prompt_answer(Some("ctx"), Some("note")).unwrap()).unwrap();
+        assert_eq!(
+            both,
+            json!({
+                "systemMessage": "note",
+                "hookSpecificOutput": {
+                    "hookEventName": "UserPromptSubmit",
+                    "additionalContext": "ctx"
+                }
+            })
+        );
     }
 }

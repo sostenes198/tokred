@@ -15,6 +15,7 @@ use std::time::Instant;
 use tokred_core::Clock;
 use tokred_core::HookEvent;
 use tokred_core::hook_event::{HookEventRecord, HookEventRepo, Outcome};
+use tokred_core::prompts::SuggestionRepo;
 
 use crate::error::HookError;
 use crate::guard::{guard_read, guard_search};
@@ -26,15 +27,27 @@ use crate::session::{session_check, session_start};
 /// Upper bound on the stdin payload a hook reads (transcripts are never sent on stdin).
 pub const MAX_STDIN_BYTES: u64 = 1024 * 1024;
 
-/// Parses the payload and runs the handler of `event`.
+/// Parses the payload and runs the handler of `event` (without model suggestions; see
+/// [`handle_with`]).
 pub fn handle(
     event: HookEvent,
     payload: &[u8],
     deps: &HookDeps<'_>,
 ) -> Result<HookResponse, HookError> {
+    handle_with(event, payload, deps, None)
+}
+
+/// Like [`handle`], with the repository `UserPromptSubmit` (`route`) reads pending model
+/// suggestions from. `None` never shows one.
+pub fn handle_with(
+    event: HookEvent,
+    payload: &[u8],
+    deps: &HookDeps<'_>,
+    suggestions: Option<&dyn SuggestionRepo>,
+) -> Result<HookResponse, HookError> {
     let input = HookInput::parse(payload)?;
     match event {
-        HookEvent::Route => route(&input, deps),
+        HookEvent::Route => route(&input, deps, suggestions),
         HookEvent::Enforce => enforce(&input, deps),
         HookEvent::GuardRead => guard_read(&input, deps),
         HookEvent::GuardSearch => guard_search(&input, deps),
@@ -133,12 +146,25 @@ pub fn record_timeout(
 
 /// Runs `tokred hook <name>`: never fails and never panics.
 ///
-/// `name` is the argument after `hook`; unknown or missing names do nothing.
+/// `name` is the argument after `hook`; unknown or missing names do nothing. Model suggestions
+/// are not shown; see [`run_hook_with`].
 pub fn run_hook(
     name: Option<&str>,
     stdin: &mut dyn Read,
     stdout: &mut dyn Write,
     run: &HookRun<'_>,
+) {
+    run_hook_with(name, stdin, stdout, run, None);
+}
+
+/// Like [`run_hook`], with the repository `UserPromptSubmit` reads pending model suggestions
+/// from (the `tokred` binary passes its store).
+pub fn run_hook_with(
+    name: Option<&str>,
+    stdin: &mut dyn Read,
+    stdout: &mut dyn Write,
+    run: &HookRun<'_>,
+    suggestions: Option<&dyn SuggestionRepo>,
 ) {
     let Some(event) = name.and_then(HookEvent::from_arg) else {
         return;
@@ -163,7 +189,9 @@ pub fn run_hook(
         return;
     };
 
-    match catch_unwind(AssertUnwindSafe(|| handle(event, &payload, deps))) {
+    match catch_unwind(AssertUnwindSafe(|| {
+        handle_with(event, &payload, deps, suggestions)
+    })) {
         Ok(Ok(response)) => {
             if let Some(text) = &response.stdout {
                 // Write errors are ignored: a hook must never fail.
