@@ -50,7 +50,7 @@ Hooks run synchronously before Claude Code continues, so `tokred stats latency` 
 
 ## With the proxy
 
-`stats`, `stats latency` and the HTML report still read their numbers from the transcripts and hooks, as described above. When the optional [proxy](proxy.md) runs, it records its own, exact data per request in the database: requested and effective model, tokens (including 1-hour cache writes), time to first byte and total time, the likely cause of a prompt-cache miss, and the time the proxy itself added (its overhead, budgeted at p95 under 10 ms). Today that data is shown through `tokred routing status` (recent routing decisions with their estimated saving), `tokred proxy status` and `tokred suggest` (suggestions for the main loop); showing the per-request figures and the overhead in `stats` and the HTML report is specified in the [spec](spec.md) and not done yet.
+`stats`, `stats latency` and the HTML report still read their numbers from the transcripts and hooks, as described above. When the optional [proxy](proxy.md) runs, it records its own, exact data per request in the database: requested and effective model, tokens (including 1-hour cache writes), time to first byte and total time, the likely cause of a prompt-cache miss, and the time the proxy itself added (its overhead, budgeted at p95 under 10 ms). Today that data is shown through `tokred routing status` (recent routing decisions with their estimated saving), `tokred proxy status` (request count and the overhead's median and p95 over the last 24 hours) and `tokred suggest` (suggestions for the main loop); showing the per-request figures in `stats` and the HTML report is specified in the [spec](spec.md) and not done yet.
 
 ## Spans and ranges
 

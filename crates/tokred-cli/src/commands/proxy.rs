@@ -9,8 +9,10 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
-use tokred_core::Config;
+use tokred_core::proxy::ProxyRequestRecord;
+use tokred_core::{Clock, Config, Timestamp};
 
+use super::{SystemClock, existing_store};
 use crate::args::{ProxyCommand, ServiceCommand};
 use crate::daemon::{
     ProxyFiles, SECRET_HEADER, ServiceKind, base_url, healthy, install_plan, port_of,
@@ -166,6 +168,7 @@ fn status(io: &mut Io, ctx: &ProxyCtx<'_>, json: bool) -> Result<()> {
         "routing_mode": ctx.config.routing.mode,
         "compression_mode": ctx.config.compression.mode,
         "details": details,
+        "traffic": traffic_last_day(ctx.env),
     });
     if json {
         let text = serde_json::to_string_pretty(&value)?;
@@ -193,9 +196,53 @@ fn render_status(value: &Value, running: bool, points_here: bool) -> String {
     };
     let routing = value["routing_mode"].as_str().unwrap_or("?");
     let compression = value["compression_mode"].as_str().unwrap_or("?");
+    let traffic = &value["traffic"];
+    let last_day = match (
+        traffic["requests"].as_u64(),
+        traffic["overhead_p50_ms"].as_f64(),
+        traffic["overhead_p95_ms"].as_f64(),
+    ) {
+        (Some(n), Some(p50), Some(p95)) => {
+            format!("{n} requests, proxy overhead p50 {p50:.2} ms, p95 {p95:.2} ms")
+        }
+        _ => "no requests recorded".to_owned(),
+    };
     format!(
-        "tokred proxy: {state} ({url})\n  user service:  {service}\n  this terminal: {terminal}\n  routing:       {routing}   compression: {compression}\n"
+        "tokred proxy: {state} ({url})\n  user service:  {service}\n  this terminal: {terminal}\n  routing:       {routing}   compression: {compression}\n  last 24 hours: {last_day}\n"
     )
+}
+
+/// Requests recorded in the last 24 hours and the time the proxy itself added to them; `null`
+/// when there is no database or no request yet.
+fn traffic_last_day(env: &Env) -> Value {
+    let now = SystemClock.now();
+    existing_store(env)
+        .ok()
+        .flatten()
+        .and_then(|store| {
+            store
+                .proxy_requests_between(Timestamp(now.0 - 86_400), Timestamp(now.0 + 1))
+                .ok()
+        })
+        .map_or(Value::Null, |records| traffic_summary(&records))
+}
+
+/// The number of requests and the median and 95th percentile (nearest rank) of the overhead the
+/// proxy added, in milliseconds; `null` for no requests.
+fn traffic_summary(records: &[ProxyRequestRecord]) -> Value {
+    let mut overhead: Vec<u64> = records.iter().map(|r| r.proxy_overhead_us).collect();
+    overhead.sort_unstable();
+    let rank = |percent: usize| overhead[(percent * overhead.len()).div_ceil(100) - 1];
+    if overhead.is_empty() {
+        return Value::Null;
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let ms = |us: u64| us as f64 / 1000.0;
+    json!({
+        "requests": overhead.len(),
+        "overhead_p50_ms": ms(rank(50)),
+        "overhead_p95_ms": ms(rank(95)),
+    })
 }
 
 fn write_service_file(path: &Path, content: &str) -> Result<()> {
@@ -501,6 +548,54 @@ mod tests {
         assert!(no_serve("127.0.0.1:1").is_err());
     }
 
+    fn record_with_overhead(id: &str, overhead_us: u64) -> ProxyRequestRecord {
+        ProxyRequestRecord {
+            id: id.to_owned(),
+            proxy_overhead_us: overhead_us,
+            ..ProxyRequestRecord::default()
+        }
+    }
+
+    #[test]
+    fn the_traffic_summary_uses_nearest_rank_percentiles() {
+        assert_eq!(traffic_summary(&[]), Value::Null);
+        let one = traffic_summary(&[record_with_overhead("a", 1500)]);
+        assert_eq!(one["requests"], 1);
+        assert_eq!(one["overhead_p50_ms"], 1.5);
+        assert_eq!(one["overhead_p95_ms"], 1.5);
+        let many: Vec<_> = (1..=20)
+            .map(|n| record_with_overhead(&format!("r{n}"), n * 1000))
+            .collect();
+        let summary = traffic_summary(&many);
+        assert_eq!(summary["requests"], 20);
+        assert_eq!(summary["overhead_p50_ms"], 10.0);
+        assert_eq!(summary["overhead_p95_ms"], 19.0);
+    }
+
+    #[test]
+    fn the_last_day_comes_from_the_database_and_is_empty_without_one() {
+        let bare = Sandbox::new();
+        assert_eq!(traffic_last_day(&bare.env), Value::Null);
+
+        let sb = Sandbox::new();
+        sb.configure();
+        assert_eq!(traffic_last_day(&sb.env), Value::Null, "no requests yet");
+        let now = SystemClock.now();
+        let recent = ProxyRequestRecord {
+            ts: Timestamp(now.0 - 60),
+            ..record_with_overhead("recent", 2000)
+        };
+        let old = ProxyRequestRecord {
+            ts: Timestamp(now.0 - 3 * 86_400),
+            ..record_with_overhead("old", 9000)
+        };
+        sb.store().insert_proxy_request(&recent).unwrap();
+        sb.store().insert_proxy_request(&old).unwrap();
+        let day = traffic_last_day(&sb.env);
+        assert_eq!(day["requests"], 1, "only the last 24 hours: {day}");
+        assert_eq!(day["overhead_p95_ms"], 2.0);
+    }
+
     #[test]
     fn the_status_text_names_the_service_and_where_this_terminal_points() {
         let value = json!({
@@ -509,6 +604,19 @@ mod tests {
             "routing_mode": "enforce",
             "compression_mode": "observe",
         });
+        let text = render_status(&value, true, true);
+        assert!(
+            text.contains("last 24 hours: no requests recorded"),
+            "{text}"
+        );
+        let busy = json!({
+            "traffic": {"requests": 4, "overhead_p50_ms": 0.4, "overhead_p95_ms": 1.25},
+        });
+        let text = render_status(&busy, true, false);
+        assert!(
+            text.contains("4 requests, proxy overhead p50 0.40 ms, p95 1.25 ms"),
+            "{text}"
+        );
         let text = render_status(&value, true, true);
         assert!(
             text.contains("tokred proxy: running (http://127.0.0.1:8787)"),

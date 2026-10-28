@@ -268,6 +268,12 @@ fn proxy_lines(proxy: &ProxyInfo) -> String {
         }
         None => {}
     }
+    if proxy.routing_mode == "enforce" {
+        let _ = writeln!(
+            out,
+            "               note: routing is changing the model of subagent and auxiliary requests; Anthropic's terms do not address that for a claude.ai subscription login (an API key is fine)"
+        );
+    }
     out
 }
 
@@ -464,6 +470,18 @@ mod tests {
         assert!(off.contains("routing observe, compression observe"));
         assert!(off.contains("main loop's model is never changed"));
         assert!(!off.contains("ANTHROPIC_BASE_URL"));
+        assert!(!off.contains("note: routing"), "no note in observe: {off}");
+
+        let enforcing = ProxyInfo {
+            routing_mode: "enforce".to_owned(),
+            ..sample_proxy()
+        };
+        let text = proxy_lines(&enforcing);
+        assert!(
+            text.contains("note: routing is changing the model"),
+            "{text}"
+        );
+        assert!(text.contains("claude.ai subscription"), "{text}");
 
         let here = ProxyInfo {
             running: true,

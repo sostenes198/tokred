@@ -34,3 +34,6 @@ install-success-msg = 'Run "tokred configure" to set up the Claude Code integrat
 install-updater = false
 # Run only the plan step on pull requests
 pr-run-mode = "plan"
+# Dependabot bumps the action versions inside the generated release.yml; accept that instead of
+# failing the plan step ("out of date contents"). `dist generate` still works when asked.
+allow-dirty = ["ci"]

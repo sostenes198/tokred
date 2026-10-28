@@ -51,6 +51,13 @@ tokred proxy service install      # and later: tokred proxy service uninstall
 
 Both API-key and claude.ai subscription logins work (verified in the F7 spike). With a subscription, the credential travels in the `authorization` header and the proxy forwards it and the OAuth `anthropic-beta` value untouched. Measuring subscription traffic through a local gateway is a setup the Claude Code documentation describes. Rewriting the model of subscription requests is not addressed by Anthropic's terms, so routing stays in `observe` unless you turn it on ([decision](decisions.md)).
 
+## Limits
+
+- The proxy connects to the API directly and trusts the built-in certificate roots. It does not read `HTTPS_PROXY` or a custom CA bundle, so it does not work behind a corporate proxy that inspects TLS. In that case use Claude Code without it.
+- It reads response usage only from an uncompressed response. It asks the API for one (`Accept-Encoding: identity`); if a response comes back compressed anyway it is still forwarded unchanged, just not measured.
+- A compaction request carries no header that tells it apart, so it can be taken for a simple prompt. Routing never changes the main loop's model, so this only affects the advice.
+- Per-request records do not yet include the stop reason, the tool names or the cache lifetime used.
+
 ## Configuration
 
 `[proxy]`, `[routing]`, `[suggest]`, `[compression]` and `[shadow]` in `tokred.toml`; see [configuration](configuration.md).

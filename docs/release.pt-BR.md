@@ -148,4 +148,4 @@ No Windows: `scoop install sostenes198/tokred` ou `winget install sostenes198.to
 
 ### O que fazer quando o `dist-workspace.toml` muda
 
-Rode `dist generate` e faça commit do `.github/workflows/release.yml` alterado; nunca edite esse arquivo à mão. Veja também [instalação](installation.pt-BR.md) e [decisões](decisions.pt-BR.md).
+Rode `dist generate` e faça commit do `.github/workflows/release.yml` alterado; não edite esse arquivo à mão. O Dependabot sobe versões de actions dentro dele (por exemplo `actions/checkout`); o `allow-dirty = ["ci"]` no `dist-workspace.toml` faz o `dist plan` aceitar isso em vez de falhar com "out of date contents", então esses pull requests podem ser mesclados. Veja também [instalação](installation.pt-BR.md) e [decisões](decisions.pt-BR.md).

@@ -51,6 +51,13 @@ O `tokred proxy start` roda em segundo plano sem serviço; `--foreground` o mant
 
 Os logins por chave de API e por assinatura claude.ai funcionam (verificado no spike F7). Com assinatura, a credencial viaja no cabeçalho `authorization` e o proxy a repassa, junto com o valor OAuth do `anthropic-beta`, sem tocar. Medir tráfego de assinatura por um gateway local é uma configuração que a documentação do Claude Code descreve. Reescrever o modelo de requisições de assinatura não é tratado pelos termos da Anthropic, então o roteamento fica em `observe` a menos que você o ligue ([decisão](decisions.pt-BR.md)).
 
+## Limites
+
+- O proxy conecta direto à API e confia nas raízes de certificado embutidas. Ele não lê `HTTPS_PROXY` nem um bundle de CA próprio, então não funciona atrás de um proxy corporativo que inspeciona TLS. Nesse caso use o Claude Code sem ele.
+- Ele só lê o uso de uma resposta não comprimida. Pede uma ao servidor (`Accept-Encoding: identity`); se a resposta vier comprimida mesmo assim, ela é repassada sem alteração, só não é medida.
+- Uma requisição de compactação não traz cabeçalho que a distinga, então pode ser tomada por um prompt simples. O roteamento nunca troca o modelo do loop principal, então isso só afeta os conselhos.
+- Os registros por requisição ainda não incluem o motivo de parada, os nomes das ferramentas nem a duração de cache usada.
+
 ## Configuração
 
 `[proxy]`, `[routing]`, `[suggest]`, `[compression]` e `[shadow]` no `tokred.toml`; veja [configuração](configuration.pt-BR.md).
