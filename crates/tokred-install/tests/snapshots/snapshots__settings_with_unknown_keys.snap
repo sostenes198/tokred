@@ -1,0 +1,116 @@
+---
+source: crates/tokred-install/tests/snapshots.rs
+expression: "merged(\"settings-unknown-keys.json\")"
+---
+{
+  "zeta": [
+    1,
+    2,
+    {
+      "nested": true
+    }
+  ],
+  "alpha": {
+    "deep": {
+      "deeper": [
+        "ç",
+        "日本語",
+        null,
+        1.5
+      ]
+    }
+  },
+  "futureFeature": {
+    "enabled": true
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "prettier --write",
+            "unknownField": 42
+          }
+        ]
+      }
+    ],
+    "FutureEvent": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "check it"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/opt/homebrew/bin/tokred\" hook route",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/opt/homebrew/bin/tokred\" hook enforce",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/opt/homebrew/bin/tokred\" hook guard-read",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/opt/homebrew/bin/tokred\" hook guard-search",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/opt/homebrew/bin/tokred\" hook session-check",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/opt/homebrew/bin/tokred\" hook session-start",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "model": "opus"
+}

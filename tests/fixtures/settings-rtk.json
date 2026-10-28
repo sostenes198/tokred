@@ -1,0 +1,13 @@
+{
+  "permissions": { "allow": ["Bash(git status)"] },
+  "model": "opus",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "rtk hook claude" }]
+      }
+    ]
+  },
+  "theme": "dark"
+}

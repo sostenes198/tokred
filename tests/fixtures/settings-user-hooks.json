@@ -1,0 +1,16 @@
+{
+  "env": { "FOO": "bar" },
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "bash ./detect.sh", "timeout": 10 }] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Read", "hooks": [{ "type": "command", "command": "python3 audit_reads.py" }] },
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "rtk hook claude" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "echo done" }] }
+    ],
+    "Notification": []
+  }
+}

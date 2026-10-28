@@ -1,0 +1,15 @@
+**English** | [Português](CHANGELOG.pt-BR.md)
+
+# Changelog
+
+All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [Unreleased]
+
+### Added
+
+- Phase F0: workspace bootstrap (ten crates, CI, cargo-deny, bilingual docs).
+- `tokred configure`: detects the Claude Code folder, shows a plan, merges tokred hooks into `settings.json` without touching anything else, installs six subagents, creates the SQLite database and `tokred.toml`.
+- `tokred unconfigure [--purge]`: removes only what tokred added.
+- `tokred doctor [--json]`: reports hooks, agents, rtk detection and problems.
+- `tokred hook <event>`: fail-open stub for the six hooks (real behaviour arrives in phases F3 to F5).

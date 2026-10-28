@@ -1,0 +1,82 @@
+[English](README.md) | **Português**
+
+# tokred
+
+[![CI](https://github.com/sostenes198/tokred/actions/workflows/ci.yml/badge.svg)](https://github.com/sostenes198/tokred/actions/workflows/ci.yml)
+[![Licença](https://img.shields.io/badge/licen%C3%A7a-MIT%20OR%20Apache--2.0-blue)](#licença)
+
+*Redutor de tokens e custo para o Claude Code — roteamento de modelo, guardas de contexto e métricas locais. Funciona junto com o rtk.*
+
+## O que é
+
+tokred é uma CLI em Rust, local e multiplataforma, que reduz o custo e o consumo de tokens do Claude Code. Ela instala subagentes com o modelo certo para cada tipo de tarefa (opus para arquitetura e planejamento, sonnet para desenvolvimento, haiku para busca e resumo), hooks que reforçam essa delegação e bloqueiam leituras inúteis de contexto, e um relatório de métricas com tokens, custo, economia e a latência que o próprio tokred acrescenta.
+
+Tudo roda na sua máquina, com um SQLite próprio e sem serviço externo. Foi pensada para rodar junto com o [rtk](https://github.com/rtk-ai/rtk) (rust token killer), que comprime a saída de comandos; o tokred cuida do resto. Os dois convivem: o rtk fica com o matcher `Bash` e o tokred nunca registra um.
+
+> **Status: fase F0.** `configure`, `unconfigure` e `doctor` já funcionam. Os hooks são instalados, mas por enquanto são stubs fail-open que não fazem nada; guardas, roteamento, métricas e preços chegam nas próximas fases (veja [a spec](docs/spec.pt-BR.md) e [o changelog](CHANGELOG.pt-BR.md)).
+
+## Funcionalidades
+
+- **Instalação não destrutiva:** `tokred configure` faz o merge dos hooks no `settings.json` sem mexer em mais nada, e `tokred unconfigure` remove exatamente o que foi adicionado → [comandos](docs/commands.pt-BR.md)
+- **Subagentes por modelo:** seis subagentes com modelo fixo e formato de retorno curto → [agentes](docs/agents.pt-BR.md)
+- **Hooks que nunca atrapalham:** fail-open, modos `off | warn | enforce` → [hooks](docs/hooks.pt-BR.md)
+- **Store local:** SQLite com migrations versionadas e cache em camadas → [cache](docs/cache.pt-BR.md)
+- **Métricas** (planejado): tokens, custo, economia, projeção e latência adicionada → [métricas](docs/metrics.pt-BR.md)
+
+## Instalação
+
+Instalar o binário nunca mexe no Claude Code; isso é um passo separado (`tokred configure`).
+
+| SO | Comando |
+|---|---|
+| macOS / Linux | `brew install sostenes198/tap/tokred` |
+| Windows | `winget install tokred` ou `scoop bucket add sostenes198 https://github.com/sostenes198/scoop-bucket` e depois `scoop install sostenes198/tokred` |
+| Qualquer | `cargo install tokred` ou o instalador shell / PowerShell da página de releases |
+
+O pipeline de release chega na fase F1; até lá, compile do código-fonte (`cargo install --path crates/tokred-cli`). Detalhes em [instalação](docs/installation.pt-BR.md).
+
+## Início rápido
+
+```sh
+tokred configure    # integra com o Claude Code (mostra um plano e pede confirmação)
+tokred doctor       # confere o que está instalado
+```
+
+O `tokred metrics` entra no início rápido na fase F1.
+
+## Comandos
+
+| Comando | O que faz |
+|---|---|
+| `tokred configure [--claude-dir <path>] [--yes] [--force]` | Faz o merge dos hooks no `settings.json`, instala os agentes, cria o banco e a config |
+| `tokred unconfigure [--purge]` | Remove só as partes do tokred; `--purge` também apaga a pasta de dados |
+| `tokred doctor [--json]` | Mostra o que está instalado e o que precisa de atenção |
+
+Referência completa em [comandos](docs/commands.pt-BR.md).
+
+## Como funciona
+
+O Claude Code executa um hook do tokred antes ou depois de certos eventos e envia JSON no stdin; o tokred responde com uma decisão ou uma dica de uma linha. Todo hook é fail-open: em qualquer erro, panic ou timeout ele sai com código 0 e sem saída, então um bug do tokred nunca trava o Claude Code. Veja [arquitetura](docs/architecture.pt-BR.md) e [hooks](docs/hooks.pt-BR.md).
+
+## Configuração
+
+Um único `tokred.toml` na pasta de dados, com merge (nunca substituição) a cada atualização. Veja [configuração](docs/configuration.pt-BR.md).
+
+## Privacidade
+
+Tudo fica na sua máquina. As únicas chamadas de rede (sincronização de preços e verificação diária de versão, ambas a partir da fase F1) saem de comandos da CLI, nunca de hooks, e podem ser desligadas: `[pricing] auto_sync = false`, `[update] mode = "off"` ou `TOKRED_NO_UPDATE_CHECK=1`.
+
+## Desinstalação
+
+```sh
+tokred unconfigure --purge   # remove hooks, agentes e os dados do tokred
+brew uninstall tokred        # ou: winget uninstall tokred / scoop uninstall tokred / cargo uninstall tokred
+```
+
+## Contribuindo
+
+Veja [CONTRIBUTING.pt-BR.md](CONTRIBUTING.pt-BR.md).
+
+## Licença
+
+Licenciado sob a [Apache License 2.0](LICENSE-APACHE) ou a [licença MIT](LICENSE-MIT), à sua escolha.

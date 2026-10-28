@@ -1,0 +1,15 @@
+[package]
+name = "tokred-update"
+description = "Version check, install-method detection and self-update for tokred"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tokred-core = { workspace = true }

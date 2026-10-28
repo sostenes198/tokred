@@ -1,0 +1,18 @@
+{
+  "model": "sonnet",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [{ "type": "command", "command": "\"/old/Cellar/tokred/0.0.9/bin/tokred\" hook guard-read", "timeout": 9 }]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "rtk hook claude" }]
+      }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "\"/old/Cellar/tokred/0.0.9/bin/tokred\" hook retired-hook", "timeout": 9 }] }
+    ]
+  }
+}

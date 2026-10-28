@@ -1,0 +1,37 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# Coverage / profiling
+*.profraw
+*.profdata
+lcov.info
+/coverage/
+
+# insta (snapshots pending review)
+*.snap.new
+*.pending-snap
+
+# Local data / databases created by tests or manual runs
+*.db
+*.db-shm
+*.db-wal
+/reports/
+
+# Editors / IDEs
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Env
+.env
+.env.*

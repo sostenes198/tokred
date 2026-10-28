@@ -1,0 +1,42 @@
+---
+source: crates/tokred-cli/tests/e2e.rs
+expression: "json[\"install\"][\"hooks\"]"
+---
+[
+  {
+    "hook": "route",
+    "event": "UserPromptSubmit",
+    "state": "ok",
+    "binary_missing": false
+  },
+  {
+    "hook": "enforce",
+    "event": "PreToolUse",
+    "state": "ok",
+    "binary_missing": false
+  },
+  {
+    "hook": "guard-read",
+    "event": "PreToolUse",
+    "state": "ok",
+    "binary_missing": false
+  },
+  {
+    "hook": "guard-search",
+    "event": "PreToolUse",
+    "state": "ok",
+    "binary_missing": false
+  },
+  {
+    "hook": "session-check",
+    "event": "Stop",
+    "state": "ok",
+    "binary_missing": false
+  },
+  {
+    "hook": "session-start",
+    "event": "SessionStart",
+    "state": "ok",
+    "binary_missing": false
+  }
+]

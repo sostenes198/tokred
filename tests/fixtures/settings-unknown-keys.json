@@ -1,0 +1,12 @@
+{
+  "zeta": [1, 2, { "nested": true }],
+  "alpha": { "deep": { "deeper": ["ç", "日本語", null, 1.5] } },
+  "futureFeature": { "enabled": true },
+  "hooks": {
+    "PostToolUse": [
+      { "matcher": "Edit|Write", "hooks": [{ "type": "command", "command": "prettier --write", "unknownField": 42 }] }
+    ],
+    "FutureEvent": [{ "hooks": [{ "type": "prompt", "prompt": "check it" }] }]
+  },
+  "model": "opus"
+}
