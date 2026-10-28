@@ -23,7 +23,13 @@ tokred (cli) ──► use cases (install, hooks, metrics, pricing, audit, updat
 | `tokred-audit` | Fixed-context audit: `CLAUDE.md` with imports, rules, skills, agents, MCP usage |
 | `tokred-report` | The offline HTML report: model, SVG charts, template, atomic write |
 | `tokred-store` | Adapter: SQLite (`rusqlite`), versioned migrations, repository implementations |
+| `tokred-proxy` | Adapter: the optional local proxy (`hyper`, `tokio`, `rustls`): listens on loopback, forwards with streaming, measures usage and latency, and runs the proxy hook pipeline defined in `tokred-core`. The **only** crate that depends on `hyper` and `tokio` |
+| `tokred-routing` | Model routing policy: classifies subagent and auxiliary requests and picks a cheaper model when it is safe. Pure; the main loop's model is never changed |
+| `tokred-suggest` | Summaries of the main loop's prompts and suggestions of a cheaper model. Pure; it only advises |
+| `tokred-compress` | Reversible compression of large tool results and the `tokred_retrieve` MCP server logic. Depends only on `tokred-core` |
 | `tokred` (`crates/tokred-cli`) | The binary. Parses arguments, builds the real adapters, calls the use cases, formats output, decides the exit code. The only crate that uses `anyhow` and `println!` |
+
+The four proxy crates follow the same direction as the rest: `tokred-routing`, `tokred-suggest` and `tokred-compress` are pure and depend only on `tokred-core` (they plug into the proxy through the hook pipeline defined there); `tokred-proxy` is the adapter that runs them over HTTP; the binary wires everything and runs it with `tokred proxy start --foreground`. See [proxy](proxy.md).
 
 Inside the binary, terminal I/O goes through a small `Io` seam (interactive flag, input, output) and command output is rendered by pure functions, so prompts and reports are unit-tested without a TTY.
 

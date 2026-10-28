@@ -190,3 +190,34 @@ Checked against Anthropic's Consumer Terms (Section 3, item 7) and the Claude Co
 - The Consumer Terms forbid accessing the Services "through automated or non-human means" except with an API key "or where we otherwise explicitly permit it". They do not mention local proxies or gateways by name.
 - The Claude Code documentation explicitly describes the configuration tokred uses: with only `ANTHROPIC_BASE_URL` set, "a saved claude.ai login remains the active credential" and gateways "must forward the OAuth capability in `anthropic-beta`". **Measuring** subscription traffic through the local proxy is therefore a documented setup.
 - **Rewriting the model** of subscription requests is not addressed by either text. It lowers usage rather than bypassing limits, but it is not explicitly permitted. Decision: routing stays in `observe` by default for every login, and `doctor` says when `enforce` is on with a subscription login, so turning it on is an informed choice of the user.
+
+
+## 2026-10-28 — The proxy asks the upstream for `Accept-Encoding: identity`
+
+- **Context:** the real API gzips its responses when the client allows it, and the proxy has to read `usage` from the response body to measure tokens exactly.
+- **Decision:** the proxy rewrites `Accept-Encoding` to `identity` on the request it sends upstream. It is the only request header it rewrites; every other header is forwarded as it came.
+- **Consequences:** responses arrive uncompressed (a few more bytes between the proxy and the API), so streaming and `usage` can be read as they pass. If an upstream compresses anyway, the response is forwarded unchanged and its usage is not read (fail-open, see the known risks below).
+
+## 2026-10-28 — Wiring of the background proxy
+
+- **Context:** `tokred proxy start` has to leave a proxy running after the command returns, and `proxy stop` and `tokred claude` have to find it and talk to it safely.
+- **Decision:** the background proxy is the same binary, started as `tokred proxy start --foreground` (the user service runs the same command), so there is no second executable to install or keep in sync. State lives in `<data>/proxy/`: `secret` (owner-only, `0600` on Unix), which the admin endpoints (`/__tokred/...`) require, and `pid`. `proxy stop` sends the shutdown request and **waits until the process is gone** (it fails if the proxy did not stop) before clearing the pid file.
+- **Consequences:** `proxy stop && proxy start` is safe to script (`stop` returns only after the proxy stopped answering); a stale pid file is ignored when the proxy does not answer its health endpoint.
+
+## 2026-10-28 — The compression circuit breaker survives a restart
+
+- **Context:** when rewritten requests keep being rejected, the breaker turns compression off. In memory only, a restart would turn it on again and the same failures would repeat.
+- **Decision:** the trip is persisted in the database `meta` table (`compression_tripped_at`). While it is set, the proxy starts with compression in `observe` even if `tokred.toml` says `enforce`; `tokred compression on` clears it.
+- **Consequences:** a restart (or a reboot with the user service) never silently re-enables a feature that was failing; `tokred compression status` shows that the breaker tripped.
+
+## 2026-10-28 — `tokred compression on|off` edits Claude Code's user config only when run
+
+- **Context:** reversible compression needs the `tokred_retrieve` MCP server registered in Claude Code, which means editing its user config (`~/.claude.json`), a file that holds more than tokred's data.
+- **Decision:** only `tokred compression on` (registers the server and sets `[compression] mode = "enforce"`) and `off` (unregisters it and sets `observe`) touch that file, and only when you run them. The previous content is saved next to it as `.tokred.bak` first. `configure`, `tokred claude` and the proxy never edit it.
+- **Consequences:** installing or using the proxy changes nothing in Claude Code's configuration; turning compression on is an explicit, reversible step.
+
+## 2026-10-28 — Known risks of the proxy
+
+- **Compaction looks like a simple prompt.** Compaction requests carry no distinguishing header in the Claude Code version we tested, so one could be misread as a simple prompt and feed a cheaper-model suggestion. Suggestions only advise (the main loop's model is never changed), and `routing.compaction` stays `keep` by default, so the cost of a wrong reading is a wrong suggestion.
+- **Usage not read when the upstream compresses anyway.** If a response arrives compressed despite `Accept-Encoding: identity`, it is forwarded unchanged and that request's usage is simply not recorded (fail-open: Claude Code is never affected, the measurement has a gap).
+- **Routing stays `observe` by default** on every login, subscription logins included, because Anthropic's terms do not address rewriting the model of subscription requests (see the decision on subscription traffic above). Turning `enforce` on is the user's informed choice, and `doctor` says when it is on with a subscription login.

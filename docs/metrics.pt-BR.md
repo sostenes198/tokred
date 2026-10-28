@@ -48,6 +48,10 @@ Os hooks rodam de forma síncrona antes de o Claude Code continuar, então `tokr
 - O tempo de spawn do processo não é visível por dentro do binário, então `tokred doctor --bench` o mede de fora, e esse valor é somado a **cada** execução, marcado como `estimate: true`.
 - Um auxiliar de trade-off coloca o total de ms adicionados ao lado dos tokens evitados (estimados) pelos guards e da economia total (roteamento + guards) do mesmo período.
 
+## Com o proxy
+
+O `stats`, o `stats latency` e o relatório HTML continuam lendo seus números dos transcripts e dos hooks, como descrito acima. Quando o [proxy](proxy.pt-BR.md) opcional está rodando, ele registra no banco seus próprios dados, exatos, por requisição: modelo pedido e modelo efetivo, tokens (incluindo gravações de cache de 1 hora), tempo até o primeiro byte e tempo total, a provável causa de um cache miss do prompt e o tempo que o próprio proxy acrescentou (o overhead, com orçamento de p95 abaixo de 10 ms). Hoje esses dados aparecem em `tokred routing status` (decisões recentes de roteamento com a economia estimada), `tokred proxy status` e `tokred suggest` (sugestões para o loop principal); mostrar os números por requisição e o overhead no `stats` e no relatório HTML está especificado na [spec](spec.pt-BR.md) e ainda não foi feito.
+
 ## Spans e intervalos
 
 `parse_span` aceita `<n>h`, `<n>d` ou `<n>w` (n >= 1: `12h`, `7d`, `2w`, `30d`). Um span vira o intervalo semiaberto `[now - span, now + 1)`, ou seja, até o segundo atual inclusive. Passe ao `compute_stats` as linhas de `earliest_usage()` até `now`, e não só o intervalo, ou a projeção e o antes/depois ficarão errados.

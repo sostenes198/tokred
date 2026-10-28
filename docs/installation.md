@@ -25,6 +25,17 @@ Releases are built by [`dist`](https://opensource.axo.dev/cargo-dist/) for macOS
 cargo install --path crates/tokred-cli
 ```
 
+## Optional: the local proxy
+
+The [proxy](proxy.md) is optional and off until you use it. Nothing is written to Claude Code's settings unless you run a command that says so.
+
+```sh
+tokred claude                     # start the proxy if needed and run Claude Code through it, for this run only
+tokred proxy service install      # optional: start the proxy at login, as a user service
+```
+
+`tokred compression on` is the only command that edits Claude Code's user config (`~/.claude.json`, with a `.tokred.bak` backup), and only when you run it.
+
 ## Updating
 
 `tokred update` detects how tokred was installed from the executable path and does the right thing:
@@ -45,13 +56,15 @@ Once a day, from CLI commands only (never from a hook), tokred asks GitHub for t
 
 ## Publishing a release (maintainers)
 
-Push a tag `vX.Y.Z`. The generated `release.yml` builds the archives and installers and publishes the Homebrew formula; `publish-package-managers.yml` then updates the Scoop bucket, opens the winget pull request, adds the `tokred configure` caveat to the formula and publishes the crates to crates.io. These repository secrets must exist: `HOMEBREW_TAP_TOKEN`, `SCOOP_BUCKET_TOKEN`, `WINGET_TOKEN`, `CARGO_REGISTRY_TOKEN`. The winget package needs its first manifest submitted by hand once.
+Push a tag `vX.Y.Z`. The generated `release.yml` builds the archives and installers and publishes the Homebrew formula; `publish-package-managers.yml` then updates the Scoop bucket, opens the winget pull request, adds the `tokred configure` caveat to the formula and publishes the crates to crates.io. These repository secrets must exist: `HOMEBREW_TAP_TOKEN`, `SCOOP_BUCKET_TOKEN`, `WINGET_TOKEN`, `CARGO_REGISTRY_TOKEN`. The winget package needs its first manifest submitted by hand once. Step by step: [release](release.md).
 
 ## Uninstalling
 
 ```sh
-tokred unconfigure --purge   # removes hooks, agents and the data folder
-brew uninstall tokred        # or: winget uninstall tokred / scoop uninstall tokred / cargo uninstall tokred
+tokred proxy service uninstall   # only if you installed the proxy service
+tokred compression off            # only if you turned compression on
+tokred unconfigure --purge        # removes hooks, agents and the data folder
+brew uninstall tokred             # or: winget uninstall tokred / scoop uninstall tokred / cargo uninstall tokred
 ```
 
 `tokred unconfigure` removes only what tokred added to the Claude Code folder. The binary itself is removed by the package manager.

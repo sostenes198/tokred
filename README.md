@@ -13,7 +13,7 @@ tokred is a local, cross-platform CLI written in Rust that lowers the cost and t
 
 Everything runs on your machine, with its own SQLite database and no external service. It is designed to run next to [rtk](https://github.com/rtk-ai/rtk) (rust token killer), which compresses command output; tokred takes care of the rest. The two coexist: rtk owns the `Bash` matcher, tokred never registers one.
 
-> **Status:** phases F0 to F5 are implemented: configure/unconfigure/doctor, the six hooks, metrics, pricing, audit, update and the release pipeline (see [the spec](docs/spec.md) and [the changelog](CHANGELOG.md)). The next step is a local proxy with a model policy; the [final spec](docs/spec.md) says what is done, what changes and what is still needed.
+> **Status:** phases F0 to F5 are implemented: configure/unconfigure/doctor, the six hooks, metrics, pricing, audit, update and the release pipeline (see [the spec](docs/spec.md) and [the changelog](CHANGELOG.md)). An optional local proxy is also implemented, as an additive layer (measurement, routing of subagent and auxiliary requests, advice for the main loop, reversible compression): see [proxy](docs/proxy.md) and [routing](docs/routing.md). The [final spec](docs/spec.md) says what is done and what is still needed.
 
 ## Features
 
@@ -21,6 +21,7 @@ Everything runs on your machine, with its own SQLite database and no external se
 - **Model-routed subagents:** six subagents with a fixed model and a short return format → [agents](docs/agents.md)
 - **Hooks that never get in the way:** fail-open, `off | warn | enforce` modes; they route work to the right model and block useless reads → [hooks](docs/hooks.md)
 - **Numbers in your terminal:** `tokred stats` shows tokens, cost, savings, projection and the latency tokred adds, as a colored dashboard; `tokred metrics` also writes an offline HTML report → [metrics](docs/metrics.md)
+- **Optional local proxy:** sits between Claude Code and the API to measure every request exactly, route subagent and auxiliary requests to a cheaper model, advise you about the main loop and keep large tool results out of the context without losing them. Off until you run `tokred claude`; the main loop's model is never changed → [proxy](docs/proxy.md), [routing](docs/routing.md)
 - **Audit:** how heavy your fixed context is and which MCP servers you never use → [commands](docs/commands.md)
 - **Local store:** SQLite with versioned migrations and a tiered cache → [cache](docs/cache.md)
 
@@ -58,6 +59,10 @@ tokred metrics      # the same, plus the HTML report
 | `tokred audit [--project <path>]` | Weight of the fixed context and unused MCP servers |
 | `tokred update` | Update according to how tokred was installed |
 | `tokred pricing sync\|show`, `tokred cache stats\|prune` | Price table and cache |
+| `tokred claude [args...]` | Run Claude Code through the optional proxy, for this run only |
+| `tokred proxy start\|stop\|status`, `tokred proxy service install\|uninstall` | Run and inspect the proxy; start it at login |
+| `tokred routing status\|on\|off\|explain`, `tokred compression on\|off\|status` | Model routing and reversible compression (both `observe` by default) |
+| `tokred suggest`, `tokred statusline` | Cheaper-model suggestions for the main loop |
 
 Full reference in [commands](docs/commands.md).
 
@@ -71,7 +76,7 @@ A single `tokred.toml` in the data folder, merged (never replaced) on update. Se
 
 ## Privacy
 
-Everything stays on your machine. The only network calls (the daily price sync and version check, and `update`) are made from CLI commands, never from hooks, and can be turned off: `[pricing] auto_sync = false`, `[update] mode = "off"`, `TOKRED_NO_UPDATE_CHECK=1`, or `TOKRED_OFFLINE=1` for all of them.
+Everything stays on your machine. The only network calls (the daily price sync and version check, and `update`) are made from CLI commands, never from hooks, and can be turned off: `[pricing] auto_sync = false`, `[update] mode = "off"`, `TOKRED_NO_UPDATE_CHECK=1`, or `TOKRED_OFFLINE=1` for all of them. The optional proxy listens on `127.0.0.1` only, never logs credentials or message contents, and forwards requests only to the Anthropic API.
 
 ## Uninstall
 
@@ -82,7 +87,7 @@ brew uninstall tokred        # or: winget uninstall tokred / scoop uninstall tok
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). To run and test it locally, see [testing](docs/testing.md); to publish a release (Homebrew, Scoop, winget, crates.io), see [release](docs/release.md).
 
 ## License
 

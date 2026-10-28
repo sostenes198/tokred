@@ -16,7 +16,15 @@ Todo comando que imprime um relatório aceita `--json` para saída legível por 
 | `tokred audit` | Peso do contexto fixo e MCPs sem uso |
 | `tokred pricing sync` / `show` | Atualiza ou mostra a tabela de preços |
 | `tokred cache stats` / `prune` | Estado do cache em camadas; remove expirados |
+| `tokred proxy start` / `stop` / `status` | Executa e inspeciona o [proxy local](proxy.pt-BR.md) opcional |
+| `tokred proxy service install` / `uninstall` | Inicia o proxy no login, como serviço de usuário |
+| `tokred claude [args...]` | Executa o Claude Code pelo proxy, só nesta execução |
+| `tokred routing status` / `on` / `off` / `explain` | [Roteamento de modelo](routing.pt-BR.md) de requisições de subagentes e auxiliares |
+| `tokred compression on` / `off` / `status` | Compressão reversível de resultados grandes de ferramentas |
+| `tokred suggest` | Sugestões de modelo mais barato para o loop principal, com a evidência |
+| `tokred statusline` | Uma linha curta para a status line do Claude Code |
 | `tokred hook <evento>` | Interno: chamado pelo Claude Code |
+| `tokred mcp` | Interno: o servidor MCP `tokred_retrieve`, iniciado pelo Claude Code (oculto) |
 
 A pasta do Claude Code pode ser dada com `--claude-dir <path>` em todo comando que precisa dela.
 
@@ -48,7 +56,7 @@ Remove os hooks do tokred do `settings.json` e os arquivos de agente que o tokre
 
 ## `tokred doctor [--claude-dir <path>] [--json] [--bench]`
 
-Mostra a versão do tokred, o path do binário, as pastas do Claude Code e de dados, a versão do schema do banco, o estado da config, a detecção do rtk, uma tabela de hooks (`ok`, `missing`, `outdated`, ou path de binário que não existe mais), uma tabela de agentes (`current`, `outdated`, `edited by you`, `missing`, `.new` pendente) e uma lista de problemas e observações. Com `--bench` também executa cada hook muitas vezes com entrada realista e mede a latência real por fora (do início do processo até o fim); o resultado é salvo e usado pelo `stats latency`.
+Mostra a versão do tokred, o path do binário, as pastas do Claude Code e de dados, a versão do schema do banco, o estado da config, a detecção do rtk, uma tabela de hooks (`ok`, `missing`, `outdated`, ou path de binário que não existe mais), uma tabela de agentes (`current`, `outdated`, `edited by you`, `missing`, `.new` pendente) e uma lista de problemas e observações. Uma seção do proxy mostra se o [proxy](proxy.pt-BR.md) está rodando, seus modos de roteamento e compressão, e se o `ANTHROPIC_BASE_URL` aponta para ele ou para outro gateway. Com `--bench` também executa cada hook muitas vezes com entrada realista e mede a latência real por fora (do início do processo até o fim); o resultado é salvo e usado pelo `stats latency`. `TOKRED_BENCH_RUNS` define as execuções por payload (padrão 50).
 
 ## `tokred stats [--since 7d] [--by model|day|project] [--json]`
 
@@ -74,6 +82,36 @@ Estima (caracteres / 4) o peso do contexto que o Claude Code carrega antes de vo
 
 `stats` mostra entradas e acertos por camada (L1/L2/L3); `prune` remove os expirados. Veja [cache](cache.pt-BR.md).
 
+## `tokred proxy start [--foreground] [--bind <host:porta>]` / `stop` / `status [--json]`
+
+O [proxy local](proxy.pt-BR.md) opcional. `start` o executa em segundo plano (o mesmo binário, `proxy start --foreground`); `--foreground` o mantém no terminal, que é o que o serviço de usuário usa. `--bind` substitui `[proxy] bind` (padrão `127.0.0.1:8787`). `stop` pede que ele encerre e espera até que isso aconteça. `status` mostra se está rodando, se o serviço de usuário está instalado, se o `ANTHROPIC_BASE_URL` deste terminal aponta para ele e os modos de roteamento e compressão.
+
+## `tokred proxy service install` / `uninstall`
+
+Instala o proxy como serviço de usuário que inicia no login (uma unit de usuário do systemd no Linux, um agente do launchd no macOS, uma tarefa de logon no Windows), ou o remove. Nada é instalado a menos que você execute isto.
+
+## `tokred claude [args...]`
+
+Inicia o proxy se ele não estiver rodando e executa o Claude Code por ele, só nesta execução: nada é gravado nas configurações do Claude Code. Todo argumento vai para o `claude` sem alteração e o tokred sai com o código de saída do `claude`. Se o proxy não puder iniciar, ou se o `ANTHROPIC_BASE_URL` já apontar para outro gateway, o Claude Code roda como antes e o tokred explica o motivo no stderr.
+
+## `tokred routing status [--json]` / `on` / `off` / `explain <id>`
+
+`status` mostra o modo, o circuit breaker e as decisões recentes. `on` define `[routing] mode = "enforce"` e `off` define `observe` (ambos editam o `tokred.toml`; reinicie o proxy para aplicar). `explain <id>` diz por que uma decisão foi tomada. O modelo do loop principal nunca é alterado. Veja [roteamento](routing.pt-BR.md).
+
+## `tokred compression on` / `off` / `status`
+
+`on` registra o servidor MCP `tokred_retrieve` na configuração de usuário do Claude Code (`~/.claude.json`, com o conteúdo anterior salvo em `.tokred.bak`) e define `[compression] mode = "enforce"`: resultados grandes de ferramentas são trocados por uma prévia e o modelo lê o original de volta com `tokred_retrieve`. `off` remove o registro do servidor e define `observe` (só mede). `status` mostra o modo, se o servidor está registrado e se o circuit breaker disparou. Nada é editado a menos que você execute `on` ou `off`.
+
+## `tokred suggest [--since 7d] [--json]`
+
+As sugestões para o loop principal: quantos prompts o proxy acompanhou, quantos eram simples e as últimas sugestões de um modelo mais barato. Só aconselha; trocar é sempre decisão sua (`/model`). Precisa do proxy.
+
+## `tokred statusline`
+
+Lê o JSON da status line do Claude Code no stdin e imprime uma linha curta (a sugestão pendente e alguns números da sessão). Configure-o como comando da status line se quiser.
+
 ## `tokred hook <evento>` (interno)
 
 Chamado pelo Claude Code, nunca à mão (exceto para testes, veja [desenvolvimento](development.pt-BR.md)). Lê JSON do stdin e escreve JSON no stdout. Eventos: `route`, `enforce`, `guard-read`, `guard-search`, `session-check`, `session-start`. **Sempre sai com código 0**, mesmo para evento desconhecido ou entrada inválida. Veja [hooks](hooks.pt-BR.md).
+
+O `tokred mcp` também é interno (oculto no `--help`): o servidor MCP com a ferramenta `tokred_retrieve` que o Claude Code inicia quando a compressão está ligada.

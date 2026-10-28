@@ -66,6 +66,8 @@ tokred: implementation task -> delegate to the tokred-dev subagent if it involve
 
 The class of a prompt is cached by the blake3 hash of the prompt, so repeating a prompt is a cache hit. Every run records a `route` event whose `decision` is the class (`architecture`, `planning`, `implementation`, `review`, `search`, `summary`, `other`). The `classifications` table only stores actionable classes, so an "ok, go ahead" between two implementation prompts does not make the suggestion repeat. `route` cannot deny: `enforce` mode behaves like `warn`.
 
+With the [proxy](proxy.md) running and `[suggest] channel = "message"`, `route` can also show the user a one-line `systemMessage`: a cheaper model for the main loop would have done, because the recent prompts were simple. It is shown once, only at a safe moment (the prompt cache is already cold, or nothing ran since the last `/compact`), never reaches the model's context, and **never changes the model**. It needs the prompts the proxy recorded; without them there is nothing to show. Any failure here is ignored and the rest of the answer is unaffected.
+
 ### `enforce`
 
 For the subagent tool, compares the chosen `subagent_type` with the session's last classification. Agents that are not tokred's are always allowed, as is a session with nothing classified. Architecture and planning accept either opus agent. On a mismatch, `warn` adds a short advisory and `enforce` denies, naming the right agent. Only the main conversation is checked (hooks with an `agent_id` are skipped).

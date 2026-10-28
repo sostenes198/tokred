@@ -190,3 +190,34 @@ Conferido nos Termos do Consumidor da Anthropic (seção 3, item 7) e na documen
 - Os Termos do Consumidor proíbem acessar os Serviços "through automated or non-human means", exceto com chave de API "or where we otherwise explicitly permit it". Não citam proxies locais nem gateways.
 - A documentação do Claude Code descreve explicitamente a configuração que o tokred usa: só com `ANTHROPIC_BASE_URL`, "a saved claude.ai login remains the active credential" e os gateways "must forward the OAuth capability in `anthropic-beta`". **Medir** o tráfego de assinatura pelo proxy local é, portanto, uma configuração documentada.
 - **Reescrever o modelo** de requisições de assinatura não é tratado em nenhum dos dois textos. Reduz o uso em vez de contornar limites, mas não é permitido explicitamente. Decisão: o roteamento fica em `observe` por padrão em qualquer login, e o `doctor` avisa quando o `enforce` estiver ligado com login de assinatura, para que ligá-lo seja uma escolha informada do usuário.
+
+
+## 2026-10-28 — O proxy pede `Accept-Encoding: identity` ao upstream
+
+- **Contexto:** a API real comprime (gzip) as respostas quando o cliente permite, e o proxy precisa ler o `usage` do corpo da resposta para medir os tokens com exatidão.
+- **Decisão:** o proxy reescreve o `Accept-Encoding` para `identity` na requisição que envia ao upstream. É o único cabeçalho de requisição que ele reescreve; todos os outros seguem como vieram.
+- **Consequências:** as respostas chegam sem compressão (alguns bytes a mais entre o proxy e a API), então o streaming e o `usage` podem ser lidos enquanto passam. Se um upstream comprimir mesmo assim, a resposta é encaminhada sem alteração e o uso dela não é lido (fail-open, veja os riscos conhecidos abaixo).
+
+## 2026-10-28 — Como o proxy em segundo plano é ligado
+
+- **Contexto:** o `tokred proxy start` precisa deixar um proxy rodando depois que o comando retorna, e o `proxy stop` e o `tokred claude` precisam encontrá-lo e falar com ele com segurança.
+- **Decisão:** o proxy em segundo plano é o mesmo binário, iniciado como `tokred proxy start --foreground` (o serviço de usuário executa o mesmo comando), então não há um segundo executável para instalar nem manter em sincronia. O estado fica em `<dados>/proxy/`: `secret` (só do dono, `0600` em Unix), exigido pelos endpoints de administração (`/__tokred/...`), e `pid`. O `proxy stop` envia o pedido de encerramento e **espera até o processo sumir** (falha se o proxy não parou) antes de apagar o arquivo de pid.
+- **Consequências:** `proxy stop && proxy start` é seguro em scripts (o `stop` só retorna depois que o proxy parou de responder); um arquivo de pid velho é ignorado quando o proxy não responde ao endpoint de saúde.
+
+## 2026-10-28 — O circuit breaker da compressão sobrevive a uma reinicialização
+
+- **Contexto:** quando requisições reescritas continuam sendo rejeitadas, o breaker desliga a compressão. Só em memória, uma reinicialização a ligaria de novo e as mesmas falhas se repetiriam.
+- **Decisão:** o disparo é gravado na tabela `meta` do banco (`compression_tripped_at`). Enquanto ele existir, o proxy inicia com a compressão em `observe` mesmo que o `tokred.toml` diga `enforce`; o `tokred compression on` o apaga.
+- **Consequências:** uma reinicialização (ou um boot com o serviço de usuário) nunca religa em silêncio um recurso que estava falhando; o `tokred compression status` mostra que o breaker disparou.
+
+## 2026-10-28 — `tokred compression on|off` só edita a configuração do Claude Code quando executado
+
+- **Contexto:** a compressão reversível precisa do servidor MCP `tokred_retrieve` registrado no Claude Code, o que significa editar a configuração de usuário dele (`~/.claude.json`), um arquivo que guarda mais do que dados do tokred.
+- **Decisão:** só o `tokred compression on` (registra o servidor e define `[compression] mode = "enforce"`) e o `off` (remove o registro e define `observe`) tocam nesse arquivo, e só quando você os executa. O conteúdo anterior é salvo antes ao lado dele como `.tokred.bak`. O `configure`, o `tokred claude` e o proxy nunca o editam.
+- **Consequências:** instalar ou usar o proxy não muda nada na configuração do Claude Code; ligar a compressão é um passo explícito e reversível.
+
+## 2026-10-28 — Riscos conhecidos do proxy
+
+- **Compactação parece um prompt simples.** Requisições de compactação não trazem cabeçalho que as distinga na versão do Claude Code testada, então uma delas pode ser lida como prompt simples e alimentar uma sugestão de modelo mais barato. As sugestões só aconselham (o modelo do loop principal nunca é alterado) e `routing.compaction` fica em `keep` por padrão, então o custo de uma leitura errada é uma sugestão errada.
+- **Uso não lido quando o upstream comprime mesmo assim.** Se uma resposta chegar comprimida apesar do `Accept-Encoding: identity`, ela é encaminhada sem alteração e o uso daquela requisição simplesmente não é registrado (fail-open: o Claude Code nunca é afetado, a medição fica com uma lacuna).
+- **O roteamento fica em `observe` por padrão** em qualquer login, inclusive de assinatura, porque os termos da Anthropic não tratam da reescrita do modelo de requisições de assinatura (veja a decisão sobre tráfego de assinatura acima). Ligar o `enforce` é uma escolha informada do usuário, e o `doctor` avisa quando ele está ligado com login de assinatura.

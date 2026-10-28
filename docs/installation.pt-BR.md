@@ -25,6 +25,17 @@ As releases são construídas pelo [`dist`](https://opensource.axo.dev/cargo-dis
 cargo install --path crates/tokred-cli
 ```
 
+## Opcional: o proxy local
+
+O [proxy](proxy.pt-BR.md) é opcional e fica desligado até você usá-lo. Nada é gravado nas configurações do Claude Code a menos que você execute um comando que diga isso.
+
+```sh
+tokred claude                     # inicia o proxy se preciso e executa o Claude Code por ele, só nesta execução
+tokred proxy service install      # opcional: inicia o proxy no login, como serviço de usuário
+```
+
+`tokred compression on` é o único comando que edita a configuração de usuário do Claude Code (`~/.claude.json`, com backup em `.tokred.bak`), e só quando você o executa.
+
 ## Atualização
 
 O `tokred update` detecta como o tokred foi instalado pelo path do executável e faz a coisa certa:
@@ -45,13 +56,15 @@ Uma vez por dia, só a partir de comandos da CLI (nunca de um hook), o tokred co
 
 ## Publicando uma release (mantenedores)
 
-Envie uma tag `vX.Y.Z`. O `release.yml` gerado constrói os arquivos e instaladores e publica a fórmula do Homebrew; depois o `publish-package-managers.yml` atualiza o bucket do Scoop, abre o pull request do winget, adiciona o aviso de `tokred configure` à fórmula e publica os crates no crates.io. Estes secrets precisam existir no repositório: `HOMEBREW_TAP_TOKEN`, `SCOOP_BUCKET_TOKEN`, `WINGET_TOKEN`, `CARGO_REGISTRY_TOKEN`. O pacote do winget precisa ter o primeiro manifest enviado à mão uma vez.
+Envie uma tag `vX.Y.Z`. O `release.yml` gerado constrói os arquivos e instaladores e publica a fórmula do Homebrew; depois o `publish-package-managers.yml` atualiza o bucket do Scoop, abre o pull request do winget, adiciona o aviso de `tokred configure` à fórmula e publica os crates no crates.io. Estes secrets precisam existir no repositório: `HOMEBREW_TAP_TOKEN`, `SCOOP_BUCKET_TOKEN`, `WINGET_TOKEN`, `CARGO_REGISTRY_TOKEN`. O pacote do winget precisa ter o primeiro manifest enviado à mão uma vez. Passo a passo: [release](release.pt-BR.md).
 
 ## Desinstalação
 
 ```sh
-tokred unconfigure --purge   # remove hooks, agentes e a pasta de dados
-brew uninstall tokred        # ou: winget uninstall tokred / scoop uninstall tokred / cargo uninstall tokred
+tokred proxy service uninstall   # só se você instalou o serviço do proxy
+tokred compression off            # só se você ligou a compressão
+tokred unconfigure --purge        # remove hooks, agentes e a pasta de dados
+brew uninstall tokred             # ou: winget uninstall tokred / scoop uninstall tokred / cargo uninstall tokred
 ```
 
 O `tokred unconfigure` remove só o que o tokred adicionou à pasta do Claude Code. O binário em si é removido pelo gerenciador de pacotes.

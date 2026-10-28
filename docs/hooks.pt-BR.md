@@ -66,6 +66,8 @@ tokred: implementation task -> delegate to the tokred-dev subagent if it involve
 
 A classe de um prompt é guardada em cache pelo blake3 do prompt, então repetir um prompt é um acerto de cache. Toda execução registra um evento `route` cujo `decision` é a classe (`architecture`, `planning`, `implementation`, `review`, `search`, `summary`, `other`). A tabela `classifications` só guarda classes acionáveis, então um "ok, pode seguir" entre dois prompts de implementação não faz a sugestão se repetir. O `route` não pode negar: o modo `enforce` se comporta como `warn`.
 
+Com o [proxy](proxy.pt-BR.md) rodando e `[suggest] channel = "message"`, o `route` também pode mostrar ao usuário uma `systemMessage` de uma linha: um modelo mais barato para o loop principal teria dado conta, porque os prompts recentes eram simples. Ela aparece uma vez, só em um momento seguro (o cache de prompt já esfriou, ou nada rodou desde o último `/compact`), nunca chega ao contexto do modelo e **nunca troca o modelo**. Depende dos prompts que o proxy registrou; sem eles não há o que mostrar. Qualquer falha aqui é ignorada e o restante da resposta não é afetado.
+
 ### `enforce`
 
 Para a ferramenta de subagentes, compara o `subagent_type` escolhido com a última classificação da sessão. Agentes que não são do tokred são sempre permitidos, assim como uma sessão sem nada classificado. Arquitetura e planejamento aceitam qualquer um dos dois agentes opus. Em caso de divergência, `warn` adiciona um aviso curto e `enforce` nega, nomeando o agente certo. Só a conversa principal é verificada (hooks com `agent_id` são ignorados).

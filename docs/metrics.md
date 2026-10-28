@@ -48,6 +48,10 @@ Hooks run synchronously before Claude Code continues, so `tokred stats latency` 
 - Process spawn time is not visible from inside the binary, so `tokred doctor --bench` measures it from outside, and that value is added to **every** run, flagged `estimate: true`.
 - A trade-off helper puts the total ms added next to the estimated tokens avoided by guards and the total saving (routing + guards) of the same period.
 
+## With the proxy
+
+`stats`, `stats latency` and the HTML report still read their numbers from the transcripts and hooks, as described above. When the optional [proxy](proxy.md) runs, it records its own, exact data per request in the database: requested and effective model, tokens (including 1-hour cache writes), time to first byte and total time, the likely cause of a prompt-cache miss, and the time the proxy itself added (its overhead, budgeted at p95 under 10 ms). Today that data is shown through `tokred routing status` (recent routing decisions with their estimated saving), `tokred proxy status` and `tokred suggest` (suggestions for the main loop); showing the per-request figures and the overhead in `stats` and the HTML report is specified in the [spec](spec.md) and not done yet.
+
 ## Spans and ranges
 
 `parse_span` accepts `<n>h`, `<n>d` or `<n>w` (n >= 1: `12h`, `7d`, `2w`, `30d`). A span turns into the half-open range `[now - span, now + 1)`, i.e. up to and including the current second. Feed `compute_stats` the rows from `earliest_usage()` to `now`, not only the range, or the projection and before/after will be wrong.
