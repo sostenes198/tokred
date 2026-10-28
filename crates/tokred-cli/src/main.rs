@@ -6,6 +6,7 @@
 mod args;
 mod binary;
 mod commands;
+mod daemon;
 mod env;
 mod io;
 mod logging;
@@ -39,11 +40,18 @@ fn main() -> ExitCode {
     let cli = args::Cli::parse();
     match commands::run(cli, &mut io::Io::stdio()) {
         Ok(()) => ExitCode::SUCCESS,
-        Err(err) => {
-            eprintln!("error: {err:#}");
-            ExitCode::FAILURE
-        }
+        Err(err) => exit_code_for(&err),
     }
+}
+
+/// The exit code for a failed command: the child's own code for `tokred claude`, else 1 after
+/// printing the error.
+fn exit_code_for(err: &anyhow::Error) -> ExitCode {
+    if let Some(child) = err.downcast_ref::<commands::ChildExit>() {
+        return ExitCode::from(u8::try_from(child.0).unwrap_or(1));
+    }
+    eprintln!("error: {err:#}");
+    ExitCode::FAILURE
 }
 
 /// Runs `tokred hook <name>`. The *whole* body is inside `catch_unwind` (not just the handler),

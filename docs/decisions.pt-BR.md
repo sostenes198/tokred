@@ -181,3 +181,12 @@ Mesma sonda descartável e Claude Code 2.1.312 da rodada com chave de API, agora
 - **Fable e Mythos** são famílias. O tipo `Family` continua um enum fechado (famílias desconhecidas continuam saindo como "sem preço") em vez do tipo aberto que a spec sugeria: assim o `match` continua exaustivo, e uma família desconhecida já é tratada.
 - **Windows.** Os metadados em cache da varredura foram trocados por uma leitura nova com `std::fs::metadata`, e o CI roda `cargo test --no-fail-fast` para que todo binário de teste com falha apareça, não só o primeiro.
 - **Não feito:** exercitar o pipeline de release com uma tag de teste. Enviar uma tag é uma ação externa (pode publicar no Homebrew, Scoop, winget e crates.io quando os secrets existirem) e precisa do aval explícito do autor.
+
+
+## 2026-10-28 — Tráfego de assinatura pelo proxy: o que dizem os termos
+
+Conferido nos Termos do Consumidor da Anthropic (seção 3, item 7) e na documentação de gateways do Claude Code. É uma leitura do texto publicado, não um parecer jurídico.
+
+- Os Termos do Consumidor proíbem acessar os Serviços "through automated or non-human means", exceto com chave de API "or where we otherwise explicitly permit it". Não citam proxies locais nem gateways.
+- A documentação do Claude Code descreve explicitamente a configuração que o tokred usa: só com `ANTHROPIC_BASE_URL`, "a saved claude.ai login remains the active credential" e os gateways "must forward the OAuth capability in `anthropic-beta`". **Medir** o tráfego de assinatura pelo proxy local é, portanto, uma configuração documentada.
+- **Reescrever o modelo** de requisições de assinatura não é tratado em nenhum dos dois textos. Reduz o uso em vez de contornar limites, mas não é permitido explicitamente. Decisão: o roteamento fica em `observe` por padrão em qualquer login, e o `doctor` avisa quando o `enforce` estiver ligado com login de assinatura, para que ligá-lo seja uma escolha informada do usuário.

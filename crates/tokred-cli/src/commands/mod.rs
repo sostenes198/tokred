@@ -3,12 +3,14 @@
 mod audit;
 mod bench;
 mod cache;
+mod claude;
 mod configure;
 mod data;
 mod doctor;
 mod housekeeping;
 mod metrics;
 mod pricing;
+mod proxy;
 mod report_data;
 mod stats;
 mod unconfigure;
@@ -165,6 +167,50 @@ fn dispatch(
             &SystemOpener::new(),
         ),
         Command::Cache { command } => cache::run(env, io, &command),
+        Command::Proxy { command } => {
+            let exe = exe.context("could not locate the running executable")?;
+            let config = housekeeping::load_config(env);
+            let ctx = proxy::ProxyCtx {
+                env,
+                config: &config,
+                exe,
+                serve_foreground: &|_bind: &str| bail!("the proxy server is not available yet"),
+                run_command: &crate::daemon::run_planned,
+            };
+            proxy::run(io, &ctx, &command)
+        }
+        Command::Claude { args } => {
+            let exe = exe.context("could not locate the running executable")?;
+            let config = housekeeping::load_config(env);
+            let port = crate::daemon::port_of(&config.proxy.bind)?;
+            let claude = claude::find_claude()?;
+            let start = || -> Result<()> {
+                proxy::files(env).secret()?;
+                crate::daemon::spawn_detached(exe, &["proxy", "start", "--foreground"]).map(|_| ())
+            };
+            let launcher = claude::Launcher {
+                port,
+                existing_base_url: std::env::var("ANTHROPIC_BASE_URL").ok(),
+                healthy: &|port| crate::daemon::healthy(port, std::time::Duration::from_secs(1)),
+                start_proxy: &start,
+                wait_healthy: &|port, timeout| {
+                    crate::daemon::wait_until(
+                        timeout,
+                        std::time::Duration::from_millis(100),
+                        &mut || crate::daemon::healthy(port, std::time::Duration::from_secs(1)),
+                    )
+                },
+                run_claude: &|env, args| claude::spawn_inherit(&claude, env, args),
+            };
+            match claude::run(io, &launcher, &args)? {
+                0 => Ok(()),
+                code => Err(ChildExit(code).into()),
+            }
+        }
+        // Wired once the proxy workstreams land.
+        Command::Routing { .. } | Command::Suggest { .. } | Command::Statusline | Command::Mcp => {
+            bail!("this command is not available yet")
+        }
     }
 }
 
@@ -193,6 +239,18 @@ fn spawn(program: &Path, args: &[OsString]) -> Result<()> {
     }
     Ok(())
 }
+
+/// A child program (`claude`) ended with a non-zero exit code; tokred exits with the same code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChildExit(pub i32);
+
+impl std::fmt::Display for ChildExit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "the program exited with code {}", self.0)
+    }
+}
+
+impl std::error::Error for ChildExit {}
 
 /// Wall clock.
 pub struct SystemClock;

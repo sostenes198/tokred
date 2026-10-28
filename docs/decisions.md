@@ -181,3 +181,12 @@ Interactive `claude` (2.1.312, Opus 5.5, API-key login) through the probe, two s
 - **Fable and Mythos** are families. The `Family` type stays a closed enum (unknown families still resolve to "unpriced") rather than the open type the spec suggested: it keeps exhaustive matching, and an unknown family is already handled.
 - **Windows.** The walk's cached metadata was replaced by a fresh `std::fs::metadata` read, and CI runs `cargo test --no-fail-fast` so every failing test binary shows up, not only the first.
 - **Not done:** exercising the release pipeline with a test tag. Pushing a tag is outward-facing (it can publish to Homebrew, Scoop, winget and crates.io once the secrets exist) and needs the author's explicit go-ahead.
+
+
+## 2026-10-28 — Subscription traffic through the proxy: what the terms say
+
+Checked against Anthropic's Consumer Terms (Section 3, item 7) and the Claude Code gateway documentation. This is a reading of the published text, not legal advice.
+
+- The Consumer Terms forbid accessing the Services "through automated or non-human means" except with an API key "or where we otherwise explicitly permit it". They do not mention local proxies or gateways by name.
+- The Claude Code documentation explicitly describes the configuration tokred uses: with only `ANTHROPIC_BASE_URL` set, "a saved claude.ai login remains the active credential" and gateways "must forward the OAuth capability in `anthropic-beta`". **Measuring** subscription traffic through the local proxy is therefore a documented setup.
+- **Rewriting the model** of subscription requests is not addressed by either text. It lowers usage rather than bypassing limits, but it is not explicitly permitted. Decision: routing stays in `observe` by default for every login, and `doctor` says when `enforce` is on with a subscription login, so turning it on is an informed choice of the user.

@@ -46,7 +46,8 @@ impl Switches {
     }
 }
 
-fn load_config(env: &Env) -> Config {
+/// `tokred.toml`, or the defaults when it is missing or invalid.
+pub fn load_config(env: &Env) -> Config {
     StdFileSystem
         .read_to_string(&env.data.config_path())
         .ok()

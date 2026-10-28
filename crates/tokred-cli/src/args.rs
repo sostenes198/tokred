@@ -1,5 +1,6 @@
 //! Command line definition.
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -104,6 +105,63 @@ pub enum CacheCommand {
     Prune,
 }
 
+/// Sub-commands of `tokred proxy`.
+#[derive(Debug, Subcommand)]
+pub enum ProxyCommand {
+    /// Start the local proxy (in the background unless `--foreground`).
+    Start {
+        /// Run in this terminal instead of the background (used by the user service).
+        #[arg(long)]
+        foreground: bool,
+        /// Address to listen on (default: `[proxy] bind`, loopback only).
+        #[arg(long, value_name = "HOST:PORT")]
+        bind: Option<String>,
+    },
+    /// Stop the background proxy.
+    Stop,
+    /// Show whether the proxy is running and what it is doing.
+    Status {
+        /// Machine-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Install or remove the proxy as a user service that starts at login.
+    Service {
+        /// What to do.
+        #[command(subcommand)]
+        command: ServiceCommand,
+    },
+}
+
+/// Sub-commands of `tokred proxy service`.
+#[derive(Debug, Subcommand)]
+pub enum ServiceCommand {
+    /// Install and start the user service.
+    Install,
+    /// Stop and remove the user service.
+    Uninstall,
+}
+
+/// Sub-commands of `tokred routing`.
+#[derive(Debug, Subcommand)]
+pub enum RoutingCommand {
+    /// Mode, circuit breaker and recent decisions.
+    Status {
+        /// Machine-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Let routing change the model of subagent and auxiliary requests (`enforce`).
+    On,
+    /// Stop changing models; keep recording what routing would do (`observe`).
+    Off,
+    /// Explain one decision.
+    Explain {
+        /// The decision id (from `tokred routing status`).
+        id: String,
+    },
+}
+
 /// Top-level commands.
 #[derive(Debug, Subcommand)]
 pub enum Command {
@@ -195,6 +253,38 @@ pub enum Command {
         #[command(subcommand)]
         command: CacheCommand,
     },
+    /// Run and manage the local proxy between Claude Code and the Anthropic API.
+    Proxy {
+        /// What to do.
+        #[command(subcommand)]
+        command: ProxyCommand,
+    },
+    /// Start Claude Code through the local proxy, for this run only.
+    Claude {
+        /// Arguments passed to `claude` unchanged.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Model routing for subagents and auxiliary requests (the main loop is never changed).
+    Routing {
+        /// What to do.
+        #[command(subcommand)]
+        command: RoutingCommand,
+    },
+    /// Cheaper-model suggestions for the main loop, with the evidence.
+    Suggest {
+        /// How far back to look (`12h`, `7d`, `2w`, `30d`).
+        #[arg(long, default_value = "7d")]
+        since: String,
+        /// Machine-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// One short line for Claude Code's status line (reads the status-line JSON on stdin).
+    Statusline,
+    /// Internal: MCP server with the `tokred_retrieve` tool, started by Claude Code.
+    #[command(hide = true)]
+    Mcp,
 }
 
 #[cfg(test)]
@@ -276,6 +366,94 @@ mod tests {
                 command: CacheCommand::Stats { json: false }
             }
         ));
+    }
+
+    #[test]
+    fn the_proxy_commands_parse() {
+        assert!(matches!(
+            parse(&["proxy", "start", "--foreground", "--bind", "127.0.0.1:9000"]),
+            Command::Proxy {
+                command: ProxyCommand::Start { foreground: true, bind: Some(ref b) }
+            } if b == "127.0.0.1:9000"
+        ));
+        assert!(matches!(
+            parse(&["proxy", "start"]),
+            Command::Proxy {
+                command: ProxyCommand::Start {
+                    foreground: false,
+                    bind: None
+                }
+            }
+        ));
+        assert!(matches!(
+            parse(&["proxy", "stop"]),
+            Command::Proxy {
+                command: ProxyCommand::Stop
+            }
+        ));
+        assert!(matches!(
+            parse(&["proxy", "status", "--json"]),
+            Command::Proxy {
+                command: ProxyCommand::Status { json: true }
+            }
+        ));
+        assert!(matches!(
+            parse(&["proxy", "service", "install"]),
+            Command::Proxy {
+                command: ProxyCommand::Service {
+                    command: ServiceCommand::Install
+                }
+            }
+        ));
+        assert!(matches!(
+            parse(&["proxy", "service", "uninstall"]),
+            Command::Proxy {
+                command: ProxyCommand::Service {
+                    command: ServiceCommand::Uninstall
+                }
+            }
+        ));
+    }
+
+    #[test]
+    fn claude_passes_every_argument_through() {
+        let Command::Claude { args } = parse(&["claude", "--model", "opus", "-p", "hi"]) else {
+            unreachable!("parsed as something else")
+        };
+        assert_eq!(args, ["--model", "opus", "-p", "hi"]);
+        assert!(matches!(parse(&["claude"]), Command::Claude { ref args } if args.is_empty()));
+    }
+
+    #[test]
+    fn routing_suggest_statusline_and_mcp_parse() {
+        assert!(matches!(
+            parse(&["routing", "status", "--json"]),
+            Command::Routing {
+                command: RoutingCommand::Status { json: true }
+            }
+        ));
+        assert!(matches!(
+            parse(&["routing", "on"]),
+            Command::Routing {
+                command: RoutingCommand::On
+            }
+        ));
+        assert!(matches!(
+            parse(&["routing", "off"]),
+            Command::Routing {
+                command: RoutingCommand::Off
+            }
+        ));
+        assert!(matches!(
+            parse(&["routing", "explain", "d1"]),
+            Command::Routing { command: RoutingCommand::Explain { ref id } } if id == "d1"
+        ));
+        assert!(matches!(
+            parse(&["suggest"]),
+            Command::Suggest { ref since, json: false } if since == "7d"
+        ));
+        assert!(matches!(parse(&["statusline"]), Command::Statusline));
+        assert!(matches!(parse(&["mcp"]), Command::Mcp));
     }
 
     #[test]
