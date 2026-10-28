@@ -8,6 +8,7 @@ edition = "2024"
 rust-version = "1.89"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/sostenes198/tokred"
+homepage = "https://github.com/sostenes198/tokred"
 authors = ["Sóstenes Souza"]
 
 [workspace.dependencies]
@@ -74,3 +75,8 @@ missing_errors_doc = "allow"
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

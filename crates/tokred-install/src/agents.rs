@@ -17,7 +17,7 @@ macro_rules! template {
     ($name:literal) => {
         AgentTemplate {
             file_name: concat!($name, ".md"),
-            content: include_str!(concat!("../../../templates/agents/", $name, ".md")),
+            content: include_str!(concat!("../templates/", $name, ".md")),
         }
     };
 }

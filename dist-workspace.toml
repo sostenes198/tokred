@@ -1,0 +1,36 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist' (https://opensource.axo.dev/cargo-dist/)
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.32.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "powershell", "homebrew"]
+# A GitHub repo to push Homebrew formulas to
+tap = "sostenes198/homebrew-tap"
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = [
+  "aarch64-apple-darwin",
+  "x86_64-apple-darwin",
+  "aarch64-unknown-linux-musl",
+  "x86_64-unknown-linux-musl",
+  "aarch64-pc-windows-msvc",
+  "x86_64-pc-windows-msvc",
+]
+# Publish jobs to run in CI: the Homebrew tap, then our own package-manager job
+publish-jobs = ["homebrew", "./publish-package-managers"]
+# Archive formats (`tokred self-update` downloads these and verifies the `.sha256` sidecar)
+unix-archive = ".tar.gz"
+windows-archive = ".zip"
+checksum = "sha256"
+# Where the shell and PowerShell installers put the binary
+install-path = "CARGO_HOME"
+# What the installers print when they finish: installing never touches Claude Code
+install-success-msg = 'Run "tokred configure" to set up the Claude Code integration.'
+# Whether to install an updater program
+install-updater = false
+# Run only the plan step on pull requests
+pr-run-mode = "plan"
