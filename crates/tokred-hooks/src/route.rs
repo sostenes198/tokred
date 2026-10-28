@@ -1,5 +1,6 @@
 //! `route` (`UserPromptSubmit`) and `enforce` (`PreToolUse` on the subagent tool).
 
+use tokred_core::cache::{TierPolicy, cache_get, cache_put, content_key};
 use tokred_core::config::Mode;
 use tokred_core::hook_event::{decision, reason};
 use tokred_core::session::{Classification, TaskClass};
@@ -25,7 +26,7 @@ pub fn route(input: &HookInput, deps: &HookDeps<'_>) -> Result<HookResponse, Hoo
         return Ok(HookResponse::silent());
     }
 
-    let class = classify(prompt, &Rules::default());
+    let class = cached_class(prompt, deps)?;
     let previous = deps.classes.last_classification(session)?.map(|c| c.class);
     let changed = class != TaskClass::Other && previous != Some(class);
     if class != TaskClass::Other {
@@ -104,4 +105,36 @@ pub fn enforce(input: &HookInput, deps: &HookDeps<'_>) -> Result<HookResponse, H
             Some(context("PreToolUse", &message)),
         )
     })
+}
+
+/// Kind of the prompt-classification rows in the cache.
+const CLASSIFICATION_KIND: &str = "classification";
+
+/// Bump when the keyword rules change, so cached classes of older rules are not reused.
+const RULES_VERSION: &str = "v1";
+
+/// The class of a prompt, from the tiered cache when the same prompt was classified before
+/// (the key holds the blake3 hash of the prompt), else classified and cached.
+fn cached_class(prompt: &str, deps: &HookDeps<'_>) -> Result<TaskClass, HookError> {
+    let now = deps.clock.now();
+    let policy = TierPolicy::from_config(&deps.config.cache);
+    let hash = blake3::hash(prompt.as_bytes()).to_hex().to_string();
+    let key = content_key(CLASSIFICATION_KIND, RULES_VERSION, &hash);
+    if let Some(class) = cache_get(deps.cache, &key, now, &policy)?
+        .and_then(|entry| String::from_utf8(entry.value).ok())
+        .and_then(|text| TaskClass::parse(&text))
+    {
+        return Ok(class);
+    }
+    let class = classify(prompt, &Rules::default());
+    let stored = cache_put(
+        deps.cache,
+        &key,
+        CLASSIFICATION_KIND,
+        class.as_str().as_bytes().to_vec(),
+        now,
+        &policy,
+    );
+    stored?;
+    Ok(class)
 }

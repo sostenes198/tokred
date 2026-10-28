@@ -538,3 +538,20 @@ fn guard_search_errors_are_reported_to_the_runtime() {
     env.files.fail_stat.set(true);
     assert!(handle(HookEvent::GuardSearch, payload.as_bytes(), &env.deps()).is_err());
 }
+
+#[test]
+fn reads_with_extra_arguments_such_as_pdf_pages_are_never_compared() {
+    let env = Env::new();
+    env.files.file("/work/proj/doc.pdf", b"%PDF-1.7 pages");
+    for pages in ["1-5", "6-10", "1-5"] {
+        let payload = tool(
+            "s",
+            "Read",
+            json!({"file_path": "/work/proj/doc.pdf", "pages": pages}),
+        );
+        let response = env.run(HookEvent::GuardRead, &payload);
+        assert_eq!(denial(&response), None, "pages {pages}");
+        assert_eq!(note(&response).0, "allow");
+    }
+    assert_eq!(env.files.hash_calls.get(), 0);
+}

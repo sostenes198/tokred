@@ -151,7 +151,17 @@ pub fn guard_read(input: &HookInput, deps: &HookDeps<'_>) -> Result<HookResponse
     }
 
     // 3. Re-read of unchanged content (needs a session, and a file small enough to hash).
-    if session.is_empty() || stat.size > MAX_HASH_BYTES {
+    // Any argument beyond `file_path`, `offset` and `limit` (such as `pages` for PDFs) changes
+    // what the read returns without changing the key, so those reads are never compared.
+    let extra_arguments = input
+        .tool_input
+        .as_ref()
+        .and_then(|v| v.as_object())
+        .is_some_and(|args| {
+            args.keys()
+                .any(|key| !matches!(key.as_str(), "file_path" | "offset" | "limit"))
+        });
+    if session.is_empty() || stat.size > MAX_HASH_BYTES || extra_arguments {
         return Ok(allowed(session));
     }
     let hash = deps.files.hash(Path::new(path))?;

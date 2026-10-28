@@ -47,14 +47,14 @@ tokred never prints `permissionDecision: "allow"`: Claude Code documents that it
 
 1. **Lockfiles and generated files.** `deny_globs` (defaults: `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `Cargo.lock`, `poetry.lock`, `*.min.js`, `*.map`, `dist/`, `build/`, `node_modules/`, `target/`, `.git/`) are matched against the path **relative to the session's `cwd`**, so a project that merely lives under a folder named `build` is not blocked. Invalid globs are ignored.
 2. **Large file.** Above `max_read_bytes` with neither `offset` nor `limit`: denied, asking for a ranged read. Images and PDFs (`png`, `jpg`, `jpeg`, `gif`, `webp`, `bmp`, `pdf`) are exempt: `Read` shows them natively.
-3. **Re-read.** The file's blake3 hash is compared with earlier reads of the same session for the same `path`, `offset` and `limit`; an identical one is denied (the content is already in context). Files above 16 MiB are not hashed (the check is skipped). A `clear` or `compact` (`session-start`) is a cut: only reads **strictly after** the cut count, so a read in the same second is allowed (the fail-open side).
+3. **Re-read.** The file's blake3 hash is compared with earlier reads of the same session for the same `path`, `offset` and `limit`; an identical one is denied (the content is already in context). Files above 16 MiB are not hashed (the check is skipped), and neither are reads with any argument besides `file_path`, `offset` and `limit` (such as `pages` for a PDF), because they return something else for the same key. A `clear` or `compact` (`session-start`) is a cut: only reads **strictly after** the cut count, so a read in the same second is allowed (the fail-open side).
 4. The read and the bytes avoided are recorded (`bytes_saved`; in `warn` mode nothing is avoided, so 0). The size of a ranged read is estimated at 80 bytes per requested line.
 
 Hooks fired inside a **subagent** carry an `agent_id`; their reads are tracked per `session/agent`, because the subagent's context does not contain what its parent read.
 
 ### `guard-search`
 
-A `Grep` without `path`, `glob` or `type`, or a `Glob` whose pattern matches everything (`*`, `**`, `**/*`) and has no `path`, is "broad". Only broad searches count files: the repository root is the nearest ancestor with a `.git` (else the search directory), the files under it are counted (skipping `.git`, `node_modules`, `target`, `dist`, `build`, `.venv`, `__pycache__`, `.next`) up to `large_repo_files + 1`, and the count is kept in the [tiered cache](cache.md) keyed by root, threshold and the root's modification time. Above `large_repo_files` the search is denied (`enforce`) or advised against (`warn`, the default).
+A `Grep` without `path`, `glob` or `type`, or a `Glob` whose pattern matches everything (`*`, `**`, `**/*`) and has no `path`, is "broad". Only broad searches count files: the repository root is the nearest ancestor with a `.git` (else the search directory), the files under it are counted (skipping `.git`, `node_modules`, `target`, `dist`, `build`, `.venv`, `__pycache__`, `.next`) up to `large_repo_files + 1`, and the count is kept in the [tiered cache](cache.md) keyed by root, threshold and the root's modification time (a change at the top level of the repository therefore triggers a re-count). A count that takes longer than 100 ms is abandoned and the search is allowed. Above `large_repo_files` the search is denied (`enforce`) or advised against (`warn`, the default).
 
 ### `route`
 
@@ -64,7 +64,7 @@ A heuristic classifier (no LLM) over pt-BR and English keywords (architecture/de
 tokred: implementation task -> delegate to the tokred-dev subagent if it involves more than one edit.
 ```
 
-Every run records a `route` event whose `decision` is the class (`architecture`, `planning`, `implementation`, `review`, `search`, `summary`, `other`). The `classifications` table only stores actionable classes, so an "ok, go ahead" between two implementation prompts does not make the suggestion repeat. `route` cannot deny: `enforce` mode behaves like `warn`.
+The class of a prompt is cached by the blake3 hash of the prompt, so repeating a prompt is a cache hit. Every run records a `route` event whose `decision` is the class (`architecture`, `planning`, `implementation`, `review`, `search`, `summary`, `other`). The `classifications` table only stores actionable classes, so an "ok, go ahead" between two implementation prompts does not make the suggestion repeat. `route` cannot deny: `enforce` mode behaves like `warn`.
 
 ### `enforce`
 

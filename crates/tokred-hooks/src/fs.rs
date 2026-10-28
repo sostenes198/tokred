@@ -32,7 +32,7 @@ pub struct StdFileMeta {
 impl Default for StdFileMeta {
     fn default() -> Self {
         Self {
-            count_deadline: Duration::from_millis(30),
+            count_deadline: Duration::from_millis(100),
         }
     }
 }

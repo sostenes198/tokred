@@ -231,3 +231,32 @@ fn an_unclassifiable_stored_class_allows_anything() {
     let response = env.run(HookEvent::Enforce, &agent("s", "tokred-explorer"));
     assert_eq!(note(&response).0, "allow");
 }
+
+#[test]
+fn the_class_of_a_repeated_prompt_comes_from_the_cache() {
+    use tokred_core::cache::{CacheRepo, Tier};
+    let env = Env::new();
+    for _ in 0..3 {
+        env.run(HookEvent::Route, &prompt("s", IMPL));
+    }
+    let entries = env.store.list_entries().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].kind, "classification");
+    assert_eq!(entries[0].value, b"implementation");
+    assert_eq!((entries[0].hits, entries[0].tier), (2, Tier::L1));
+    assert!(
+        entries[0]
+            .key
+            .contains(&blake3::hash(IMPL.as_bytes()).to_hex().to_string())
+    );
+
+    // A corrupt row is reclassified and overwritten.
+    let mut broken = entries[0].clone();
+    broken.value = b"nonsense".to_vec();
+    env.store.put_entry(&broken).unwrap();
+    env.run(HookEvent::Route, &prompt("t", IMPL));
+    assert_eq!(
+        env.store.list_entries().unwrap()[0].value,
+        b"implementation"
+    );
+}
