@@ -249,7 +249,7 @@ Erro ou panic em classificação, decisão ou medição → repassar o corpo ori
 
 - **Padrão: `tokred claude [args…]`.** Verifica `GET /__tokred/health`, inicia o proxy se preciso e abre o Claude Code com `ANTHROPIC_BASE_URL` definido **só naquela execução**. Nada é gravado no `settings.json`.
 - **Opcional: `persist_base_url = true`.** O `configure` grava `env.ANTHROPIC_BASE_URL` pelo merge da seção 5 da v1. Risco: com o proxy parado, o Claude Code inteiro para. Por isso exige o proxy como serviço do usuário (`tokred proxy service install`: systemd user unit, LaunchAgent, tarefa agendada no logon) e o `session-start` tenta subir o proxy. O `configure` explica o risco e pede confirmação. Se já houver `ANTHROPIC_BASE_URL` com outro valor, **não sobrescreve**: mostra e pergunta. O `unconfigure` remove só o valor do tokred.
-- Autenticação: o proxy **não** substitui credenciais. Com chave de API ou assinatura, ele repassa o que recebe (a assinatura exige repassar o valor OAuth de `anthropic-beta`).
+- Autenticação: o proxy **não** substitui credenciais. Com chave de API (`x-api-key`) ou assinatura (`authorization`, verificado no spike F7), ele repassa o que recebe (a assinatura exige repassar o valor OAuth de `anthropic-beta`).
 
 ### 6.4 Medição (por requisição)
 
@@ -448,7 +448,7 @@ Cada fase termina com testes verdes nos 3 SOs, clippy limpo, cobertura mantida e
 
 ### 13.1 Perguntas em aberto (resolver no spike F7)
 
-1. Tráfego de **assinatura** tolera a reescrita do campo `model` (planos têm limites por família)? E é permitido pelos termos? **Pendente** (o spike com chave de API passou; a assinatura não foi testada).
+1. Tráfego de **assinatura** tolera a reescrita do campo `model` (planos têm limites por família)? E é permitido pelos termos? **Respondido tecnicamente (spike F7):** o login por assinatura aceita o `model` reescrito nas requisições de subagente (status 200, resultado correto). **Ainda em aberto:** os termos de uso da Anthropic para tráfego de assinatura por proxy e os limites do plano por modelo.
 2. O Claude Code reage à resposta com `model` diferente do pedido (interface, contabilidade interna)? **Respondido para chave de API:** a API aceitou e o Claude Code não teve problema (spike F7).
 3. Os cabeçalhos `x-claude-code-*` aparecem em todas as superfícies (CLI, extensões)? **Parcial:** no modo `-p` só `session-id` e `agent-id`; falta o modo interativo.
 4. Quais requisições `auxiliary` compartilham o prefixo do cache na prática (medir)?

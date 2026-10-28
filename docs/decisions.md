@@ -151,3 +151,14 @@ Run with a throwaway pass-through proxy (`scripts/spike/`) and the real Claude C
 - **Rewriting the model of subagent requests works.** With the main loop on Sonnet, rewriting only the subagent's requests to Haiku was accepted by the API on all three turns (including tool results being sent back), Claude Code showed no problem with a response from a different model, and the final answer was correct. The main loop's requests were never touched.
 - **Not yet verified:** a claude.ai **subscription** login (this machine has none: `authMethod` is `api_key`); interactive mode (the extra headers may appear there); `auxiliary` requests (none occurred in print mode); compaction; thinking-heavy models across a rewrite. The probe and exact steps to test a subscription without touching a real login are in `scripts/spike/README.md`.
 - **Decision:** the main loop's model is **never** changed, with no configuration option to do so; tokred only advises.
+
+
+## 2026-10-28 — F7 spike, subscription result (claude.ai login): it works
+
+Same throwaway probe and Claude Code 2.1.312 as the API-key run, now on a claude.ai **subscription** login (`authMethod: claude.ai`, `ANTHROPIC_API_KEY` unset), through `ANTHROPIC_BASE_URL` only.
+
+- **Pass-through works on a subscription.** Status 200 with streaming. The credential travels in the `authorization` header (OAuth), not `x-api-key`, and the `oauth-2025-04-20` value of `anthropic-beta` is present, so a proxy must forward `authorization` and the whole `anthropic-beta` header untouched, exactly as the gateway guide says. The subscription request also carried `extended-cache-ttl-2025-04-11` (the 1-hour cache).
+- **Headers are the same as with an API key:** `x-claude-code-session-id` on every request and `x-claude-code-agent-id` on subagent requests only; no `request-class`, `agent-type` or `prompt-id` in `-p` mode.
+- **Rewriting a subagent's model works on a subscription.** With the main loop on Sonnet, rewriting only the subagent's three requests to Haiku was accepted (status 200 each time) and the final answer was correct. The main loop's two requests were never touched.
+- **Not covered, so still open:** Anthropic's usage terms for subscription traffic through a proxy (not verifiable by testing; it must be read and recorded before the proxy is recommended for subscriptions); per-model plan limits (this test only moved Sonnet to Haiku, a cheaper model); interactive mode, `auxiliary` requests and compaction; very long sessions.
+- **Consequence:** the F7 go/no-go is **go** for both login types from a technical point of view. The proxy stays opt-in, and the subscription recommendation depends on the terms-of-use check.

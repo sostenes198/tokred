@@ -2,13 +2,13 @@
 
 Never logs credential values or message contents: only header names, x-claude-code-* values,
 anthropic-beta/version, and structural facts about the body (model, stream, counts) and usage.
-Env: SPIKE_PORT (default 0 = random), SPIKE_REWRITE="from:to" (probe: rewrite the model field).
+Env: SPIKE_LOG (log path), SPIKE_PORT (default 0 = random), SPIKE_REWRITE="from:to" (probe: rewrite the model field).
 """
 import http.client, json, os, ssl, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 UPSTREAM = "api.anthropic.com"
-LOG = "/tmp/tokred-spike/log.jsonl"
+LOG = os.environ.get("SPIKE_LOG", "/tmp/tokred-spike/log.jsonl")
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers",
        "transfer-encoding", "upgrade", "host", "content-length", "accept-encoding"}
 SECRET = {"x-api-key", "authorization", "cookie", "proxy-authorization"}

@@ -249,7 +249,7 @@ An error or panic in classification, decision or measurement → forward the ori
 
 - **Default: `tokred claude [args…]`.** Checks `GET /__tokred/health`, starts the proxy if needed and opens Claude Code with `ANTHROPIC_BASE_URL` set **only for that run**. Nothing is written to `settings.json`.
 - **Optional: `persist_base_url = true`.** `configure` writes `env.ANTHROPIC_BASE_URL` through the merge in section 5 of v1. Risk: with the proxy stopped, all of Claude Code stops. Therefore it requires the proxy as a user service (`tokred proxy service install`: systemd user unit, LaunchAgent, scheduled task at logon) and `session-start` tries to bring the proxy up. `configure` explains the risk and asks for confirmation. If an `ANTHROPIC_BASE_URL` with another value already exists, it **does not overwrite**: it shows it and asks. `unconfigure` removes only the tokred value.
-- Authentication: the proxy does **not** replace credentials. With an API key or a subscription, it forwards what it receives (the subscription requires forwarding the OAuth value of `anthropic-beta`).
+- Authentication: the proxy does **not** replace credentials. With an API key (`x-api-key`) or a subscription (`authorization`, verified in the F7 spike), it forwards what it receives (the subscription requires forwarding the OAuth value of `anthropic-beta`).
 
 ### 6.4 Measurement (per request)
 
@@ -448,7 +448,7 @@ Each phase ends with green tests on all 3 OSes, clean clippy, coverage maintaine
 
 ### 13.1 Open questions (resolve in the F7 spike)
 
-1. Does **subscription** traffic tolerate rewriting the `model` field (plans have per-family limits)? And is it allowed by the terms? **Pending** (the API-key spike passed; a subscription was not tested).
+1. Does **subscription** traffic tolerate rewriting the `model` field (plans have per-family limits)? And is it allowed by the terms? **Technically answered (F7 spike):** a subscription login accepts a rewritten `model` on subagent requests (status 200, correct result). **Still open:** Anthropic's terms of use for subscription traffic through a proxy, and per-model plan limits.
 2. Does Claude Code react to a response with a `model` different from the requested one (interface, internal accounting)? **Answered for an API key:** the API accepted it and Claude Code had no problem (F7 spike).
 3. Do the `x-claude-code-*` headers appear on all surfaces (CLI, extensions)? **Partial:** in `-p` mode only `session-id` and `agent-id`; interactive mode is still to be checked.
 4. Which `auxiliary` requests share the cache prefix in practice (measure)?

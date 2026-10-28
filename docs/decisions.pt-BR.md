@@ -151,3 +151,14 @@ Feito com um proxy de repasse descartável (`scripts/spike/`) e o Claude Code 2.
 - **Reescrever o modelo das requisições de subagente funciona.** Com o loop principal no Sonnet, reescrever só as requisições do subagente para Haiku foi aceito pela API nas três voltas (inclusive com resultados de ferramentas voltando), o Claude Code não mostrou problema com a resposta de outro modelo e a resposta final estava correta. As requisições do loop principal nunca foram tocadas.
 - **Ainda não verificado:** login por **assinatura** claude.ai (esta máquina não tem: o `authMethod` é `api_key`); modo interativo (os outros cabeçalhos podem aparecer lá); requisições `auxiliary` (nenhuma ocorreu no modo `-p`); compactação; modelos com muito thinking em uma reescrita. A sonda e os passos exatos para testar assinatura sem mexer num login real estão em `scripts/spike/README.pt-BR.md`.
 - **Decisão:** o modelo do loop principal **nunca** é trocado, sem nenhuma opção de configuração para isso; o tokred apenas aconselha.
+
+
+## 2026-10-28 — Spike F7, resultado da assinatura (login claude.ai): funciona
+
+Mesma sonda descartável e Claude Code 2.1.312 da rodada com chave de API, agora com login por **assinatura** claude.ai (`authMethod: claude.ai`, `ANTHROPIC_API_KEY` removida), só com `ANTHROPIC_BASE_URL`.
+
+- **O repasse funciona com assinatura.** Status 200 com streaming. A credencial viaja no cabeçalho `authorization` (OAuth), não em `x-api-key`, e o valor `oauth-2025-04-20` do `anthropic-beta` está presente, então o proxy deve repassar o `authorization` e o `anthropic-beta` inteiro sem tocar, exatamente como diz o guia de gateways. A requisição de assinatura também levou `extended-cache-ttl-2025-04-11` (o cache de 1 hora).
+- **Os cabeçalhos são os mesmos da chave de API:** `x-claude-code-session-id` em toda requisição e `x-claude-code-agent-id` só nas de subagentes; sem `request-class`, `agent-type` nem `prompt-id` no modo `-p`.
+- **Reescrever o modelo de um subagente funciona com assinatura.** Com o loop principal no Sonnet, reescrever só as três requisições do subagente para Haiku foi aceito (status 200 em todas) e a resposta final estava correta. As duas requisições do loop principal nunca foram tocadas.
+- **Não coberto, portanto ainda em aberto:** os termos de uso da Anthropic para tráfego de assinatura por proxy (não se verifica testando; precisa ser lido e registrado antes de recomendar o proxy para assinaturas); limites do plano por modelo (este teste só moveu Sonnet para Haiku, um modelo mais barato); modo interativo, requisições `auxiliary` e compactação; sessões muito longas.
+- **Consequência:** o go/no-go da F7 é **go** para os dois tipos de login do ponto de vista técnico. O proxy continua opt-in, e a recomendação para assinaturas depende da verificação dos termos de uso.
