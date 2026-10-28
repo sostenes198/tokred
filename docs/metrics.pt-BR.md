@@ -2,7 +2,7 @@
 
 # Métricas
 
-Os números por trás de `tokred stats`, `tokred stats latency` e do relatório HTML vêm do crate `tokred-metrics`: funções puras sobre dados, mais um adaptador de sistema de arquivos. Esta página descreve o que elas realmente fazem, para que os números signifiquem o que dizem. Veja a [spec](spec.pt-BR.md), seção 10, para o desenho original.
+Os números por trás de `tokred stats`, `tokred stats latency` e do relatório HTML vêm do crate `tokred-metrics`: funções puras sobre dados, mais um adaptador de sistema de arquivos. Esta página descreve o que elas realmente fazem, para que os números signifiquem o que dizem. Veja o [desenho original](archive/spec-v1.pt-BR.md) (seção 10) e a [spec atual](spec.pt-BR.md) para ver como o proxy o estende.
 
 ## Ingestão
 

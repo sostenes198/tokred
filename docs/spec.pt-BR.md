@@ -1,647 +1,462 @@
 [English](spec.md) | **Português**
 
-# tokred — Especificação de implementação
+# tokred — Especificação (v3, final)
 
 **Repositório:** https://github.com/sostenes198/tokred
 
-**Descrição curta (GitHub "About"):** *Token and cost reducer for Claude Code — model routing, context guards and local metrics. Works alongside rtk.*
+**Descrição curta (GitHub "About"):** *Token and cost reducer for Claude Code — local proxy with model policy, context guards and metrics. Works alongside rtk.*
 
-**Descrição:** tokred é uma CLI em Rust, local e multiplataforma, que reduz o custo e o consumo de tokens do Claude Code. Ela instala subagentes com o modelo certo para cada tipo de tarefa (opus para arquitetura e planejamento, sonnet para desenvolvimento, haiku para busca e resumo), hooks que reforçam essa delegação e bloqueiam leituras inúteis de contexto, e um painel de métricas com tokens, custo, economia e latência adicionada. Tudo roda na máquina do usuário, com um SQLite próprio, sem serviço externo. Foi pensada para rodar junto com o rtk (rust token killer), que comprime a saída de comandos; o tokred cuida do resto.
+**Descrição:** tokred é uma CLI em Rust, local e multiplataforma, que reduz o custo e o consumo de tokens do Claude Code. Ela tem duas peças que se complementam: **hooks** que impedem conteúdo inútil de entrar no contexto, e um **proxy local** que fica entre o Claude Code e a API da Anthropic para medir cada requisição com exatidão, escolher o modelo das tarefas auxiliares e dos subagentes, e sugerir ao usuário quando um modelo mais barato bastaria. Tudo roda na máquina do usuário, com um SQLite próprio, sem serviço externo. Roda junto com o rtk (rust token killer), que comprime a saída de comandos.
+
+> **Esta é a versão final da spec.** Ela substitui a v1 e o rascunho v2 (ambos em [`docs/archive/`](archive/)). Ela diz **o que já foi feito**, **o que muda** e **o que falta** para o projeto funcionar como proxy. As partes já implementadas são definidas pelos documentos de `docs/` (seção 2); aqui elas aparecem resumidas.
+
+---
 
 ## 0. Instruções para o Claude Code
 
-- Antes de implementar **cada hook**, consulte a documentação oficial de hooks do Claude Code (https://code.claude.com/docs/en/hooks). Confira o formato de entrada (stdin), o de saída (`hookSpecificOutput`, `permissionDecision`, `additionalContext`, `systemMessage`) e o nome atual da ferramenta de subagentes (`Task` ou `Agent`). **Não assuma nomes de campo de memória.** Onde esta spec diverge da doc, a doc vence: registre a divergência em `docs/DECISIONS.md`.
-- Faça a implementação por fases (seção 12). Ao final de cada fase: testes passando, `cargo clippy -- -D warnings` limpo, e um resumo do que foi feito.
+- Antes de implementar **cada hook**, consulte a documentação oficial de hooks (https://code.claude.com/docs/en/hooks). Antes de implementar **qualquer parte do proxy**, consulte também o guia de compatibilidade de gateways (https://code.claude.com/docs/en/llm-gateway-protocol.md), a página de cache de prompt e a de *preserved thinking* da API. **Não assuma nomes de campo nem de cabeçalho.** Onde esta spec diverge da documentação, a documentação vence: registre a divergência em `docs/decisions.md`.
+- Implemente por fases (seção 12). Ao final de cada fase: testes passando nos 3 SOs, `cargo clippy -- -D warnings` limpo, cobertura de linhas mantida e um resumo do que foi feito.
 - Pergunte antes de qualquer decisão que mude o comportamento descrito aqui.
+- **Nunca faça mais de um `git push` por pedido do usuário** e nunca sem autorização explícita.
 
 ### Regras de idioma
 
-- **Código em inglês:** nomes de pastas, arquivos, crates, módulos, tipos, funções, variáveis, tabelas e colunas do banco, chaves da config, comentários, mensagens de commit e todas as strings exibidas pela CLI e pelos hooks (incluindo o `additionalContext`, os avisos e o HTML de métricas).
-- **Templates dos subagentes em inglês.** As palavras-chave do classificador continuam em pt-BR e en, porque são dados para reconhecer prompts nos dois idiomas.
-- **Documentação sempre nos dois idiomas:** cada documento tem a versão em inglês e a versão em português, com o mesmo conteúdo. Convenção: `README.md` + `README.pt-BR.md`, `docs/<nome>.md` + `docs/<nome>.pt-BR.md`. Isso vale para README, DECISIONS, CHANGELOG, guias e esta spec (salvar esta como `docs/spec.pt-BR.md` e criar a tradução `docs/spec.md`). Ao alterar um, atualizar o outro no mesmo commit.
-- Os exemplos de mensagens nesta spec já estão em inglês; os nomes em português aqui são só explicação.
+- **Código em inglês:** pastas, arquivos, crates, módulos, tipos, funções, variáveis, tabelas e colunas, chaves da config, comentários, mensagens de commit e todas as strings exibidas pela CLI, pelos hooks e pelo proxy.
+- **Documentação sempre nos dois idiomas** (`X.md` + `X.pt-BR.md`, com o mesmo conteúdo), atualizados no mesmo commit. Documentos em `docs/archive/` são exceção (histórico).
+- As palavras-chave do classificador continuam em pt-BR e en (são dados).
 
 ---
 
-## 1. Visão geral
+## 1. Visão e o que mudou desde a v1
 
-tokred é um binário único em Rust, multiplataforma (Windows, Linux e macOS). Ele roda **junto com o rtk** (rust token killer) e reduz custo e consumo de tokens no Claude Code:
+### 1.1 O problema
 
-1. **Roteamento de modelo:** instala subagentes com modelo fixo (opus, sonnet ou haiku) e hooks que sugerem e reforçam a delegação correta.
-2. **Guarda de contexto:** hooks que impedem leituras redundantes ou inúteis (releitura de arquivo sem mudança, lockfiles, arquivos gerados, arquivos enormes sem `offset`/`limit`).
-3. **Auditoria:** mede o peso do contexto fixo (CLAUDE.md, skills, agentes, MCPs configurados × uso).
-4. **Métricas:** lê os transcripts do Claude Code e mostra tokens, custo, economia por roteamento, economia pelas guardas e projeção.
-5. **Store local:** SQLite na pasta do tokred, com cache em camadas (L1/L2/L3) para estado de sessão e artefatos.
+O custo de uma sessão do Claude Code é dominado por **contexto reenviado a cada turno** (lido do cache a 0,1× do preço de input, ou reescrito a 1,25× quando o cache falha) e pelo **modelo** usado em cada requisição. Hooks conseguem impedir que conteúdo inútil entre no contexto, mas **não enxergam a requisição ao modelo**: não sabem exatamente o que foi cobrado, não sabem por que o cache falhou e não decidem qual modelo atende cada chamada.
 
-### Não-objetivos (por enquanto)
+### 1.2 A ideia nova
 
-- **Cache de respostas do LLM / proxy HTTP:** fica fora do MVP. Hooks não interceptam chamadas à API, prompts agênticos quase nunca se repetem byte a byte, e a Anthropic já faz cache de prefixo no servidor. Será reavaliado na fase 7, com base nos dados das métricas.
-- Comprimir saída de comandos Bash: isso é papel do rtk.
-- Redis ou qualquer serviço externo.
+Um **proxy local** (`tokred proxy`) vê cada requisição e cada resposta. Isso dá três coisas que os hooks não dão:
 
----
+1. **Medição exata** (uso por requisição, por tipo de requisição, por subagente, por prompt) e **explicação de cache miss**.
+2. **Política de modelo** para o que o usuário não escolheu diretamente (subagentes herdados, tarefas auxiliares).
+3. **Sugestão fundamentada** de modelo mais barato para o loop principal, sem nunca trocá-lo por conta própria.
 
-## 2. Princípios (inegociáveis)
+### 1.3 O que a documentação oficial estabelece (verificado)
 
-1. **Nunca sobrescrever arquivos do usuário por inteiro.** O tokred só adiciona, atualiza ou remove **as partes dele** (seção 5).
-2. **Idempotência:** rodar `configure` ou `update` N vezes produz o mesmo resultado.
-3. **Fail-open:** se um hook der erro, panic ou timeout, ele **sai com código 0 e sem saída**, e loga o erro em arquivo. O tokred nunca pode travar ou bloquear o Claude Code por bug próprio. Use `std::panic::catch_unwind` no entrypoint dos hooks.
-4. **Latência:** cada execução de hook deve ficar abaixo de ~50 ms (p95). Nada de rede dentro de hook.
-5. **Local e privado:** nenhum dado sai da máquina. As únicas chamadas de rede são a sincronização de preços (seção 9) e a verificação de versão (seção 14), feitas só a partir de comandos da CLI, nunca em hooks.
-6. **Contexto injetado mínimo:** qualquer `additionalContext` tem no máximo uma ou duas linhas, e só é emitido quando muda algo.
+Estes fatos moldam a spec inteira; foram lidos nas páginas oficiais da Claude Code e da API:
 
----
+1. **O Claude Code identifica cada requisição para gateways.** Cabeçalhos `x-claude-code-request-class` (`main`, `subagent`, `workflow`, `compaction`, `auxiliary`), `x-claude-code-session-id`, `x-claude-code-agent-id`, `x-claude-code-parent-agent-id`, `x-claude-code-agent-type` (`Explore`, `Plan`, `general-purpose`, `custom`, `teammate`, `fork`), `x-claude-code-prompt-id`, `x-claude-code-compaction`, `x-claude-code-context-compacted` e `x-claude-code-prev-tool-durations`. O proxy classifica o tráfego **sem interpretar o corpo**. Os cabeçalhos são uma lista aberta: tratar como tal.
+2. **Gateways devem "inspecionar sem modificar".** Campos do corpo e cabeçalhos `anthropic-beta` vêm em pares; reescrever o corpo quebra o par e gera `400`. O corpo e os `anthropic-*` devem ser repassados sem filtragem por lista fixa.
+3. **Preserved thinking.** A API rejeita (`400`, "bound to a different conversation") quando `system`, `tools` ou `messages` anteriores diferem do que existia quando o bloco de thinking foi produzido. Um gateway que reescreve esse conteúdo pode causar a rejeição. Trocar o `model` entre turnos **não** viola essa checagem, mas blocos que o novo modelo não consegue ler são descartados sem erro.
+4. **Cache de prompt.** O cache é por prefixo idêntico (ferramentas → system → messages) e quebra quando algo anterior muda. TTL padrão de 5 minutos (1 hora opcional); escrita custa 1,25× (5 min) ou 2× (1 h) o preço de input; leitura custa 0,1× (0,05× no Opus 5.5 e no Sonnet 5.5, 0,025× no Fable 5.1 e no Mythos 5.1). Mínimos cacheáveis variam de 512 a 4.096 tokens por modelo. Trocar de modelo no loop principal reescreve o contexto inteiro.
+5. **Assinatura.** Definir só `ANTHROPIC_BASE_URL` mantém o login claude.ai ativo; o gateway precisa repassar o valor OAuth de `anthropic-beta`. A Anthropic não suporta rotear o Claude Code para modelos que não sejam Claude.
+6. **Requisições auxiliares** (títulos, classificadores, resumos) usam, conforme o tipo de login, o modelo principal ou o Haiku. Algumas (sugestão de próximo prompt) **reaproveitam o cache da conversa**.
+7. **O Claude Code já oferece controles de modelo sem proxy:** `ANTHROPIC_DEFAULT_*_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL`, `model:` no frontmatter do subagente, `opusplan`, níveis de esforço. O proxy acrescenta aplicação por requisição, medição completa (inclusive subagentes) e visibilidade; **não** é a única forma de rotear.
+8. **Modelos novos aparecem com frequência** (famílias Fable e Mythos, multiplicadores de cache diferentes por modelo). Nada sobre modelos pode ficar fixo em código: tem de vir de dados versionados e atualizáveis.
 
-## 3. Arquitetura
+### 1.4 Mudanças de decisão em relação à v2
 
-Arquitetura limpa no estilo idiomático de Rust: **regras de negócio puras no centro, I/O nas bordas**, dependências apontando sempre para dentro, e um único ponto de composição (o binário).
-
-### 3.1 Layout do repositório
-
-```
-tokred/
-├── Cargo.toml                    workspace: members, [workspace.package], [workspace.dependencies], [workspace.lints]
-├── Cargo.lock                    versionado (projeto com binário)
-├── rust-toolchain.toml           canal stable + rustfmt + clippy
-├── rustfmt.toml
-├── clippy.toml
-├── deny.toml                     cargo-deny: licenças, advisories, fontes
-├── dist-workspace.toml           configuração do dist (releases)
-├── .editorconfig
-├── .gitattributes                normalização de fim de linha (LF; *.ps1 com CRLF)
-├── .gitignore
-├── LICENSE-MIT / LICENSE-APACHE
-├── README.md / README.pt-BR.md
-├── CHANGELOG.md / CHANGELOG.pt-BR.md
-├── CONTRIBUTING.md / CONTRIBUTING.pt-BR.md
-├── .github/
-│   ├── workflows/ci.yml          fmt, clippy, testes (3 SOs), cargo-deny, cobertura
-│   ├── workflows/release.yml     gerado pelo dist + publicação no winget e no scoop
-│   ├── dependabot.yml            cargo + github-actions
-│   ├── ISSUE_TEMPLATE/           bug e feature
-│   └── pull_request_template.md
-├── crates/
-│   ├── tokred-core/              domínio: tipos, erros, modelo de config, resolução de paths, traits (ports)
-│   ├── tokred-install/           caso de uso: configure/unconfigure, merge do settings, agentes, manifesto
-│   ├── tokred-hooks/             caso de uso: handlers dos hooks (route, enforce, guard-read, guard-search, session-*)
-│   ├── tokred-metrics/           caso de uso: ingestão de transcripts, custo, economia, projeção, latência
-│   ├── tokred-pricing/           caso de uso: tabela de preços, sync, fallback embutido
-│   ├── tokred-audit/             caso de uso: auditoria do contexto fixo
-│   ├── tokred-update/            caso de uso: verificação de versão, detecção do método de instalação, self-update
-│   ├── tokred-report/            geração do HTML de métricas (template + SVG)
-│   ├── tokred-store/             adapter: SQLite (rusqlite), migrations, implementação dos repositórios
-│   └── tokred-cli/               binário `tokred`: clap, composição dos adapters, saída (tabela/JSON)
-├── templates/agents/             templates .md dos subagentes (inglês)
-├── tests/fixtures/               settings.json reais (com hooks do rtk), stdin de hooks, transcripts JSONL
-└── docs/                         documentação bilíngue (seção 16)
-```
-
-### 3.2 Camadas e regras de dependência
-
-```
-tokred-cli  ──►  casos de uso (install, hooks, metrics, pricing, audit, update, report)  ──►  tokred-core
-     │                                                                                          ▲
-     └──►  adapters (tokred-store, módulos http/fs)  ── implementam os traits de ───────────────┘
-```
-
-- **`tokred-core`** não faz I/O: tipos de domínio, erros (`thiserror`), modelo de config, e os **traits (ports)** que os casos de uso consomem: `Clock`, `FileSystem`, `SessionRepo`, `UsageRepo`, `CacheRepo`, `PriceSource`, `ReleaseSource`, `HookEventSink` etc.
-- **Casos de uso** dependem só de `tokred-core`. A lógica principal é feita de **funções puras** sobre dados, por exemplo:
-  - `merge_settings(current: Value, entries: &[HookEntry]) -> Result<Value, MergeError>`
-  - `classify(prompt: &str, rules: &Rules) -> TaskClass`
-  - `next_tier(entry: &CacheEntry, now: Timestamp, policy: &TierPolicy) -> Tier`
-  - `cost(usage: &Usage, prices: &PriceTable) -> Money`
-  
-  O I/O entra só pelos traits, recebidos por parâmetro (genéricos ou `&dyn Trait`).
-- **Adapters** (`tokred-store`, e os módulos `http` e `fs` dentro dos crates que precisam) implementam os traits. Nenhum caso de uso importa `rusqlite`, `ureq` ou `std::fs` diretamente.
-- **`tokred-cli`** é o único ponto de composição: monta os adapters reais, chama os casos de uso, formata a saída e decide o código de saída. Só ele usa `anyhow`.
-- `Clock` existe para que TTLs do cache, a janela de 24 h da verificação de versão e as métricas por dia sejam testáveis sem esperar o tempo passar.
-
-### 3.3 Padrões de código
-
-- Edição Rust 2024, `rust-version` (MSRV) declarado no workspace e verificado no CI.
-- Versões das dependências centralizadas em `[workspace.dependencies]`; os crates usam `dep = { workspace = true }`.
-- Lints em `[workspace.lints]`: `unsafe_code = "forbid"`; clippy `pedantic` como `warn`; `unwrap_used`, `expect_used`, `panic`, `todo` e `dbg_macro` como `deny` fora de testes.
-- Erros: `thiserror` com enums específicos por crate; nada de `String` como erro; `anyhow` só no binário.
-- Itens públicos com doc comments (`///`), e cada crate com doc de módulo (`//!`) explicando o papel dele na arquitetura. `cargo doc --no-deps` sem warnings.
-- API pública mínima: `pub(crate)` por padrão, só expõe o que outro crate usa.
-- Logs com `tracing`; nunca `println!` fora do `tokred-cli`.
-- Formatação com `cargo fmt`; commits no padrão Conventional Commits (`feat:`, `fix:`, `docs:`...), em inglês.
-
-### 3.4 Testes
-
-| Tipo | Onde | O que cobre |
-|---|---|---|
-| **Unitários** | `#[cfg(test)] mod tests` dentro de cada módulo | Funções puras: merge, classificador, política de camadas do cache, cálculo de custo e projeção, detecção do método de instalação, parsing de transcripts |
-| **Integração por crate** | `crates/<crate>/tests/` | Caso de uso com adapters reais em diretório temporário: `tokred-store` com SQLite real em `tempfile`, `tokred-install` contra fixtures de `settings.json`, `tokred-metrics` contra transcripts de fixture |
-| **Ponta a ponta (CLI)** | `crates/tokred-cli/tests/` | Executa o binário real com `assert_cmd` + `predicates`: `configure` → hooks com stdin de fixture → `stats`/`metrics` → `unconfigure`, tudo dentro de um `--claude-dir` e de uma pasta de dados temporários |
-| **Snapshot** | junto dos testes acima | `insta` para o `settings.json` resultante do merge, a saída `--json` dos comandos e o HTML de métricas |
-| **Propriedade** | testes do merge | `proptest`: configure duas vezes = configure uma vez; configure + unconfigure = original |
-
-Regras:
-- **Nenhum teste toca o `~/.claude` ou a pasta de dados real.** A variável `TOKRED_DATA_DIR` e a flag `--claude-dir` existem também para isso; os testes sempre usam diretórios temporários.
-- Nenhum teste acessa a rede: `PriceSource` e `ReleaseSource` têm implementações falsas para teste.
-- Testes rodando nos 3 SOs no CI, incluindo paths do Windows com espaço.
-- Cobertura medida com `cargo llvm-cov`; meta de pelo menos 80% nos crates de caso de uso e no `tokred-core`.
-- Toda correção de bug entra com um teste que reproduz o bug.
-
-### 3.5 Crates sugeridas
-
-`clap` (derive), `serde`, `serde_json` (feature **`preserve_order`**), `toml`, `rusqlite` (feature **`bundled`**), `directories`, `blake3`, `globset`, `walkdir`, `thiserror`, `anyhow` (só no binário), `ureq` com rustls (só nos adapters http), `comfy-table`, `time`, `opener`, `tracing` + `tracing-appender`.
-
-Para testes: `tempfile`, `assert_cmd`, `predicates`, `insta`, `proptest`.
-
-### Paths
-
-| Item | Origem |
+| v2 | v3 |
 |---|---|
-| Pasta do Claude Code | `$CLAUDE_CONFIG_DIR` se definido; senão `~/.claude` (no Windows, `%USERPROFILE%\.claude`) |
-| Pasta de dados do tokred | `TOKRED_DATA_DIR` se definido; senão `directories::ProjectDirs` → Linux `~/.local/share/tokred`, macOS `~/Library/Application Support/tokred`, Windows `%APPDATA%\tokred` |
-| Binário | Instalado pelo gerenciador de pacotes ou script (seção 14). O tokred não copia o próprio binário |
-| Banco | `<dados>/tokred.db` |
-| Config | `<dados>/tokred.toml` |
-| Logs | `<dados>/logs/` (rotação diária, manter 7 dias) |
+| Proxy faz compressão de `tool_result` ativa | Só em **modo sombra** (calcula o que economizaria, não altera nada). Ligar de verdade exige o portão da fase F10 (seção 12) |
+| Proxy sem roteamento de modelo | **Política de modelo** para subagentes e tarefas auxiliares; loop principal **intocado** |
+| `route` hook como classificador principal | Os cabeçalhos do Claude Code substituem o classificador por palavras-chave **para medir**; o `route` vira sugestão opcional |
+| Cache de respostas (fase F8) | Só **sombra** (mede repetição por hash); cache ativo fica no backlog |
+| Cache de artefatos (F9) | Backlog |
+
+### 1.5 Não-objetivos
+
+- Comprimir saída de Bash no hook (papel do rtk) e depender do `rtk-proxy`.
+- Trocar o modelo do **loop principal** (apenas sugerir).
+- Rotear para modelos não-Claude.
+- Cache semântico, Redis ou qualquer serviço externo.
+- Modificar `system`, `tools`, `thinking`, `cache_control`, imagens ou blocos de thinking.
 
 ---
 
-## 4. Comandos da CLI
+## 2. Estado atual: o que já foi feito
+
+Tudo abaixo está em `main` (repositório publicado). Os comportamentos exatos estão nos documentos indicados e nos registros de `docs/decisions.md`.
+
+### 2.1 Entregue (fases F0 a F5 da v1)
+
+| Componente | Estado | Onde está definido |
+|---|---|---|
+| Workspace de 10 crates, CI, `cargo-deny`, MSRV 1.89, docs bilíngues | Feito | `docs/development.md`, `docs/architecture.md` |
+| `configure` / `unconfigure` / `doctor` com merge não destrutivo, agentes `tokred-*` e manifesto | Feito | `docs/commands.md`, `docs/agents.md` |
+| Seis hooks fail-open: `guard-read`, `guard-search`, `session-start`, `route`, `enforce`, `session-check`, com registro de latência | Feito | `docs/hooks.md` |
+| Store SQLite (schema v2, migrations), cache em camadas L1/L2/L3 | Feito | `docs/cache.md` |
+| Preços: lista LiteLLM, snapshot embutido, sync diário | Feito | `docs/metrics.md`, `docs/configuration.md` |
+| Métricas: ingestão incremental de transcripts, custo, economia, projeção, latência | Feito | `docs/metrics.md` |
+| Painéis coloridos no terminal (`stats`, `stats latency`, `metrics`) e relatório HTML offline | Feito | `docs/commands.md` |
+| `audit` (contexto fixo e MCPs sem uso), `cache`, `pricing`, `update` com self-update verificado, `doctor --bench` | Feito | `docs/commands.md` |
+| Pipeline de release (`dist`, Homebrew, Scoop, winget, crates.io) | Escrito, **nunca executado** | `docs/installation.md` |
+| Qualidade | 655 testes; 100% de linhas cobertas; fmt, clippy, doc, deny e MSRV limpos no macOS | `docs/development.md` |
+
+### 2.2 Problemas conhecidos (a corrigir antes do proxy)
+
+1. **CI no Windows está vermelho.** O teste `ingestion_resumes_and_waits_for_partial_lines` (`tokred-metrics`) falha: com o arquivo aberto para escrita, o tamanho lido via metadados do diretório fica defasado no Windows. Além disso, o `cargo test --workspace` para no primeiro binário que falha, então **outras falhas do Windows podem estar escondidas** (caminhos, globs com `\`, testes de ponta a ponta). Correção: obter o tamanho pelo handle do arquivo (`File::open(..).metadata()`), rodar o CI com `--no-fail-fast` e tratar o que aparecer.
+2. **Preços e famílias de modelo.** `Family` só conhece opus, sonnet e haiku; faltam Fable e Mythos. O multiplicador de leitura de cache é derivado como 0,1× quando falta no dado, o que está errado para modelos novos (0,05× e 0,025×). Falta o preço de escrita de 1 hora (2×).
+3. **Pipeline de release não foi exercitado** (precisa de 4 secrets e de uma tag; o primeiro manifest do winget é manual).
+4. **`route` usa palavras-chave** e não os cabeçalhos de classe da requisição (que só o proxy vê).
+
+---
+
+## 3. Princípios (inegociáveis)
+
+1. **Nunca sobrescrever arquivos do usuário por inteiro** (só as partes do tokred). Idempotência de `configure`/`update`.
+2. **Fail-open em tudo.** Hook: exit 0 sem saída. Proxy: qualquer erro em uma transformação ou decisão → repassar a requisição **original** intacta; panic é isolado por requisição; o daemon continua de pé. O tokred nunca pode impedir o Claude Code de funcionar por bug próprio.
+3. **Latência.** Hook: p95 < 50 ms. Proxy: overhead p95 < 10 ms até o primeiro byte (medido, seção 8.4). Hooks nunca acessam a rede.
+4. **Local e privado.** Nada sai da máquina além do que o Claude Code já envia à Anthropic. O proxy repassa **só** para o host configurado (padrão `https://api.anthropic.com`). Credenciais e corpos de requisição **nunca** vão para log nem para o banco (só hashes e contagens).
+5. **Inspecionar sem modificar por padrão.** O proxy só altera uma requisição em casos explicitamente permitidos (seção 6) e sempre com saída de emergência. O modo padrão de qualquer recurso que altera tráfego é `observe`.
+6. **Contexto injetado mínimo:** qualquer `additionalContext` ou `systemMessage` tem uma ou duas linhas e só aparece quando algo muda.
+7. **Decisão baseada em dado.** Recurso que altera tráfego só é ligado depois que o modo `observe`/sombra mostrou ganho real e ausência de regressão (seção 12, portões).
+
+---
+
+## 4. Arquitetura
+
+Arquitetura limpa no estilo idiomático de Rust: **regras de negócio puras no centro, I/O nas bordas**, dependências sempre para dentro e um único ponto de composição (o binário). As regras da v1 continuam valendo (lints estritos, `thiserror`, `anyhow` só no binário, `pub(crate)` por padrão, `tracing`, `&dyn` em vez de genéricos onde ajuda a cobertura).
+
+### 4.1 Crates
+
+```
+crates/
+├── tokred-core/      domínio puro + ports. NOVO: RequestClass, AgentType, TaskClass, Tier,
+│                     ModelCapabilities, RoutingDecision, estimativa de custo com estado de cache
+├── tokred-install/   configure/unconfigure/doctor, merge do settings, agentes
+├── tokred-hooks/     handlers dos hooks (sincrono, sem tokio)
+├── tokred-metrics/   ingestão de transcripts, custo, economia, projeção, latência
+├── tokred-pricing/   preços, sync, snapshot embutido. NOVO: tabela de capacidades de modelos
+├── tokred-audit/     auditoria do contexto fixo
+├── tokred-update/    versão, método de instalação, self-update
+├── tokred-report/    relatório HTML
+├── tokred-store/     adapter SQLite, migrations, repositórios
+├── tokred-proxy/     NOVO. Daemon HTTP assíncrono: repasse com streaming, tap de SSE,
+│                     classificação, roteamento, medição, kill switch
+└── tokred-cli/       binário `tokred`: composição, saída, comandos
+```
+
+### 4.2 Regras específicas do proxy
+
+- **Fronteira assíncrona.** `tokio`/`hyper` vivem **só** em `tokred-proxy` e só iniciam no subcomando `proxy`. Hooks e demais comandos continuam síncronos e sem esse custo de inicialização.
+- **Lógica pura no `tokred-core`/casos de uso:** `classify_request`, `decide_route`, `estimate_cost`, `explain_cache_miss`, `summarize_prompt`, `suggest_model` são funções puras testáveis sem rede. O `tokred-proxy` só faz I/O e chama essas funções.
+- **Escritor único do SQLite.** O proxy atende requisições concorrentes, mas o SQLite tem um escritor: as requisições enviam registros por um canal (`mpsc`) a uma tarefa que grava em lote. Falha de gravação nunca afeta a resposta ao cliente.
+- **Ports novos** em `tokred-core`: `ProxyRepo` (requisições, decisões, resumos de prompt, sugestões), `ModelCatalog` (capacidades, famílias, tiers), `UpstreamClient` (para falsos em teste).
+- **Dependências novas** (só em `tokred-proxy`): `tokio`, `hyper` + `hyper-util` (ou `axum`), `reqwest` com rustls e streaming, `bytes`; em testes, `wiremock` e um servidor SSE falso próprio.
+
+### 4.3 Paths
+
+Inalterados em relação à v1 (pasta do Claude Code, pasta de dados via `BaseDirs`, banco, config, logs). Novo: `<dados>/proxy/` com o arquivo de segredo de administração (seção 6.8) e o PID.
+
+---
+
+## 5. Política de modelo
+
+É o coração da v3. Princípio: **respeitar o que o usuário escolheu; decidir só o que ele não escolheu; sugerir o resto.**
+
+### 5.1 Quem decide o quê
+
+| Classe da requisição (`x-claude-code-request-class`) | O proxy pode trocar o modelo? | Como |
+|---|---|---|
+| `main` (loop principal) | **Nunca** | Só mede e **sugere** (seção 5.6) |
+| `subagent`, `workflow` | Sim, **uma vez por agente** | Decisão no primeiro pedido de cada `agent-id` e fixa até o fim dele (seção 5.3) |
+| `auxiliary` | Sim, **por requisição** e só se compensar | Cálculo de custo com estado de cache (seção 5.4) |
+| `compaction` | Não por padrão | Qualidade do resumo afeta todo o resto da sessão; opt-in por configuração |
+
+### 5.2 Camadas de classificação (primeira que decidir vence)
+
+Cada camada devolve `(task_class, confidence, reason)`; o motor só age acima de um limiar de confiança (`min_confidence`). Em dúvida, **mantém o modelo pedido**.
+
+1. **Cabeçalhos (determinístico).** `request-class` e `agent-type`. Ex.: `Explore` → busca (classe barata); `Plan` → planejamento (mantém); `auxiliary` → auxiliar.
+2. **Escolha explícita do usuário.** Se o modelo do subagente **difere** do modelo que o loop principal da mesma sessão está usando, alguém fixou o modelo de propósito (frontmatter, variável, `opusplan`): **respeitar**. Só se decide quando o subagente **herdou** o modelo principal.
+3. **Conjunto de ferramentas na requisição (objetivo).** Subagente só com ferramentas de leitura (`Read`, `Grep`, `Glob`, buscas) não altera nada: risco baixo para um modelo mais barato. Presença de `Edit`/`Write`/`Bash` sobe o risco.
+4. **Palavras-chave no prompt da tarefa** (primeira mensagem do subagente), em pt-BR e en, reutilizando o classificador do `route` (movido para o `tokred-core`): buscar/localizar/resumir → barato; implementar/corrigir/refatorar → médio; arquitetura/design/planejar/revisar com profundidade → manter.
+5. **Padrão:** manter.
+
+### 5.3 Subagentes: decisão pegajosa
+
+- A decisão é gravada por `agent-id` (`routing_decisions`) e **reutilizada** em todas as requisições seguintes desse agente. Nunca se reclassifica no meio da execução: isso quebraria o cache (cada subagente tem o seu) e a continuidade do thinking.
+- Alvo: o tier definido para a classe (`[routing.tiers]`, seção 10), resolvido para um modelo concreto pelo catálogo (seção 7.3). **Só downgrade:** o alvo nunca pode custar mais do que o modelo pedido, nem estar fora de `allowed_models`.
+
+### 5.4 Auxiliares: roteamento que considera custo
+
+Algumas requisições auxiliares reaproveitam o cache da conversa (a sugestão de próximo prompt é "quase só leitura de cache"). Mover uma delas para o Haiku **perde o cache** e paga escrita a 1,25×, o que pode custar **mais** que a leitura a 0,1× no modelo caro. Por isso:
+
+- Rotear só quando `estimate_cost(alvo, sem cache) < estimate_cost(original, estado de cache conhecido) × (1 − margem)`.
+- Estado de cache conhecido: o proxy guarda, por sessão, o hash do prefixo principal e o instante da última leitura/escrita; se o prefixo da auxiliar coincide e o cache está quente, **não rotear**.
+- Na prática: títulos, classificadores e resumos pequenos e independentes são roteados; sugestões que carregam o contexto inteiro, não.
+
+### 5.5 Compatibilidade de parâmetros (obrigatória antes de trocar o modelo)
+
+Modelos diferentes aceitam parâmetros diferentes (thinking adaptativo vs orçamento fixo, `effort`, interleaved thinking, `context_management`, contexto de 1M). Trocar o `model` sem ajustar o resto pode gerar `400`. Regras:
+
+- O catálogo (seção 7.3) tem, por modelo, as capacidades. **Só se roteia** se todos os campos e betas presentes na requisição forem suportados pelo alvo. Caso contrário, **manter** o modelo (não se reescreve nenhum outro campo).
+- **Rede de segurança:** se a requisição reescrita receber `400`/`404`/erro de modelo antes de qualquer byte de resposta ser enviado ao cliente, reenviar **uma vez** com o corpo e o modelo originais, registrar o motivo e contar a falha para o disjuntor.
+- **Disjuntor (circuit breaker):** acima de `max_rewrite_failure_rate` (padrão 5% numa janela de 50 reescritas) o roteamento é desligado por `cooldown` e o `doctor` avisa. Também há chave manual (`tokred routing off`).
+
+### 5.6 Loop principal: sugerir, nunca trocar
+
+O modelo configurado pelo usuário é sempre respeitado. O tokred acompanha cada prompt do usuário e, quando a tarefa foi simples, **sugere** um modelo mais barato com a evidência resumida.
+
+**Agregação.** Requisições com o mesmo `x-claude-code-prompt-id` formam um prompt. Para cada um o proxy grava (`prompt_summaries`): número de turnos principais, ferramentas usadas, tokens de saída e de thinking, custo real, se houve edição, subagentes disparados e duração das ferramentas.
+
+**"Simples" (retrospectivo, transparente).** Critérios configuráveis e documentados, por exemplo: poucos turnos, saída pequena, thinking baixo, só leitura ou uma edição pequena. Retrospectivo é mais confiável que prever; a previsão para o próximo prompt usa só o padrão dos últimos N.
+
+**Contrafactual.** Custo do mesmo prompt no tier mais barato apropriado, com o preço do catálogo e **o custo de reconstruir o cache** quando houver troca: `economia = custo_real − (custo_alvo + reescrita_do_cache)`. Só sugere se `economia > mínimo`.
+
+**Quando e como avisar.** Nunca interromper o modelo. Três canais, todos opcionais (`[suggest] channel`):
+1. `tokred stats`/`metrics`: seção "Sugestões".
+2. **Status line** (`tokred statusline`): uma linha discreta ("simples nos últimos 5 prompts · Sonnet economizaria ~R$/US$ x"). O `configure` só grava a chave `statusLine` se estiver vazia e pergunta antes.
+3. **Hook `UserPromptSubmit`** com `systemMessage` (mensagem para o usuário, não para o modelo), **só em fronteiras seguras**: cache já frio (ocioso além do TTL), logo após `/clear` ou compactação (troca de graça), no máximo uma vez por sessão e por janela de tempo.
+
+O hook só **lê** a sugestão do banco (sem rede, dentro do orçamento de 50 ms).
+
+### 5.7 Auditoria e transparência
+
+- Toda decisão é gravada com motivo e `rules_version`. `tokred routing explain <request-id|agent-id>` mostra camada, confiança, estimativa de custo e resultado.
+- Modo `observe` (padrão): registra "teria roteado X → Y" **sem alterar** nada, e mostra a economia hipotética. Só `enforce` altera tráfego.
+- Cada recurso tem modo `off | observe | enforce`.
+
+---
+
+## 6. O proxy
+
+Daemon HTTP local entre o Claude Code e a API. Opcional. Independente do `rtk-proxy`.
+
+```
+Claude Code ──(ANTHROPIC_BASE_URL=http://127.0.0.1:8787)──► tokred proxy ──► api.anthropic.com
+                                                              │
+                                                              ├─ lê cabeçalhos de classe/sessão/agente
+                                                              ├─ classifica e (se enforce) escolhe o modelo
+                                                              ├─ tap de SSE: mede uso sem atrasar a entrega
+                                                              └─ grava requisição, decisão e prompt
+```
+
+### 6.1 Repasse
+
+- Escuta só em loopback (`127.0.0.1`), porta padrão `8787`; recusa outro endereço sem `--bind` explícito. **Valida o cabeçalho `Host`** (defesa contra DNS rebinding) e responde `421` para hosts que não sejam loopback.
+- Repassa só para `upstream` (HTTPS, rustls). Todos os cabeçalhos `anthropic-*`, `x-claude-code-*`, `Authorization`/`x-api-key` e os demais seguem **sem alteração** (sem lista fixa). Credenciais **nunca** vão para log ou banco.
+- Só `POST /v1/messages` passa pela política. Todo outro endpoint (`count_tokens`, `/v1/models`, etc.) é repassado intacto.
+- **Streaming:** a resposta é repassada evento por evento, sem bufferizar; o proxy observa os eventos em paralelo. Eventos `ping` e o cabeçalho `content-type: text/event-stream` seguem como vieram (o Claude Code tem um watchdog de ociosidade do stream). Erros da API (4xx, 5xx, 429) e seus corpos, e os cabeçalhos de rate limit, são repassados **exatamente**.
+- O timeout do upstream é o do cliente; o proxy nunca o encurta.
+
+### 6.2 Fail-open
+
+Erro ou panic em classificação, decisão ou medição → repassar o corpo original e registrar. Erro do banco → ignorar (a resposta já foi entregue). Se o proxy estiver fora do ar, o `tokred claude` abre o Claude Code sem proxy e avisa.
+
+### 6.3 Como o Claude Code aponta para o proxy
+
+- **Padrão: `tokred claude [args…]`.** Verifica `GET /__tokred/health`, inicia o proxy se preciso e abre o Claude Code com `ANTHROPIC_BASE_URL` definido **só naquela execução**. Nada é gravado no `settings.json`.
+- **Opcional: `persist_base_url = true`.** O `configure` grava `env.ANTHROPIC_BASE_URL` pelo merge da seção 5 da v1. Risco: com o proxy parado, o Claude Code inteiro para. Por isso exige o proxy como serviço do usuário (`tokred proxy service install`: systemd user unit, LaunchAgent, tarefa agendada no logon) e o `session-start` tenta subir o proxy. O `configure` explica o risco e pede confirmação. Se já houver `ANTHROPIC_BASE_URL` com outro valor, **não sobrescreve**: mostra e pergunta. O `unconfigure` remove só o valor do tokred.
+- Autenticação: o proxy **não** substitui credenciais. Com chave de API ou assinatura, ele repassa o que recebe (a assinatura exige repassar o valor OAuth de `anthropic-beta`).
+
+### 6.4 Medição (por requisição)
+
+Grava em `proxy_requests`: modelo pedido e modelo efetivo, `usage` (input, output, cache write, cache read, thinking), classe, tipo e id do agente, id da sessão e do prompt, bytes do corpo, tempo até o primeiro byte do upstream, tempo total, **overhead do proxy** (tempo gasto antes de enviar), status, `routing_mode`, `routing_decision_id`, TTL de cache usado.
+
+### 6.5 Explicação de cache miss
+
+Para cada requisição `main` com `cache_read` baixo, o proxy explica o provável motivo comparando com a anterior da mesma sessão: **ociosidade acima do TTL** (intervalo entre requisições), **compactação** (cabeçalhos `compaction`/`context-compacted`), **mudança de ferramentas** (hash do bloco `tools`), **mudança do system** (hash do `system`), **mudança de efeito** (campos de thinking/effort), ou **desconhecido**. Só hashes de segmentos são guardados. O Claude Code também mostra um "likely cause" no `/usage`; o tokred cobre também subagentes e agrega ao longo do tempo.
+
+### 6.6 Sombra de compressão e de cache de respostas
+
+Sem alterar nada, o proxy calcula e registra:
+- **Compressão (sombra):** aplicaria as regras determinísticas (`rules_version`) aos `tool_result` de texto e registra bytes e tokens que **teriam** sido evitados, por ferramenta. Regras: remover ANSI/controle, normalizar fim de linha, colapsar linhas idênticas consecutivas, truncar blocos acima de `max_tool_result_bytes` mantendo início e fim. Estimativa de ganho: um bloco de T tokens custa ≈ `1,25·T` na escrita e `0,1·T` por turno seguinte; o relatório mostra o ganho esperado já considerando a quantidade de turnos observada.
+- **Cache de respostas (sombra):** hash canônico (blake3) do corpo para medir quantas requisições são **repetições exatas**. Só hashes e contagem.
+
+### 6.7 Compressão ativa (condicional)
+
+Só existe se o portão da fase F10 passar. Restrições inegociáveis se um dia for ligada: mesma entrada → mesmos bytes (função pura, sem relógio); `rules_version` fixada por sessão; nunca tocar `system`, `tools`, `thinking`, `cache_control`, imagens, `tool_use` nem texto do usuário/assistente; só `tool_result` de texto; guardar `(sessão, hash do original) → hash do comprimido` para nunca divergir entre turnos; teste de prefixo byte a byte entre turnos; queda da taxa de cache ou qualquer `400` de thinking/binding desliga na hora (disjuntor) e investiga.
+
+### 6.8 Administração e segurança
+
+- Endpoints `/__tokred/*` (health, status, parar) exigem um **segredo local** (cabeçalho com um valor aleatório gravado em `<dados>/proxy/secret`, permissão 0600) para impedir que páginas web ou outros processos controlem o daemon.
+- `log_bodies = false` sempre; se ativado para depuração, avisa e nunca grava credenciais.
+- O `doctor` mostra: proxy rodando, porta, serviço instalado, valor atual de `ANTHROPIC_BASE_URL`, modos de cada recurso, estado do disjuntor, versão do Claude Code vista nos cabeçalhos.
+
+### 6.9 Compatibilidade
+
+- O guia oficial diz que o gateway precisa acompanhar as versões do Claude Code. Por isso a regra é **repassar tudo o que não se entende**; só se age sobre o que é conhecido e testado.
+- Matriz de compatibilidade testada e registrada: login por **chave de API** e por **assinatura**, `ANTHROPIC_BASE_URL` com e sem `ANTHROPIC_AUTH_TOKEN`, modelos com e sem preserved thinking, com e sem 1M de contexto.
+- Conferir os termos de uso da Anthropic para tráfego de assinatura por proxy; se não for permitido, documentar o proxy como "somente chave de API". Registrar em `docs/decisions.md`.
+
+---
+
+## 7. Store e catálogo de modelos
+
+### 7.1 Migração v3
+
+Mantém todas as tabelas da v1/v2 do schema (`sessions`, `classifications`, `file_reads`, `hook_events`, `cache_entries`, `installed_files`, `pricing`, `usage`, `ingest_state`, `meta`). Novas:
+
+```sql
+proxy_requests(id TEXT PK, ts INT, session_id TEXT, agent_id TEXT NULL, agent_type TEXT NULL,
+               prompt_id TEXT NULL, request_class TEXT, model_requested TEXT, model_effective TEXT,
+               input INT, output INT, thinking INT, cache_write INT, cache_read INT, cache_ttl TEXT,
+               bytes_in INT, upstream_ttfb_ms INT, total_ms INT, proxy_overhead_us INT,
+               status INT, routing_mode TEXT, decision_id TEXT NULL, miss_cause TEXT NULL,
+               prefix_hash TEXT, tools_hash TEXT, system_hash TEXT)
+routing_decisions(id TEXT PK, ts INT, session_id TEXT, agent_id TEXT NULL, scope TEXT,   -- agent|request
+                  task_class TEXT, confidence REAL, layer TEXT, reason TEXT,
+                  model_from TEXT, model_to TEXT, mode TEXT, est_cost_from REAL, est_cost_to REAL,
+                  rules_version TEXT, outcome TEXT)                                      -- applied|observed|kept|fallback
+prompt_summaries(prompt_id TEXT PK, session_id TEXT, ts INT, turns INT, tools TEXT,
+                 output_tokens INT, thinking_tokens INT, cost_usd REAL, edited INT,
+                 subagents INT, simple INT, est_saving_usd REAL)
+suggestions(id TEXT PK, ts INT, session_id TEXT, kind TEXT, message TEXT, shown INT, accepted INT NULL)
+shadow_savings(ts INT, session_id TEXT, kind TEXT, key TEXT, bytes_saved INT, est_tokens_saved INT, rules_version TEXT)
+compressed_blocks(...)   -- só se a compressão ativa for ligada (F10+)
+```
+
+Índices por `ts`, `session_id`, `prompt_id`, `agent_id`. Retenção configurável (`[proxy] retention_days`, padrão 90) com limpeza oportunista nos comandos da CLI.
+
+### 7.2 Fontes de métricas
+
+Quando há dados do proxy no período, eles são a fonte principal de uso e custo; os transcripts completam o que o proxy não viu. Deduplicar pelo id da mensagem. O `stats`/`metrics` ganham agrupamentos por classe de requisição, tipo de agente e prompt.
+
+### 7.3 Catálogo de modelos (dados, não código)
+
+Arquivo embutido e atualizável (`models.json`, gerado por script a partir do LiteLLM e da documentação, com fallback offline) com, por modelo: família, preços (input, output, escrita 5 min, escrita 1 h, leitura de cache), **capacidades** (thinking adaptativo/orçamento, `effort`, interleaved, `context_management`, 1M de contexto, mínimo cacheável), e os **tiers** padrão (barato/médio/forte) por família. `Family` deixa de ser um enum fechado (passa a aceitar famílias desconhecidas). Modelo desconhecido: família inferida pelo nome, capacidades **conservadoras** (não rotear) e aviso no `stats`.
+
+---
+
+## 8. Mudanças nos componentes existentes
+
+| Componente | Mudança |
+|---|---|
+| `tokred-core` | Tipos do proxy e da política; `Family` aberta; `ModelPrice` com escrita de 1 h e multiplicadores por modelo; `estimate_cost` com estado de cache; mover o classificador de palavras-chave do `tokred-hooks` para cá |
+| `tokred-pricing` | Ler o preço de 1 h e os multiplicadores reais do LiteLLM (sem derivar 0,1× quando houver dado); catálogo de capacidades; script de atualização |
+| `tokred-hooks` | `route` vira sugestão opcional; novo comportamento de sugestão no `UserPromptSubmit` (lê do banco, só em fronteiras seguras); `session-start` tenta subir o proxy quando configurado; guardas inalteradas |
+| `tokred-metrics` | Fonte proxy + transcripts; custo por classe/agente/prompt; economia **real** do roteamento (separada do contrafactual "tudo no opus"); explicações de cache miss; economia de sombra; taxa de sugestões aceitas |
+| `tokred-report` | Seções novas: proxy (overhead p50/p95, orçamento 10 ms), decisões de roteamento, sugestões, causas de cache miss, economia de sombra |
+| `tokred-store` | Migração v3 e repositórios do proxy; escritor único em lote |
+| `tokred-install` | `configure` pergunta sobre o proxy, `statusLine` e `ANTHROPIC_BASE_URL` (merge não destrutivo, nunca sobrescreve valor alheio); `unconfigure` remove só o que é do tokred |
+| `tokred-update` | Depois de atualizar o binário, reiniciar o daemon do proxy; compatibilidade de schema |
+| `tokred-cli` | Comandos novos (seção 9); `doctor` com a seção do proxy; `stats --by request-class\|agent-type\|prompt` |
+| CI/Release | Matriz de 3 SOs também para o proxy (testes com API falsa e streaming); `--no-fail-fast`; instaladores de serviço de usuário por SO |
+
+---
+
+## 9. Comandos (novos e alterados)
 
 | Comando | Função |
 |---|---|
-| `tokred configure [--claude-dir <path>] [--yes]` | Detecta a pasta do Claude Code (ou pergunta), cria o banco e a config, faz o merge do settings, instala os agentes e sincroniza os preços (seção 5) |
-| `tokred update` | Atualiza o binário de acordo com o método de instalação (seção 14) e reaplica a configuração de forma idempotente |
-| `tokred unconfigure [--purge]` | Remove só as partes do tokred do Claude Code; `--purge` também apaga a pasta de dados. O binário em si é removido pelo gerenciador de pacotes |
-| `tokred doctor [--bench]` | Mostra o que está instalado, versões, arquivos desatualizados, conflitos com outros hooks e se o rtk foi detectado; `--bench` mede a latência real de cada hook (seção 10) |
-| `tokred stats [--since 7d] [--by model\|day\|project]` | Tokens, custo real, custo contrafactual, economia e projeção |
-| `tokred stats latency [--since 7d] [--by hook\|day\|session]` | Quanto tempo os hooks do tokred acrescentaram ao Claude Code |
-| `tokred metrics [--since 30d] [--no-open]` | Gera o relatório HTML visual (seção 10) sempre no mesmo arquivo e abre no navegador |
-| `tokred audit [--project <path>]` | Peso estimado do contexto fixo e MCPs sem uso |
-| `tokred pricing sync` / `pricing show` | Atualiza ou mostra a tabela de preços |
-| `tokred cache stats` / `cache prune` | Estado do cache por camada e limpeza de expirados |
-| `tokred hook <evento>` | **Interno**, chamado pelo Claude Code. Lê JSON do stdin e escreve JSON no stdout |
+| `tokred proxy start\|stop\|status` | Controla o daemon (`start` em primeiro plano ou em segundo plano) |
+| `tokred proxy service install\|uninstall` | Serviço do usuário (systemd user unit, LaunchAgent, tarefa de logon) |
+| `tokred claude [args…]` | Garante o proxy e abre o Claude Code apontado para ele só nessa execução |
+| `tokred routing status\|on\|off\|explain <id>` | Modo, disjuntor, últimas decisões e explicação de uma decisão |
+| `tokred suggest [--since 7d]` | Sugestões de modelo para o loop principal, com a evidência |
+| `tokred statusline` | Linha curta para o `statusLine` do Claude Code |
+| `tokred stats … --by request-class\|agent-type\|prompt` | Novos agrupamentos |
+| `tokred doctor` | Seção do proxy (seção 6.8) |
 
-Todos os comandos de visualização aceitam `--json` para saída legível por máquina.
+Os demais comandos (`configure`, `unconfigure`, `update`, `audit`, `pricing`, `cache`, `metrics`, `stats`, `hook`) seguem `docs/commands.md`.
 
 ---
 
-## 5. `tokred configure`: detecção e merge não destrutivo
+## 10. Config (`tokred.toml`) — chaves novas
 
-Instalar o binário (seção 14) **não mexe em nada** do Claude Code. A integração só acontece quando o usuário roda `tokred configure`.
+```toml
+[proxy]
+enabled = false
+bind = "127.0.0.1:8787"
+upstream = "https://api.anthropic.com"
+persist_base_url = false         # grava env.ANTHROPIC_BASE_URL no settings (exige serviço)
+retention_days = 90
+log_bodies = false
 
-### 5.0 Fluxo do `configure`
+[routing]
+mode = "observe"                 # off | observe | enforce
+min_confidence = 0.8
+min_saving_usd = 0.005
+max_rewrite_failure_rate = 0.05
+cooldown = "30m"
+allowed_models = []              # vazio = qualquer modelo do catálogo que seja mais barato
+compaction = "keep"              # keep | cheap (opt-in)
 
-1. **Encontrar a pasta do Claude Code**, nesta ordem:
-   1. flag `--claude-dir <path>`;
-   2. valor salvo em `tokred.toml` (`[claude] dir`) de uma configuração anterior;
-   3. variável `CLAUDE_CONFIG_DIR`;
-   4. padrão `~/.claude` (Windows: `%USERPROFILE%\.claude`).
-   
-   Uma pasta é válida se existe e tem `settings.json` ou `projects/`.
-2. **Se não encontrar:** em terminal interativo, pede o path, valida e pergunta de novo se for inválido. Sem terminal interativo (CI, script), sai com erro sugerindo `--claude-dir`.
-3. Salva o path escolhido em `tokred.toml`.
-4. Detecta o rtk e informa que os dois vão coexistir.
-5. **Mostra o plano** antes de aplicar: hooks que serão adicionados ou atualizados no `settings.json`, agentes que serão criados ou atualizados, arquivos `.new` por conflito. Pede confirmação; `--yes` pula a pergunta.
-6. Cria a pasta de dados, o banco (migrations) e a config (merge, seção 13), aplica o merge do settings (5.2), instala os agentes (5.3) e sincroniza os preços (se falhar, usa o fallback embutido).
-7. Termina mostrando os próximos passos (`tokred doctor`, `tokred metrics`).
+[routing.tiers]                  # classe da tarefa -> tier; o catálogo resolve para um modelo concreto
+search = "cheap"
+summary = "cheap"
+implementation = "mid"
+planning = "keep"
+architecture = "keep"
+review = "keep"
 
-### 5.1 Assinatura
+[suggest]
+channel = "stats"                # off | stats | statusline | message
+min_simple_prompts = 3
+cooldown = "6h"
 
-Toda entrada de hook do tokred tem um `command` que contém o marcador **`tokred hook `**. Exemplo:
-
-```json
-{ "type": "command", "command": "\"/opt/homebrew/bin/tokred\" hook guard-read", "timeout": 5 }
+[shadow]
+compression = true               # calcula o que economizaria (não altera nada)
+response_cache = true            # mede repetições exatas por hash
+max_tool_result_bytes = 60000
 ```
 
-- O path do binário vai sempre entre aspas, porque no Windows ele pode ter espaços.
-- **Usar um path estável**, que sobreviva a upgrades: o path pelo qual o binário é encontrado no `PATH` (ex.: `/opt/homebrew/bin/tokred`, o shim do scoop, o link do winget), e **não** o path canonicalizado com a versão no nome (ex.: `.../Cellar/tokred/0.3.2/bin/tokred`), que quebra no próximo upgrade. Procurar `tokred` no `PATH` e conferir que aponta para o executável atual; se não achar, usar `current_exe()` e avisar no `doctor`.
-- O `doctor` confere se o path gravado no settings ainda existe; o `configure` corrige.
-
-### 5.2 Algoritmo de merge do `settings.json`
-
-1. Se o arquivo não existe, criar `{}`.
-2. Ler e fazer parse. **Se o JSON for inválido: abortar com erro claro, sem escrever nada.**
-3. Fazer backup em `settings.json.tokred.bak` (manter só o último).
-4. Para cada evento em `hooks`: percorrer os grupos (matcher + `hooks[]`) e **remover só as entradas cujo `command` contém o marcador**. Se um grupo ficar com `hooks` vazio, remover o grupo. Se o evento ficar vazio, remover o evento.
-5. Inserir as entradas atuais do tokred (seção 7), em grupos próprios. **Não misturar no mesmo grupo dos hooks do rtk ou do usuário.**
-6. Todas as outras chaves (`permissions`, `env`, `model`, hooks de terceiros etc.) ficam intactas e **na ordem original**.
-7. Gravar num arquivo temporário no mesmo diretório e depois fazer rename atômico.
-
-O `unconfigure` é o mesmo algoritmo, sem o passo 5.
-
-### 5.3 Agentes
-
-- Os arquivos ficam em `<claude>/agents/`, com prefixo `tokred-` (ex.: `tokred-architect.md`).
-- A primeira linha do corpo, logo depois do frontmatter, é o comentário `<!-- managed-by: tokred vX.Y.Z -->`.
-- O manifesto (tabela `installed_files`) guarda o path, o hash blake3 do conteúdo instalado e a versão.
-- No update, se o hash atual do arquivo **for igual** ao do manifesto, sobrescreve. Se **for diferente** (o usuário editou), não sobrescreve: grava `tokred-x.md.new` ao lado e avisa no `doctor`. A flag `--force` sobrescreve mesmo assim.
-- Arquivos sem o prefixo e sem o marcador **nunca** são tocados.
-
-### 5.4 Testes obrigatórios do merge
-
-Fixtures com: settings vazio; settings com hooks do rtk; settings com hooks do usuário no mesmo evento; settings com versão antiga do tokred; JSON inválido; chaves desconhecidas. Para cada uma, confirmar que configure → configure → unconfigure devolve um arquivo semanticamente igual ao original.
+As chaves de hooks, preços, update, cache e guardas da v1 continuam (veja `docs/configuration.md`). A config do usuário continua passando por merge no update.
 
 ---
 
-## 6. Subagentes
+## 11. Testes (proxy)
 
-| Arquivo | Modelo | Uso |
-|---|---|---|
-| `tokred-architect` | opus | Arquitetura, decisões de design, trade-offs |
-| `tokred-planner` | opus | Planejamento e quebra de tarefas grandes |
-| `tokred-dev` | sonnet | Implementação, refatoração, correção de bugs |
-| `tokred-reviewer` | sonnet | Revisão de código e testes |
-| `tokred-explorer` | haiku | Busca no código, localizar arquivos e símbolos (somente leitura) |
-| `tokred-summarizer` | haiku | Resumir docs, logs e saídas longas |
+| Tipo | O que cobre |
+|---|---|
+| **Unitários** | Classificação em camadas (tabela de casos pt-BR/en e cabeçalhos), decisão de rota, compatibilidade de parâmetros, estimativa de custo com e sem cache, explicação de cache miss, agregação de prompt, regras de "simples" |
+| **API falsa** | Servidor Anthropic falso (`wiremock` + SSE próprio): repasse byte a byte, streaming evento por evento, erros 4xx/5xx/429 intactos, queda do upstream no meio do stream, cabeçalhos preservados (inclusive desconhecidos) |
+| **Roteamento** | Decisão pegajosa por `agent-id`; downgrade apenas; escolha explícita respeitada; fallback com reenvio do original em `400`; disjuntor abre e fecha; modo `observe` nunca altera um byte |
+| **Propriedade** | Em `observe`/sombra o corpo enviado ao upstream é **idêntico** ao recebido; mesma entrada → mesma decisão |
+| **Carga e latência** | Overhead p95 < 10 ms até o primeiro byte; 50 streams simultâneos; sem vazamento de memória |
+| **Ponta a ponta** | `tokred claude` com um "claude" falso; sessão simulada de vários turnos |
+| **3 SOs** | Todos acima no CI (inclusive caminhos do Windows) |
+| **Manuais, registrados** | Claude Code real com chave de API e com assinatura (spike, F6); Claude Code real com roteamento em `enforce` em sessões de teste |
 
-Frontmatter: `name`, `description` (quando delegar), `model`, `tools` (restringir ao necessário; explorer e summarizer só leitura).
-
-**Regras comuns no corpo de todos os agentes** (reduzem tokens de saída e o retorno para o contexto principal):
-- Não recapitular a tarefa nem descrever o processo.
-- Edições pontuais em vez de reescrever arquivos inteiros.
-- **Formato de retorno fixo e curto:**
-  ```
-  RESULTADO: <1-3 linhas>
-  ARQUIVOS: <lista de paths alterados ou relevantes>
-  PENDÊNCIAS: <lista ou "nenhuma">
-  ```
-
----
-
-## 7. Hooks
-
-Todos os hooks: leem o stdin, respeitam o modo configurado (`off` | `warn` | `enforce`), gravam o evento em `hook_events` e seguem a regra de fail-open.
-
-### 7.1 `route` (UserPromptSubmit)
-
-- Classificador **heurístico em Rust**, sem LLM. Usa palavras-chave em pt-BR e en (arquitetura, design, planejar, plano → architect/planner; implementar, corrigir, bug, refatorar → dev; revisar → reviewer; onde fica, encontrar, buscar → explorer; resumir → summarizer), o tamanho do prompt e menções a arquivos.
-- Saída: `additionalContext` de **uma linha**, emitida só se a classe mudou em relação ao prompt anterior da mesma sessão. Exemplo: `tokred: implementation task → delegate to the tokred-dev subagent if it involves more than one edit.`
-- **Não delegar tarefa pequena:** prompts curtos e pontuais não recebem sugestão.
-- Grava a classificação em `classifications`.
-
-### 7.2 `enforce` (PreToolUse, matcher na ferramenta de subagentes: confirmar `Task`/`Agent` na doc)
-
-- Compara o subagente escolhido com a última classificação da sessão.
-- `warn`: permite e devolve um motivo curto. `enforce`: nega com um motivo que indica o agente correto.
-- Agentes que não são do tokred: sempre permitir.
-
-### 7.3 `guard-read` (PreToolUse, matcher `Read`)
-
-1. **Bloqueio por padrão** (configurável via globs): lockfiles (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `Cargo.lock`, `poetry.lock`), `*.min.js`, `*.map`, `dist/**`, `build/**`, `node_modules/**`, `target/**`, `.git/**`. Nega com motivo curto.
-2. **Arquivo grande:** acima de `max_read_bytes` (padrão 200 KB) e sem `offset`/`limit`, nega e pede leitura por faixa.
-3. **Releitura:** calcula o blake3 do arquivo. Se `(session_id, path, hash)` já existe em `file_reads` com o mesmo `offset`/`limit`, nega dizendo que o conteúdo não mudou e já está no contexto. **Exceção:** se houve compactação ou `/clear` depois da leitura (detectado via evento da sessão), permitir.
-4. Grava a leitura e os bytes evitados (para as métricas).
-
-### 7.4 `guard-search` (PreToolUse, matcher `Grep|Glob`)
-
-- Em repositório grande (mais de `large_repo_files` arquivos, contados e cacheados por raiz), negar busca sem `path` ou sem padrão restritivo. O modo padrão é `warn`.
-
-### 7.5 `session-check` (Stop)
-
-- Lê `transcript_path` do stdin e pega o `usage` da última resposta para estimar o tamanho do contexto.
-- Acima de `context_warn_tokens` (padrão 120k), emite **mensagem para o usuário** (não para o modelo) sugerindo `/compact` ou `/clear` ao fechar a tarefa. Nunca forçar continuação.
-
-### 7.6 `session-start` (SessionStart)
-
-- Registra a sessão. Em `source=clear|compact`, marca um corte para que o `guard-read` volte a permitir leituras.
-
-### 7.7 Coexistência com o rtk
-
-- O rtk atua no PreToolUse do `Bash`; o tokred não registra matcher em `Bash`.
-- O `doctor` detecta os hooks do rtk e confirma que não há sobreposição.
-
----
-
-## 8. Store (SQLite)
-
-Configuração: `journal_mode=WAL`, `busy_timeout=2000`, migrations versionadas (`user_version`).
-
-```sql
-sessions(id TEXT PK, project TEXT, started_at INT, last_seen INT, last_reset_at INT)
-classifications(session_id TEXT, ts INT, class TEXT, prompt_len INT)
-file_reads(session_id TEXT, path TEXT, hash TEXT, offset INT, lim INT, bytes INT, ts INT,
-           PRIMARY KEY(session_id, path, hash, offset, lim))
-hook_events(ts INT, session_id TEXT, hook TEXT, decision TEXT, reason TEXT, bytes_saved INT,
-            duration_us INT, outcome TEXT)   -- outcome: ok | error | panic | timeout_guard
-cache_entries(key TEXT PK, kind TEXT, value BLOB, tier INT, hits INT,
-              created_at INT, last_hit INT, expires_at INT NULL)
-installed_files(path TEXT PK, hash TEXT, version TEXT, installed_at INT)
-pricing(model TEXT PK, input REAL, output REAL, cache_write REAL, cache_read REAL,
-        source TEXT, updated_at INT)            -- USD por milhão de tokens
-usage(message_key TEXT PK, session_id TEXT, project TEXT, ts INT, model TEXT,
-      input INT, output INT, cache_write INT, cache_read INT, is_subagent INT)
-ingest_state(file TEXT PK, offset INT, mtime INT)
-```
-
-### Política de cache em camadas (`cache_entries`)
-
-| Camada | Entra quando | TTL |
-|---|---|---|
-| L1 | Primeira gravação | `l1_ttl` (padrão 4h) |
-| L2 | `hits >= l2_hits` (padrão 3) | `l2_ttl` (padrão 24h), renovado a cada acerto |
-| L3 | `hits >= l3_hits` (padrão 10) | Persistente (`expires_at = NULL`) |
-
-- A chave sempre inclui o hash do conteúdo de origem, então a invalidação é automática quando o arquivo muda.
-- A promoção acontece na leitura (incrementa `hits`, reavalia a camada).
-- `cache prune` remove os expirados. Também roda de forma oportunista em `stats` e `update`, nunca dentro de hook.
-- No MVP, o cache guarda: contagem de arquivos por raiz, classificações e o resultado da auditoria. Resumos de artefatos ficam para a fase 6.
-
----
-
-## 9. Preços
-
-- Fonte remota: o JSON público de preços do LiteLLM (`model_prices_and_context_window.json` no repositório BerriAI/litellm). Filtrar os modelos Claude e normalizar para USD por milhão de tokens.
-- **Fallback embutido** no binário (`include_str!`), gerado no build, para quando não há rede.
-- O sync roda em `configure`, `update`, `pricing sync` e na sincronização diária (seção 14), e registra `source` e `updated_at`.
-- Modelo desconhecido no transcript: mapear por família (opus/sonnet/haiku) para o preço mais recente da família e sinalizar no `stats`.
-
----
-
-## 10. Métricas
-
-### Ingestão
-
-- Ler `<claude>/projects/**/*.jsonl` de forma incremental (`ingest_state` guarda o offset e o mtime de cada arquivo).
-- Extrair das mensagens do assistente: modelo, `input_tokens`, `output_tokens`, `cache_creation_input_tokens` e `cache_read_input_tokens`. **Confirmar os nomes dos campos num transcript real antes de implementar.**
-- Deduplicar por id da mensagem + id da requisição, porque o streaming pode gerar linhas repetidas.
-- Marcar `is_subagent` quando a linha vier de um subagente.
-
-### Cálculos no `stats`
-
-- **Custo real:** soma por modelo × preço.
-- **Contrafactual "tudo no opus":** os mesmos tokens com preço do opus. A diferença é a **economia por roteamento**.
-- **Economia das guardas:** `bytes_saved / 4` como estimativa de tokens evitados (sempre rotular como estimativa) × preço de input do modelo da sessão.
-- **Taxa de cache de prompt:** `cache_read / (cache_read + cache_write + input)`.
-- **Projeção:** média diária dos últimos 7 e 30 dias × 30.
-- **Antes e depois:** se existirem dados anteriores ao primeiro `configure` (o transcript é mais antigo), comparar o custo por sessão antes e depois.
-
-### Latência adicionada pelo tokred (`tokred stats latency`)
-
-Objetivo: mostrar quanto tempo o tokred atrasou o Claude Code, já que cada hook roda de forma síncrona antes do Claude continuar.
-
-**Medição dentro do binário**
-- Capturar `Instant::now()` na primeira linha do `main` e gravar `duration_us` no fim de cada execução de hook, inclusive em erro ou panic (via guard com `Drop`).
-- Gravar `outcome` (`ok`, `error`, `panic`, `timeout_guard`).
-- A escrita no banco é a última etapa, depois de emitir a resposta no stdout e fechar o stdout, para não somar a própria gravação ao atraso percebido. Se a gravação falhar, ignorar (fail-open).
-
-**Custo de inicialização do processo**
-- O tempo de spawn do processo pelo Claude Code não é visível de dentro do binário. O `tokred doctor --bench` mede isso executando cada hook N vezes (padrão 50) com fixtures de stdin e cronometrando de fora (spawn → exit).
-- O resultado do bench (média de overhead de spawn por SO) fica salvo no banco e é somado às durações internas no `stats latency`, rotulado como estimativa.
-
-**O que o `stats latency` mostra**
-- Por hook: número de execuções, p50, p95, p99 e máximo em ms.
-- Total de ms adicionados por sessão e por dia, e média por prompt do usuário.
-- Contagem de `error`, `panic` e `timeout_guard`.
-- Alerta quando o p95 de qualquer hook passar do orçamento de 50 ms.
-- Comparativo opcional: ms adicionados × tokens e custo economizados no mesmo período, para mostrar se a troca vale a pena.
-
-### Relatório HTML (`tokred metrics`)
-
-**Arquivo**
-- Caminho fixo: `<dados>/reports/metrics.html`. Cada execução **sobrescreve o mesmo arquivo** (grava em temporário e faz rename atômico). Nunca gera arquivos com data no nome.
-- Abre no navegador padrão com a crate `opener`, a menos que se passe `--no-open`. Imprime o caminho no terminal.
-
-**Construção**
-- HTML **autocontido e offline**: CSS e JS inline, sem CDN, sem fontes externas, sem requisições de rede.
-- O template fica embutido no binário (`include_str!`). Os dados entram como um bloco JSON (`<script type="application/json" id="data">`) gerado a partir do banco.
-- Gráficos em **SVG gerado em Rust** (barras, linhas e rosca), sem biblioteca de gráficos em JS. JS inline só para tooltips e para alternar o período.
-- Tema claro e escuro via `prefers-color-scheme`, layout responsivo, fonte do sistema.
-- Rodapé com data de geração, versão do tokred, período coberto e data da última sincronização de preços.
-
-**Seções**
-1. **Cartões de resumo:** custo real, economia total (roteamento + guardas), tokens evitados (estimativa), projeção mensal e latência total adicionada.
-2. **Custo por dia:** linha do custo real × contrafactual "tudo no opus".
-3. **Distribuição por modelo:** rosca com tokens e custo por opus, sonnet e haiku.
-4. **Roteamento:** classificações por tipo de tarefa, delegações corretas × corrigidas pelo `enforce`.
-5. **Guardas:** bloqueios por motivo (releitura, arquivo gerado, arquivo grande, busca ampla) e bytes/tokens evitados.
-6. **Cache de prompt:** taxa de acerto por dia.
-7. **Latência:** p50/p95/máximo por hook, com a linha do orçamento de 50 ms, e o comparativo ms adicionados × economia.
-8. **Auditoria:** os itens mais pesados do contexto fixo e os MCPs sem uso.
-
-Seções sem dados (por exemplo, antes de a fase correspondente existir) aparecem com um aviso de "sem dados ainda" em vez de sumir.
-
----
-
-## 11. Auditoria (`tokred audit`)
-
-Estimativa de tokens = caracteres / 4 (rotulada como estimativa).
-
-- CLAUDE.md do usuário e do projeto (incluindo arquivos importados com `@`).
-- Skills e agentes instalados (frontmatter e corpo).
-- **MCPs:** listar os servidores configurados (settings e `~/.claude.json` do projeto; confirmar a localização na doc) × uso real nos transcripts (`tool_use` com nome `mcp__<servidor>__*`). Apontar os servidores sem uso nos últimos N dias. O peso exato dos schemas não é calculável localmente; mostrar só o uso.
-- Saída: tabela ordenada por peso, com sugestão de ação curta.
+Regras da v1 mantidas: nenhum teste toca o `~/.claude` nem a pasta de dados reais; nenhum acessa a rede externa; toda correção de bug entra com um teste que a reproduz; **cobertura de linhas em 100%** (medida com `cargo llvm-cov`, referência: `lcov` e o texto anotado).
 
 ---
 
 ## 12. Fases
 
+Cada fase termina com testes verdes nos 3 SOs, clippy limpo, cobertura mantida e documentação nos dois idiomas. Os **portões** são decisões baseadas em dados, registradas em `docs/decisions.md`.
+
 | Fase | Entrega | Pronto quando |
 |---|---|---|
-| F0 | Bootstrap do repositório (seção 15), workspace com os crates da seção 3, paths, config, logging, store com migrations, `configure`/`unconfigure`/`doctor` com detecção da pasta, merge não destrutivo e agentes; README e docs nos dois idiomas (seção 16) | CI verde nos 3 SOs (fmt, clippy, testes unitários, de integração e ponta a ponta, cargo-deny); testes do merge (5.4) passando |
-| F1 | Pipeline de release (`dist`, tap do brew, bucket do scoop, publicação no winget), `update` por método de instalação, pricing (sync + fallback + sync diário), verificação diária de versão com aviso, `stats` com ingestão incremental e a primeira versão do `tokred metrics` (seções 1, 2, 3 e 6) | `stats` bate com o somatório manual de um transcript de teste; o HTML abre offline e é sobrescrito a cada execução. As demais seções do HTML entram junto com as fases que geram os dados |
-| F2 | `audit` | Lista o peso do contexto e os MCPs sem uso |
-| F3 | `guard-read`, `guard-search`, `session-start`, medição de latência, `stats latency` e `doctor --bench` | Fixtures de stdin cobrindo permitir, negar e o corte após compactação; `doctor --bench` mostrando p95 < 50 ms |
-| F4 | `route` + `enforce` | Classificador com tabela de casos de teste pt-BR/en |
-| F5 | `session-check` | Aviso dispara acima do limite e nunca força continuação |
-| F6 | Cache de artefatos (resumos por hash) | Só depois de medir F1 a F5 |
-| F7 | Avaliar proxy/cache de respostas | Decisão registrada em DECISIONS.md com base nos dados |
+| **F0 a F5** | Feito (seção 2) | — |
+| **F6 — Estabilização** | Corrigir o CI do Windows (tamanho pelo handle; `--no-fail-fast`; tratar o que mais aparecer); catálogo de modelos e preços (famílias novas, multiplicadores, 1 h); exercitar o pipeline de release com uma tag de teste | CI verde nos 3 SOs; `stats` correto para modelos novos; release de teste publicada |
+| **F7 — Spike (≈ 1 dia)** | Proxy mínimo de repasse que só registra cabeçalhos e `usage`; testar com **chave de API** e com **assinatura**; confirmar que os cabeçalhos `x-claude-code-*` chegam; testar reescrever o `model` de uma requisição auxiliar | Resultado em `docs/decisions.md`: o que funciona, o que não; **go/no-go** do proxy e se assinatura é suportada |
+| **F8 — Proxy: repasse e medição** | `tokred-proxy` (6.1 a 6.5, 6.8), `tokred claude`, `proxy start/stop/status/service`, migração v3, explicação de cache miss, integração nas métricas e no `doctor` | Testes com API falsa e streaming; overhead p95 < 10 ms; Claude Code normal com e sem o proxy; nenhuma alteração de byte no tráfego |
+| **F9 — Política de modelo** | Classificação em camadas, roteamento de subagentes e auxiliares em modo `observe` → `enforce`, catálogo de capacidades, fallback e disjuntor, `routing explain` | Em `observe`, economia hipotética visível; **portão G1:** só ligar `enforce` se a taxa de decisões corretas revisadas for alta e o `observe` não tiver mostrado perdas de qualidade; em `enforce`, 0 `400` de binding/thinking nas sessões de teste |
+| **F10 — Sugestões e sombra** | `prompt_summaries`, `suggest`, `statusline`, hook de sugestão em fronteiras seguras; sombra de compressão e de cache de respostas; relatório de ganho | Sugestões com evidência correta nos testes; **portão G2:** compressão ativa só se a sombra mostrar ganho material (limiar definido nos dados) **e** um canário sem `400` nem queda de cache |
+| **F11 — Opcional** | Compressão ativa (6.7) e cache de respostas ativo, só se G2 passar | Testes de determinismo e de prefixo; métrica de cache sem queda |
+| **Backlog** | Cache de artefatos (resumos por hash) e demais ideias da v1 | Só com dados |
 
 ---
 
-## 13. Config (`tokred.toml`)
+## 13. Riscos e mitigações
 
-```toml
-[modes]
-route = "warn"          # off | warn | enforce
-enforce = "warn"
-guard_read = "enforce"
-guard_search = "warn"
-session_check = "warn"
-
-[guard_read]
-max_read_bytes = 204800
-deny_globs = ["**/package-lock.json", "**/pnpm-lock.yaml", "**/yarn.lock",
-              "**/Cargo.lock", "**/poetry.lock", "**/*.min.js", "**/*.map",
-              "**/dist/**", "**/build/**", "**/node_modules/**", "**/target/**", "**/.git/**"]
-
-[guard_search]
-large_repo_files = 5000
-
-[session_check]
-context_warn_tokens = 120000
-
-[update]
-mode = "notify"         # off | notify | auto
-
-[pricing]
-auto_sync = true
-
-[cache]
-l1_ttl = "4h"
-l2_ttl = "24h"
-l2_hits = 3
-l3_hits = 10
-```
-
-A config do usuário também passa por merge no update: as chaves novas entram com o valor padrão e os valores existentes são preservados.
-
----
-
-## 14. Distribuição
-
-Instalar e configurar são **dois passos separados**:
-
-```sh
-brew install sostenes198/tap/tokred   # 1. instala a CLI (não toca no Claude Code)
-tokred configure                  # 2. integra com o Claude Code
-```
-
-### Canais de instalação
-
-| SO | Comando | Como é publicado |
-|---|---|---|
-| macOS e Linux | `brew install sostenes198/tap/tokred` | Fórmula no tap `sostenes198/homebrew-tap`, gerada pelo `dist` a cada release estável |
-| Windows | `winget install tokred` | Manifest enviado ao `winget-pkgs` a cada release por uma action de publicação no CI (o `dist` não gera winget nativamente; confirmar na doc atual) |
-| Windows | `scoop bucket add sostenes198 https://github.com/sostenes198/scoop-bucket` + `scoop install sostenes198/tokred` | Manifest no bucket `sostenes198/scoop-bucket`, atualizado pelo CI |
-| Qualquer | Script shell (`curl … \| sh`) ou PowerShell (`irm … \| iex`) | Gerados pelo `dist` |
-| Qualquer | `cargo install tokred` | crates.io |
-
-- Build com o `dist` (antigo cargo-dist) para `x86_64`/`aarch64` em Linux (musl), macOS e Windows, com checksums em cada release.
-- **Nenhum canal mexe na pasta do Claude Code durante a instalação.** A fórmula do brew mostra nos caveats: `Run "tokred configure" to set up the Claude Code integration.` Os scripts imprimem a mesma mensagem no final.
-
-### Atualização conforme o método de instalação
-
-O tokred detecta como foi instalado pelo path do próprio executável:
-
-| Método | Detecção (path contém) | O que `tokred update` faz |
-|---|---|---|
-| Homebrew | `Cellar` ou `linuxbrew` | Mostra `brew upgrade tokred` (não se atualiza sozinho) |
-| winget | `WinGet\Packages` ou `WinGet\Links` | Mostra `winget upgrade tokred` |
-| scoop | `scoop\apps` ou `scoop\shims` | Mostra `scoop update tokred` |
-| cargo | `.cargo/bin` | Mostra `cargo install tokred --force` |
-| Script | qualquer outro | Faz o self-update (download, checksum, troca atômica) |
-
-- Depois que o binário muda de versão, a primeira execução de um **comando da CLI** compara a versão atual com a gravada no banco e, se mudou, reaplica a configuração de forma não interativa (hooks e agentes). Hooks não fazem isso; até lá continuam funcionando com a configuração anterior, e o `doctor` mostra que há reconfiguração pendente.
-- CI (GitHub Actions) com matriz dos 3 SOs rodando os testes, incluindo o merge com paths do Windows.
-
-### Verificação de nova versão
-
-- **Uma vez por dia**, na primeira execução de um comando da CLI (`stats`, `metrics`, `audit`, `doctor`, `cache`, `pricing`), consultar a última release publicada (API de releases do GitHub).
-- **Nunca dentro de hook.** O subcomando `tokred hook` não faz nenhuma verificação nem acesso à rede.
-- O resultado e o horário da última verificação ficam no banco. Antes de 24h, não consulta de novo, só reaproveita o resultado salvo.
-- Timeout de 2 s. Sem rede ou com erro: ignora em silêncio e tenta no dia seguinte.
-- Se houver versão mais nova, imprimir **no stderr**, depois da saída do comando, uma linha com o comando certo para o método de instalação, por exemplo `new version 0.4.0 available (current 0.3.2) → run: brew upgrade tokred`. Por ir no stderr, não quebra o `--json`.
-- Self-update (só para instalação via script): baixa o binário da release, **verifica o checksum**, substitui de forma atômica e reaplica a configuração. No Windows, renomeia o `.exe` antigo para `.old` antes de copiar o novo e apaga o `.old` na próxima execução.
-- Config: `[update] mode = "notify"` (padrão) | `"off"` | `"auto"`. O `auto` só vale para instalação via script; em gerenciadores de pacotes ele se comporta como `notify`. Mesmo no `auto`, só roda a partir de comandos da CLI, nunca de hook. A variável de ambiente `TOKRED_NO_UPDATE_CHECK=1` desliga a verificação (útil em CI).
-
-### Sincronização diária de preços
-
-- Mesma regra da verificação de versão: no máximo uma vez por dia, só a partir de comandos da CLI, com timeout curto e falha silenciosa.
-- É automática por padrão, porque é só dado e não código executável. Pode ser desligada com `[pricing] auto_sync = false`.
-
----
-
-## 15. Bootstrap do repositório (criar do zero)
-
-O repositório https://github.com/sostenes198/tokred começa vazio. Primeiro passo da F0:
-
-1. `git init`, branch padrão `main`, remote `origin` apontando para `git@github.com:sostenes198/tokred.git`.
-2. Criar o workspace (`Cargo.toml` raiz) com todos os crates da seção 3.1, cada um com `Cargo.toml` herdando `[workspace.package]` (version, edition, rust-version, license, repository, authors) e `lints.workspace = true`. Crates de caso de uso começam com o `lib.rs` contendo a doc de módulo e um teste trivial, para o CI ficar verde desde o primeiro commit.
-3. **`.gitignore`** com o padrão do Rust e afins:
-   ```gitignore
-   # Rust
-   /target/
-   **/*.rs.bk
-   *.pdb
-
-   # Coverage / profiling
-   *.profraw
-   *.profdata
-   lcov.info
-   /coverage/
-
-   # insta (snapshots pendentes de revisão)
-   *.snap.new
-   *.pending-snap
-
-   # Local data / databases created by tests or manual runs
-   *.db
-   *.db-shm
-   *.db-wal
-   /reports/
-
-   # Editors / IDEs
-   .idea/
-   .vscode/*
-   !.vscode/extensions.json
-   *.swp
-   *.swo
-   *~
-
-   # OS
-   .DS_Store
-   Thumbs.db
-   desktop.ini
-
-   # Env
-   .env
-   .env.*
-   ```
-   O `Cargo.lock` **é versionado** (o projeto tem binário).
-4. **`.gitattributes`:** `* text=auto eol=lf`, `*.ps1 text eol=crlf`, binários marcados como `binary`.
-5. **`.editorconfig`:** UTF-8, LF, 4 espaços em `.rs`, 2 em `.toml`, `.yml`, `.json` e `.md`, newline no fim.
-6. **`rust-toolchain.toml`:** canal `stable`, componentes `rustfmt` e `clippy`.
-7. **`rustfmt.toml`** e **`clippy.toml`** mínimos (ex.: `max_width = 100`; `msrv` igual ao do workspace).
-8. **`deny.toml`:** licenças permitidas (MIT, Apache-2.0, BSD, ISC, Unicode, Zlib), advisories como erro, só crates.io como fonte.
-9. **Licença:** padrão sugerido do ecossistema Rust, `MIT OR Apache-2.0` (dois arquivos `LICENSE-*`). **Confirmar com o autor antes de criar.**
-10. **CI (`.github/workflows/ci.yml`):** em push e PR para `main`; jobs de `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --workspace` em matriz Linux/macOS/Windows, verificação do MSRV, `cargo deny check`, `cargo doc --no-deps` sem warnings e cobertura com `cargo llvm-cov` (relatório como artefato).
-11. **`dependabot.yml`** semanal para `cargo` e `github-actions`.
-12. Templates de issue (bug, feature) e de PR, em inglês, com link para o `CONTRIBUTING`.
-13. O `dist` (`dist init`) é configurado na F1, junto com o pipeline de release.
-14. Primeiro commit: `chore: bootstrap workspace`.
-
----
-
-## 16. Documentação
-
-Toda a documentação é bilíngue (seção 0): versão em inglês no nome base e versão em português com sufixo `.pt-BR.md`. Cada arquivo começa com o seletor de idioma:
-
-```markdown
-**English** | [Português](README.pt-BR.md)
-```
-
-### 16.1 `README.md` (porta de entrada)
-
-Curto e objetivo; detalhes ficam nos docs e o README aponta para eles. Seções, nesta ordem:
-
-1. Nome, descrição curta e badges (CI, release, licença, crates.io).
-2. **O que é** e por que existe (2 ou 3 parágrafos, mencionando o rtk).
-3. **Funcionalidades** em lista curta, cada item com link para o doc correspondente.
-4. **Instalação** por SO (brew, winget, scoop, script, cargo) → link para `docs/installation.md`.
-5. **Início rápido:** `tokred configure`, `tokred doctor`, `tokred metrics`.
-6. **Comandos** em tabela resumida → link para `docs/commands.md`.
-7. **Como funciona** em um parágrafo → link para `docs/architecture.md` e `docs/hooks.md`.
-8. **Configuração** → link para `docs/configuration.md`.
-9. **Privacidade:** tudo local, as únicas chamadas de rede e como desligá-las.
-10. **Desinstalação:** `tokred unconfigure` + comando do gerenciador de pacotes.
-11. **Contribuindo** → `CONTRIBUTING.md`; **Licença**.
-
-### 16.2 `docs/`
-
-| Arquivo (+ `.pt-BR.md`) | Conteúdo |
+| Risco | Mitigação |
 |---|---|
-| `docs/installation.md` | Todos os canais de instalação, atualização por método, verificação de versão, desinstalação |
-| `docs/commands.md` | Referência de cada comando, flags, exemplos e saída `--json` |
-| `docs/configuration.md` | Cada chave do `tokred.toml`, valores padrão e variáveis de ambiente (`TOKRED_DATA_DIR`, `TOKRED_NO_UPDATE_CHECK`, `CLAUDE_CONFIG_DIR`) |
-| `docs/architecture.md` | Camadas, crates, regras de dependência e fluxo de um hook, com diagrama |
-| `docs/hooks.md` | Cada hook: evento, o que decide, modos `off`/`warn`/`enforce`, como coexiste com o rtk |
-| `docs/agents.md` | Os subagentes, o modelo de cada um e o formato de retorno |
-| `docs/metrics.md` | Como cada número é calculado, o que é estimativa, latência e o relatório HTML |
-| `docs/cache.md` | Store SQLite e a política L1/L2/L3 |
-| `docs/development.md` | Requisitos, build, rodar testes (unitários, integração, ponta a ponta, snapshots), cobertura, como testar hooks localmente com fixtures, como gerar uma release |
-| `docs/decisions.md` | Registro de decisões (data, contexto, decisão, consequências) |
-| `docs/spec.md` | Esta especificação |
+| A API ou o Claude Code mudam (novos betas, campos, cabeçalhos) | Repassar tudo o que não se entende; agir só no conhecido e testado; matriz de compatibilidade; disjuntor; `doctor` mostra a versão do Claude Code |
+| Rotear degrada a qualidade da resposta | Só tarefas de baixo risco; subagentes herdados; `observe` por padrão; limiar de confiança; só downgrade; `routing off` imediato; revisão por amostragem em F9 |
+| `400` por parâmetros incompatíveis entre modelos | Catálogo de capacidades; só rotear se compatível; reenvio do original; disjuntor |
+| Perder cache ao trocar de modelo | Decisão pegajosa por agente; auxiliares só quando compensa; nunca no loop principal |
+| Preserved thinking / binding | Nunca alterar `system`, `tools`, `messages` em `observe`; compressão só em sombra até o portão |
+| Proxy vira ponto único de falha | Fail-open; `tokred claude` sem proxy se não subir; serviço só com opt-in explícito |
+| Segurança do daemon local | Loopback, validação do `Host`, segredo de administração, sem log de credenciais ou corpos |
+| Termos de uso da assinatura via proxy | Verificar e registrar no spike; se não permitido, "somente chave de API" |
+| Custo de manutenção do proxy | Escopo mínimo, dados em vez de código (catálogo), testes com API falsa, matriz no CI |
+| Ganho menor que o esperado | Medir antes (F8), sombra antes de agir (F10), portões G1/G2 com limiares nos dados |
 
-Na raiz: `CONTRIBUTING.md` (fluxo de branch e PR, Conventional Commits, checklist de testes e de docs bilíngues) e `CHANGELOG.md` (formato Keep a Changelog, atualizado a cada release).
+### 13.1 Perguntas em aberto (resolver no spike F7)
 
-Regras:
-- Exemplos de comandos nos docs devem funcionar como estão escritos; os da seção de início rápido são cobertos por um teste ponta a ponta.
-- Ao mudar comportamento, o PR atualiza o doc correspondente nas duas línguas.
+1. Tráfego de **assinatura** tolera a reescrita do campo `model` (planos têm limites por família)? E é permitido pelos termos?
+2. O Claude Code reage à resposta com `model` diferente do pedido (interface, contabilidade interna)?
+3. Os cabeçalhos `x-claude-code-*` aparecem em todas as superfícies (CLI, extensões)?
+4. Quais requisições `auxiliary` compartilham o prefixo do cache na prática (medir)?
+
+---
+
+## 14. Distribuição e documentação
+
+- **Distribuição:** inalterada (`dist`, Homebrew, Scoop, winget, crates.io; instalar e configurar são passos separados). Novo: o proxy como serviço do usuário é sempre **opt-in**; nenhum canal de instalação ativa o proxy.
+- **Documentação:** continua bilíngue. Novos: `docs/proxy.md` (como funciona, segurança, compatibilidade), `docs/routing.md` (política de modelo e como auditar decisões), e atualizações de `commands`, `configuration`, `hooks`, `metrics`, `architecture`, `installation` e `decisions`. Exemplos de comandos devem funcionar como escritos; os da seção de início rápido têm teste de ponta a ponta.
+- **Privacidade (README):** tudo local; as únicas chamadas de rede do tokred são a sincronização de preços, a verificação de versão e `update` (só a partir de comandos da CLI) e o repasse do proxy ao host da API; `TOKRED_OFFLINE=1` desliga as três primeiras.

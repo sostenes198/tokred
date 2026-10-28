@@ -13,7 +13,7 @@ tokred é uma CLI em Rust, local e multiplataforma, que reduz o custo e o consum
 
 Tudo roda na sua máquina, com um SQLite próprio e sem serviço externo. Foi pensada para rodar junto com o [rtk](https://github.com/rtk-ai/rtk) (rust token killer), que comprime a saída de comandos; o tokred cuida do resto. Os dois convivem: o rtk fica com o matcher `Bash` e o tokred nunca registra um.
 
-> **Status:** as fases F0 a F5 estão implementadas: configure/unconfigure/doctor, os seis hooks, métricas, preços, audit, update e o pipeline de release (veja [a spec](docs/spec.pt-BR.md) e [o changelog](CHANGELOG.pt-BR.md)). As fases F6 e F7 foram adiadas de propósito até existirem dados reais de uso ([decisão](docs/decisions.pt-BR.md)).
+> **Status:** as fases F0 a F5 estão implementadas: configure/unconfigure/doctor, os seis hooks, métricas, preços, audit, update e o pipeline de release (veja [a spec](docs/spec.pt-BR.md) e [o changelog](CHANGELOG.pt-BR.md)). O próximo passo é um proxy local com política de modelo; a [spec final](docs/spec.pt-BR.md) diz o que está feito, o que muda e o que ainda falta.
 
 ## Funcionalidades
 
