@@ -7,12 +7,19 @@
 //! Dependencies always point inwards: use cases and adapters depend on this crate,
 //! never the other way around.
 
+pub mod cache;
 pub mod config;
 pub mod error;
 pub mod hook;
+pub mod hook_event;
+pub mod meta;
 pub mod paths;
 pub mod ports;
+pub mod pricing;
+pub mod release;
+pub mod session;
 pub mod types;
+pub mod usage;
 
 pub use config::{Config, Mode};
 pub use error::{ConfigError, FsError, StoreError};

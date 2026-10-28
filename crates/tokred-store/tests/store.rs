@@ -21,7 +21,7 @@ fn open_creates_the_full_schema_and_is_reopenable() {
     let db = dir.path().join("tokred.db");
 
     let store = Store::open(&db).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 1);
+    assert_eq!(store.schema_version().unwrap(), 2);
     let tables = store.table_names().unwrap();
     for expected in [
         "cache_entries",
@@ -42,7 +42,7 @@ fn open_creates_the_full_schema_and_is_reopenable() {
     drop(store);
 
     let reopened = Store::open(&db).unwrap();
-    assert_eq!(reopened.schema_version().unwrap(), 1);
+    assert_eq!(reopened.schema_version().unwrap(), 2);
 }
 
 #[test]
@@ -83,8 +83,8 @@ fn newer_schema_is_rejected() {
 #[test]
 fn in_memory_store_has_the_schema() {
     let store = Store::open_in_memory().unwrap();
-    assert_eq!(store.schema_version().unwrap(), 1);
-    assert_eq!(store.table_names().unwrap().len(), 9);
+    assert_eq!(store.schema_version().unwrap(), 2);
+    assert_eq!(store.table_names().unwrap().len(), 10);
 }
 
 #[test]
@@ -122,4 +122,28 @@ fn open_errors_are_readable() {
         .unwrap();
     let too_new = Store::open(&db).unwrap_err();
     assert!(too_new.to_string().contains("99"), "{too_new}");
+}
+
+#[test]
+fn meta_round_trip() {
+    use tokred_core::meta::MetaRepo;
+    let store = Store::open_in_memory().unwrap();
+    assert_eq!(store.meta_get("k").unwrap(), None);
+    store.meta_set("k", "one").unwrap();
+    store.meta_set("k", "two").unwrap();
+    assert_eq!(store.meta_get("k").unwrap().as_deref(), Some("two"));
+}
+
+#[test]
+fn meta_errors_are_reported() {
+    use tokred_core::meta::MetaRepo;
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("t.db");
+    let store = Store::open(&db).unwrap();
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute_batch("DROP TABLE meta;")
+        .unwrap();
+    assert!(store.meta_get("k").is_err());
+    assert!(store.meta_set("k", "v").is_err());
 }

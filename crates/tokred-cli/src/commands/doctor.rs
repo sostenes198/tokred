@@ -201,7 +201,7 @@ mod tests {
         configure(&sb);
         let (result, out) = run_doctor(&sb, false);
         result.unwrap();
-        assert!(out.contains("database:    ok (schema v1)"), "{out}");
+        assert!(out.contains("database:    ok (schema v2)"), "{out}");
         assert!(out.contains("config:      ok"));
         assert!(out.contains("No problems found."));
         assert!(out.contains("tokred-architect.md"));
@@ -226,7 +226,7 @@ mod tests {
         result.unwrap();
         let value: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(value["database"], true);
-        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["schema_version"], 2);
         assert_eq!(value["config"], true);
         assert_eq!(value["install"]["hooks"].as_array().unwrap().len(), 6);
     }

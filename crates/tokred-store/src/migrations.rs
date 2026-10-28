@@ -42,6 +42,8 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE TABLE ingest_state(file TEXT PRIMARY KEY, offset INTEGER, mtime INTEGER);
     ",
+    // v2: key/value state that has no table of its own.
+    "CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);",
 ];
 
 /// Highest schema version this build understands.

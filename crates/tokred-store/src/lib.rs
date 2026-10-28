@@ -3,8 +3,14 @@
 //! Opens the database (WAL mode, 2 s busy timeout), applies versioned migrations tracked in
 //! `PRAGMA user_version`, and implements the repository ports defined in `tokred-core`.
 
+mod cache;
+mod hook_event;
 mod manifest;
+mod meta;
 mod migrations;
+mod pricing;
+mod session;
+mod usage;
 
 use std::path::Path;
 

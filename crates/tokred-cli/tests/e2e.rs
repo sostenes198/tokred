@@ -145,7 +145,7 @@ fn quickstart_configure_doctor_unconfigure() {
         .clone();
     let json: Value = serde_json::from_slice(&out).unwrap();
     assert_eq!(json["database"], true);
-    assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["schema_version"], 2);
     insta::assert_json_snapshot!(json["install"]["hooks"]);
 
     // unconfigure restores the original (semantically) and removes the agents.
