@@ -1,0 +1,28 @@
+---
+source: crates/tokred-metrics/tests/pipeline.rs
+expression: "guards_summary(&events(), range())"
+---
+{
+  "range": {
+    "from": 1772323200,
+    "to": 1772409600
+  },
+  "estimate": true,
+  "reasons": [
+    {
+      "reason": "large_file",
+      "blocks": 1,
+      "bytes_saved": 80000,
+      "tokens_avoided": 20000
+    },
+    {
+      "reason": "reread",
+      "blocks": 1,
+      "bytes_saved": 40000,
+      "tokens_avoided": 10000
+    }
+  ],
+  "total_blocks": 2,
+  "total_bytes_saved": 120000,
+  "total_tokens_avoided": 30000
+}
