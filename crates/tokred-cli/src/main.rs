@@ -9,6 +9,8 @@ mod commands;
 mod env;
 mod io;
 mod logging;
+mod term;
+mod view;
 
 use std::io::Write;
 use std::process::ExitCode;

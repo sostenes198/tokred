@@ -13,15 +13,16 @@ tokred is a local, cross-platform CLI written in Rust that lowers the cost and t
 
 Everything runs on your machine, with its own SQLite database and no external service. It is designed to run next to [rtk](https://github.com/rtk-ai/rtk) (rust token killer), which compresses command output; tokred takes care of the rest. The two coexist: rtk owns the `Bash` matcher, tokred never registers one.
 
-> **Status: phase F0.** `configure`, `unconfigure` and `doctor` work today. The hooks are installed but are fail-open stubs that do nothing yet; guards, routing, metrics and pricing arrive in later phases (see [the spec](docs/spec.md) and [the changelog](CHANGELOG.md)).
+> **Status:** phases F0 to F5 are implemented: configure/unconfigure/doctor, the six hooks, metrics, pricing, audit, update and the release pipeline (see [the spec](docs/spec.md) and [the changelog](CHANGELOG.md)). Phases F6 and F7 are deliberately deferred until real usage data exists ([decision](docs/decisions.md)).
 
 ## Features
 
 - **Non-destructive setup:** `tokred configure` merges its hooks into `settings.json` without touching anything else, and `tokred unconfigure` removes exactly what it added → [commands](docs/commands.md)
 - **Model-routed subagents:** six subagents with a fixed model and a short return format → [agents](docs/agents.md)
-- **Hooks that never get in the way:** fail-open, `off | warn | enforce` modes → [hooks](docs/hooks.md)
+- **Hooks that never get in the way:** fail-open, `off | warn | enforce` modes; they route work to the right model and block useless reads → [hooks](docs/hooks.md)
+- **Numbers in your terminal:** `tokred stats` shows tokens, cost, savings, projection and the latency tokred adds, as a colored dashboard; `tokred metrics` also writes an offline HTML report → [metrics](docs/metrics.md)
+- **Audit:** how heavy your fixed context is and which MCP servers you never use → [commands](docs/commands.md)
 - **Local store:** SQLite with versioned migrations and a tiered cache → [cache](docs/cache.md)
-- **Metrics** (planned): tokens, cost, savings, projection and added latency → [metrics](docs/metrics.md)
 
 ## Installation
 
@@ -33,16 +34,16 @@ Installing the binary never touches Claude Code; that is a separate step (`tokre
 | Windows | `winget install tokred` or `scoop bucket add sostenes198 https://github.com/sostenes198/scoop-bucket` then `scoop install sostenes198/tokred` |
 | Any | `cargo install tokred` or the shell / PowerShell installer from the releases page |
 
-The release pipeline lands in phase F1; until then build from source (`cargo install --path crates/tokred-cli`). Details in [installation](docs/installation.md).
+Until the first release is published, build from source (`cargo install --path crates/tokred-cli`). Details in [installation](docs/installation.md).
 
 ## Quick start
 
 ```sh
 tokred configure    # integrate with Claude Code (shows a plan, asks to confirm)
 tokred doctor       # check what is installed
+tokred stats        # tokens, cost and savings, right in the terminal
+tokred metrics      # the same, plus the HTML report
 ```
-
-`tokred metrics` joins the quick start in phase F1.
 
 ## Commands
 
@@ -50,7 +51,13 @@ tokred doctor       # check what is installed
 |---|---|
 | `tokred configure [--claude-dir <path>] [--yes] [--force]` | Merge hooks into `settings.json`, install agents, create the database and config |
 | `tokred unconfigure [--purge]` | Remove only tokred's parts; `--purge` also deletes the data folder |
-| `tokred doctor [--json]` | Show what is installed and what needs attention |
+| `tokred doctor [--json] [--bench]` | Show what is installed and what needs attention; measure hook latency |
+| `tokred stats [--since 7d] [--by model\|day\|project]` | Dashboard of tokens, cost, savings and projection |
+| `tokred stats latency` | Time the hooks added to Claude Code |
+| `tokred metrics [--since 30d] [--no-open]` | The dashboard plus an HTML report |
+| `tokred audit [--project <path>]` | Weight of the fixed context and unused MCP servers |
+| `tokred update` | Update according to how tokred was installed |
+| `tokred pricing sync\|show`, `tokred cache stats\|prune` | Price table and cache |
 
 Full reference in [commands](docs/commands.md).
 
@@ -64,7 +71,7 @@ A single `tokred.toml` in the data folder, merged (never replaced) on update. Se
 
 ## Privacy
 
-Everything stays on your machine. The only network calls (price sync and the daily version check, both from phase F1) are made from CLI commands, never from hooks, and can be turned off: `[pricing] auto_sync = false`, `[update] mode = "off"` or `TOKRED_NO_UPDATE_CHECK=1`.
+Everything stays on your machine. The only network calls (the daily price sync and version check, and `update`) are made from CLI commands, never from hooks, and can be turned off: `[pricing] auto_sync = false`, `[update] mode = "off"`, `TOKRED_NO_UPDATE_CHECK=1`, or `TOKRED_OFFLINE=1` for all of them.
 
 ## Uninstall
 

@@ -19,15 +19,15 @@ tokred configure                      # 2. integra com o Claude Code
 | Qualquer | script shell (`curl … \| sh`) ou PowerShell (`irm … \| iex`) | Gerados pelo `dist` |
 | Qualquer | `cargo install tokred` | crates.io |
 
-> **Status:** o pipeline de release (`dist`, tap, bucket, winget) faz parte da fase F1. Até a primeira release, compile do código-fonte:
->
-> ```sh
-> cargo install --path crates/tokred-cli
-> ```
+As releases são construídas pelo [`dist`](https://opensource.axo.dev/cargo-dist/) para macOS, Linux (musl) e Windows em x86_64 e aarch64, cada arquivo com um checksum `.sha256`. Antes de a primeira release ser publicada, compile do código-fonte:
+
+```sh
+cargo install --path crates/tokred-cli
+```
 
 ## Atualização
 
-O `tokred update` (fase F1) detecta como o tokred foi instalado pelo path do executável e faz a coisa certa:
+O `tokred update` detecta como o tokred foi instalado pelo path do executável e faz a coisa certa:
 
 | Método | Path contém | O que `tokred update` faz |
 |---|---|---|
@@ -41,7 +41,11 @@ Depois que o binário muda de versão, o primeiro comando da CLI reaplica a conf
 
 ## Verificação de versão
 
-Uma vez por dia, só a partir de comandos da CLI (nunca de um hook), o tokred consulta o GitHub pela última release com timeout de 2 s e, se houver versão mais nova, imprime um aviso de uma linha no **stderr**, para não afetar a saída `--json`. Desligue com `[update] mode = "off"` ou `TOKRED_NO_UPDATE_CHECK=1`. (Fase F1.)
+Uma vez por dia, só a partir de comandos da CLI (nunca de um hook), o tokred consulta o GitHub pela última release com timeout de 2 s e, se houver versão mais nova, imprime um aviso de uma linha no **stderr**, para não afetar a saída `--json`. Desligue com `[update] mode = "off"` ou `TOKRED_NO_UPDATE_CHECK=1`; `TOKRED_OFFLINE=1` desliga toda chamada de rede (verificação de versão e sincronização de preços).
+
+## Publicando uma release (mantenedores)
+
+Envie uma tag `vX.Y.Z`. O `release.yml` gerado constrói os arquivos e instaladores e publica a fórmula do Homebrew; depois o `publish-package-managers.yml` atualiza o bucket do Scoop, abre o pull request do winget, adiciona o aviso de `tokred configure` à fórmula e publica os crates no crates.io. Estes secrets precisam existir no repositório: `HOMEBREW_TAP_TOKEN`, `SCOOP_BUCKET_TOKEN`, `WINGET_TOKEN`, `CARGO_REGISTRY_TOKEN`. O pacote do winget precisa ter o primeiro manifest enviado à mão uma vez.
 
 ## Desinstalação
 

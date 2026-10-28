@@ -69,6 +69,7 @@ pub fn run(
     // The database may have been created just now, so recompute against it.
     let plan = plan_configure(&fs, Some(&store as &dyn ManifestRepo), &input)?;
     let report = apply_configure(&fs, &store, &SystemClock, &plan)?;
+    tokred_update::mark_configured(&store, version)?;
     tracing::info!(claude_dir = %claude_dir.display(), "configured");
 
     let summary = render_summary(&plan, &report);

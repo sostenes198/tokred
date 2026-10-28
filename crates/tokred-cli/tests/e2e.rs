@@ -57,6 +57,7 @@ impl Sandbox {
             .env("XDG_DATA_HOME", home.join("xdg"))
             .env("CLAUDE_CONFIG_DIR", self.claude())
             .env("TOKRED_DATA_DIR", self.data())
+            .env("TOKRED_OFFLINE", "1")
             .env_remove("TOKRED_LOG");
         cmd
     }

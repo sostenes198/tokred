@@ -1,31 +1,165 @@
 //! Command implementations: composition of adapters and use cases, plus terminal output.
 
+mod audit;
 mod configure;
 mod doctor;
+mod housekeeping;
+mod pricing;
 mod unconfigure;
+mod update;
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use tokred_core::paths::{claude_dir_candidates, is_valid_claude_dir};
 use tokred_core::{Clock, Config, FileSystem, Timestamp};
 use tokred_install::StdFileSystem;
+use tokred_pricing::http::{LITELLM_URL, LiteLlmSource};
 use tokred_store::Store;
+use tokred_update::http::{GithubReleaseSource, LATEST_RELEASE_URL, UreqDownloader};
+use tokred_update::{StdBinarySwap, current_target};
 
 use crate::args::{Cli, Command};
 use crate::env::Env;
 use crate::io::Io;
 
+use self::housekeeping::{Network, Switches};
+
 /// Runs the parsed command.
 pub fn run(cli: Cli, io: &mut Io) -> Result<()> {
     let env = Env::from_process()?;
-    match cli.command {
-        Command::Configure { dir, yes, force } => {
-            configure::run(&env, io, dir.claude_dir, yes, force)
-        }
-        Command::Unconfigure { dir, purge } => unconfigure::run(&env, io, dir.claude_dir, purge),
-        Command::Doctor { dir, json } => doctor::run(&env, io, dir.claude_dir, json),
+    let version = env!("CARGO_PKG_VERSION");
+    let exe = std::env::current_exe()
+        .ok()
+        .map(|path| path.canonicalize().unwrap_or(path));
+    if let Some(exe) = &exe {
+        // A Windows self-update leaves the old executable behind as `.old`.
+        tokred_update::cleanup_old_binary(&StdFileSystem, exe);
     }
+
+    let chores = matches!(
+        cli.command,
+        Command::Doctor { .. }
+            | Command::Stats { .. }
+            | Command::Metrics { .. }
+            | Command::Audit { .. }
+            | Command::Pricing { .. }
+            | Command::Cache { .. }
+    );
+    if chores {
+        housekeeping::reapply_configuration(&env, io, version);
+    }
+
+    let switches = Switches::from_process();
+    let prices = LiteLlmSource::new().with_url(url_from_env("TOKRED_PRICES_URL", LITELLM_URL));
+    let releases = GithubReleaseSource::new()
+        .with_url(url_from_env("TOKRED_RELEASES_URL", LATEST_RELEASE_URL));
+    let net = Network {
+        prices: &prices,
+        releases: &releases,
+    };
+
+    let result = dispatch(
+        cli.command,
+        &env,
+        io,
+        &net,
+        switches,
+        exe.as_deref(),
+        version,
+    );
+    if result.is_ok() && chores {
+        let exe_text = exe
+            .as_deref()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        housekeeping::background_chores(&env, io, &net, switches, &exe_text, version);
+    }
+    result
+}
+
+/// A URL override from the environment (mirrors, tests), else the built-in one.
+fn url_from_env(name: &str, default: &str) -> String {
+    std::env::var(name)
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| default.to_owned())
+}
+
+fn dispatch(
+    command: Command,
+    env: &Env,
+    io: &mut Io,
+    net: &Network<'_>,
+    switches: Switches,
+    exe: Option<&Path>,
+    version: &str,
+) -> Result<()> {
+    match command {
+        Command::Configure { dir, yes, force } => {
+            configure::run(env, io, dir.claude_dir, yes, force)
+        }
+        Command::Unconfigure { dir, purge } => unconfigure::run(env, io, dir.claude_dir, purge),
+        Command::Doctor {
+            dir,
+            json,
+            bench: _,
+        } => doctor::run(env, io, dir.claude_dir, json),
+        Command::Audit { dir, project, json } => audit::run(env, io, dir.claude_dir, project, json),
+        Command::Pricing { command } => pricing::run(env, io, &command, net),
+        Command::Update { dir } => {
+            if switches.offline {
+                bail!("TOKRED_OFFLINE is set; `tokred update` needs the network");
+            }
+            let exe = exe.context("could not locate the running executable")?;
+            let downloader = UreqDownloader::new();
+            let target = current_target();
+            let flag = dir.claude_dir;
+            let reapply = move |path: &Path| spawn(path, &reapply_args(flag.as_deref()));
+            let ctx = update::UpdateContext {
+                exe,
+                current: version,
+                releases: net.releases,
+                downloader: &downloader,
+                fs: &StdFileSystem,
+                swap: &StdBinarySwap,
+                target: target.as_deref(),
+                reapply: &reapply,
+            };
+            update::run(io, &ctx)
+        }
+        // Wired once the hook storage lands.
+        Command::Stats { .. } | Command::Metrics { .. } | Command::Cache { .. } => {
+            bail!("this command is not available yet")
+        }
+    }
+}
+
+/// Arguments to re-apply the configuration with a freshly installed binary.
+fn reapply_args(claude_dir: Option<&Path>) -> Vec<OsString> {
+    let mut args: Vec<OsString> = vec!["configure".into(), "--yes".into()];
+    if let Some(dir) = claude_dir {
+        args.push("--claude-dir".into());
+        args.push(dir.into());
+    }
+    args
+}
+
+/// Runs `program args...` with inherited stdio and fails unless it exits successfully.
+fn spawn(program: &Path, args: &[OsString]) -> Result<()> {
+    let status = std::process::Command::new(program)
+        .args(args)
+        .status()
+        .with_context(|| format!("could not run {}", program.display()))?;
+    if !status.success() {
+        bail!(
+            "`{} {}` failed ({status})",
+            program.display(),
+            args.join(&OsString::from(" ")).to_string_lossy()
+        );
+    }
+    Ok(())
 }
 
 /// Wall clock.
@@ -148,6 +282,7 @@ pub mod testing {
             let env = Env {
                 claude_config_dir: None,
                 default_claude_dir: None,
+                home_dir: Some(root.path().join("home")),
                 data: DataLayout::new(root.path().join("data")),
             };
             Self { root, claude, env }
@@ -295,6 +430,37 @@ mod tests {
         std::fs::write(sb.env.data.db_path(), "this is not a database, just text").unwrap();
         let err = existing_store(&sb.env).err().unwrap();
         assert!(err.to_string().contains("could not open"), "{err}");
+    }
+
+    #[test]
+    fn url_overrides_come_from_the_environment() {
+        assert_eq!(
+            url_from_env("TOKRED_TEST_SURELY_UNSET_URL", "https://default"),
+            "https://default"
+        );
+    }
+
+    #[test]
+    fn reapply_args_pass_the_claude_dir_along() {
+        let bare = reapply_args(None);
+        assert_eq!(
+            bare,
+            vec![OsString::from("configure"), OsString::from("--yes")]
+        );
+        let with = reapply_args(Some(Path::new("/c d")));
+        assert_eq!(with.len(), 4);
+        assert_eq!(with[3], OsString::from("/c d"));
+    }
+
+    #[test]
+    fn spawn_succeeds_or_fails_with_the_programs_status() {
+        // The test binary itself is a convenient program: `--list` exits 0, a bad flag does not.
+        let me = std::env::current_exe().unwrap();
+        spawn(&me, &[OsString::from("--list")]).unwrap();
+        let err = spawn(&me, &[OsString::from("--definitely-not-a-flag")]).unwrap_err();
+        assert!(err.to_string().contains("failed"), "{err}");
+        let missing = spawn(Path::new("/no/such/program"), &[]).unwrap_err();
+        assert!(missing.to_string().contains("could not run"));
     }
 
     #[test]

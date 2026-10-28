@@ -11,7 +11,7 @@
 | Database | `<data>/tokred.db` |
 | Config | `<data>/tokred.toml` |
 | Logs | `<data>/logs/` (daily rotation, 7 days kept) |
-| Reports | `<data>/reports/metrics.html` (phase F1) |
+| Reports | `<data>/reports/metrics.html` |
 
 ## Environment variables
 
@@ -20,7 +20,11 @@
 | `TOKRED_DATA_DIR` | Overrides the data folder (also used by the tests) |
 | `CLAUDE_CONFIG_DIR` | Claude Code folder, as Claude Code itself reads it |
 | `TOKRED_LOG` | Log level written to the log file: `error`, `warn`, `info` (default), `debug`, `trace` |
-| `TOKRED_NO_UPDATE_CHECK` | `1` disables the daily version check (phase F1) |
+| `TOKRED_NO_UPDATE_CHECK` | `1` disables the daily version check |
+| `TOKRED_OFFLINE` | `1` disables every network call (version check, price sync, `update`, `pricing sync`) |
+| `TOKRED_PRICES_URL` | Alternative URL of the LiteLLM price list (mirrors, tests) |
+| `TOKRED_RELEASES_URL` | Alternative URL of the "latest release" API (mirrors, tests) |
+| `NO_COLOR` / `CLICOLOR_FORCE` | Turn terminal colors off / force them on |
 
 ## `tokred.toml`
 

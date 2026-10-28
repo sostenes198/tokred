@@ -11,7 +11,7 @@
 | Banco | `<dados>/tokred.db` |
 | Config | `<dados>/tokred.toml` |
 | Logs | `<dados>/logs/` (rotação diária, mantém 7 dias) |
-| Relatórios | `<dados>/reports/metrics.html` (fase F1) |
+| Relatórios | `<dados>/reports/metrics.html` |
 
 ## Variáveis de ambiente
 
@@ -20,7 +20,11 @@
 | `TOKRED_DATA_DIR` | Substitui a pasta de dados (também usada pelos testes) |
 | `CLAUDE_CONFIG_DIR` | Pasta do Claude Code, como o próprio Claude Code a lê |
 | `TOKRED_LOG` | Nível de log gravado no arquivo: `error`, `warn`, `info` (padrão), `debug`, `trace` |
-| `TOKRED_NO_UPDATE_CHECK` | `1` desliga a verificação diária de versão (fase F1) |
+| `TOKRED_NO_UPDATE_CHECK` | `1` desliga a verificação diária de versão |
+| `TOKRED_OFFLINE` | `1` desliga toda chamada de rede (verificação de versão, sincronização de preços, `update`, `pricing sync`) |
+| `TOKRED_PRICES_URL` | URL alternativa da lista de preços do LiteLLM (espelhos, testes) |
+| `TOKRED_RELEASES_URL` | URL alternativa da API de "última release" (espelhos, testes) |
+| `NO_COLOR` / `CLICOLOR_FORCE` | Desligam as cores do terminal / as forçam |
 
 ## `tokred.toml`
 

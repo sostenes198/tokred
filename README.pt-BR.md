@@ -13,15 +13,16 @@ tokred é uma CLI em Rust, local e multiplataforma, que reduz o custo e o consum
 
 Tudo roda na sua máquina, com um SQLite próprio e sem serviço externo. Foi pensada para rodar junto com o [rtk](https://github.com/rtk-ai/rtk) (rust token killer), que comprime a saída de comandos; o tokred cuida do resto. Os dois convivem: o rtk fica com o matcher `Bash` e o tokred nunca registra um.
 
-> **Status: fase F0.** `configure`, `unconfigure` e `doctor` já funcionam. Os hooks são instalados, mas por enquanto são stubs fail-open que não fazem nada; guardas, roteamento, métricas e preços chegam nas próximas fases (veja [a spec](docs/spec.pt-BR.md) e [o changelog](CHANGELOG.pt-BR.md)).
+> **Status:** as fases F0 a F5 estão implementadas: configure/unconfigure/doctor, os seis hooks, métricas, preços, audit, update e o pipeline de release (veja [a spec](docs/spec.pt-BR.md) e [o changelog](CHANGELOG.pt-BR.md)). As fases F6 e F7 foram adiadas de propósito até existirem dados reais de uso ([decisão](docs/decisions.pt-BR.md)).
 
 ## Funcionalidades
 
 - **Instalação não destrutiva:** `tokred configure` faz o merge dos hooks no `settings.json` sem mexer em mais nada, e `tokred unconfigure` remove exatamente o que foi adicionado → [comandos](docs/commands.pt-BR.md)
 - **Subagentes por modelo:** seis subagentes com modelo fixo e formato de retorno curto → [agentes](docs/agents.pt-BR.md)
-- **Hooks que nunca atrapalham:** fail-open, modos `off | warn | enforce` → [hooks](docs/hooks.pt-BR.md)
+- **Hooks que nunca atrapalham:** fail-open, modos `off | warn | enforce`; roteiam o trabalho para o modelo certo e bloqueiam leituras inúteis → [hooks](docs/hooks.pt-BR.md)
+- **Números no seu terminal:** `tokred stats` mostra tokens, custo, economia, projeção e a latência que o tokred acrescenta, num painel colorido; `tokred metrics` também gera um relatório HTML offline → [métricas](docs/metrics.pt-BR.md)
+- **Audit:** quão pesado é seu contexto fixo e quais servidores MCP você nunca usa → [comandos](docs/commands.pt-BR.md)
 - **Store local:** SQLite com migrations versionadas e cache em camadas → [cache](docs/cache.pt-BR.md)
-- **Métricas** (planejado): tokens, custo, economia, projeção e latência adicionada → [métricas](docs/metrics.pt-BR.md)
 
 ## Instalação
 
@@ -33,16 +34,16 @@ Instalar o binário nunca mexe no Claude Code; isso é um passo separado (`tokre
 | Windows | `winget install tokred` ou `scoop bucket add sostenes198 https://github.com/sostenes198/scoop-bucket` e depois `scoop install sostenes198/tokred` |
 | Qualquer | `cargo install tokred` ou o instalador shell / PowerShell da página de releases |
 
-O pipeline de release chega na fase F1; até lá, compile do código-fonte (`cargo install --path crates/tokred-cli`). Detalhes em [instalação](docs/installation.pt-BR.md).
+Até a primeira release ser publicada, compile do código-fonte (`cargo install --path crates/tokred-cli`). Detalhes em [instalação](docs/installation.pt-BR.md).
 
 ## Início rápido
 
 ```sh
 tokred configure    # integra com o Claude Code (mostra um plano e pede confirmação)
 tokred doctor       # confere o que está instalado
+tokred stats        # tokens, custo e economia, direto no terminal
+tokred metrics      # o mesmo, mais o relatório HTML
 ```
-
-O `tokred metrics` entra no início rápido na fase F1.
 
 ## Comandos
 
@@ -50,7 +51,13 @@ O `tokred metrics` entra no início rápido na fase F1.
 |---|---|
 | `tokred configure [--claude-dir <path>] [--yes] [--force]` | Faz o merge dos hooks no `settings.json`, instala os agentes, cria o banco e a config |
 | `tokred unconfigure [--purge]` | Remove só as partes do tokred; `--purge` também apaga a pasta de dados |
-| `tokred doctor [--json]` | Mostra o que está instalado e o que precisa de atenção |
+| `tokred doctor [--json] [--bench]` | Mostra o que está instalado e o que precisa de atenção; mede a latência dos hooks |
+| `tokred stats [--since 7d] [--by model\|day\|project]` | Painel de tokens, custo, economia e projeção |
+| `tokred stats latency` | Tempo que os hooks acrescentaram ao Claude Code |
+| `tokred metrics [--since 30d] [--no-open]` | O painel mais um relatório HTML |
+| `tokred audit [--project <path>]` | Peso do contexto fixo e MCPs sem uso |
+| `tokred update` | Atualiza conforme o método de instalação |
+| `tokred pricing sync\|show`, `tokred cache stats\|prune` | Tabela de preços e cache |
 
 Referência completa em [comandos](docs/commands.pt-BR.md).
 
@@ -64,7 +71,7 @@ Um único `tokred.toml` na pasta de dados, com merge (nunca substituição) a ca
 
 ## Privacidade
 
-Tudo fica na sua máquina. As únicas chamadas de rede (sincronização de preços e verificação diária de versão, ambas a partir da fase F1) saem de comandos da CLI, nunca de hooks, e podem ser desligadas: `[pricing] auto_sync = false`, `[update] mode = "off"` ou `TOKRED_NO_UPDATE_CHECK=1`.
+Tudo fica na sua máquina. As únicas chamadas de rede (a sincronização diária de preços, a verificação de versão e o `update`) saem de comandos da CLI, nunca de hooks, e podem ser desligadas: `[pricing] auto_sync = false`, `[update] mode = "off"`, `TOKRED_NO_UPDATE_CHECK=1`, ou `TOKRED_OFFLINE=1` para todas.
 
 ## Desinstalação
 

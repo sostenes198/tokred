@@ -22,6 +22,8 @@ pub struct Env {
     pub claude_config_dir: Option<PathBuf>,
     /// `<home>/.claude`.
     pub default_claude_dir: Option<PathBuf>,
+    /// The user's home folder.
+    pub home_dir: Option<PathBuf>,
     /// tokred data folder.
     pub data: DataLayout,
 }
@@ -44,7 +46,8 @@ impl Env {
         );
         Ok(Self {
             claude_config_dir: var("CLAUDE_CONFIG_DIR"),
-            default_claude_dir: home.map(|h| h.join(".claude")),
+            default_claude_dir: home.as_ref().map(|h| h.join(".claude")),
+            home_dir: home,
             data: DataLayout::new(resolve_data_dir(var("TOKRED_DATA_DIR"), platform_default)),
         })
     }

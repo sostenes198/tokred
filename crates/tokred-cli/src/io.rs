@@ -7,27 +7,52 @@ use anyhow::Result;
 /// Where a command reads answers from and writes its output to.
 pub struct Io {
     interactive: bool,
+    color: bool,
     input: Box<dyn BufRead>,
     out: Box<dyn Write>,
+    err: Box<dyn Write>,
 }
 
 impl Io {
     /// The real terminal: stdin, stdout, and whether stdin is a TTY.
     pub fn stdio() -> Self {
-        Self::new(
+        let io = Self::new(
             std::io::stdin().is_terminal(),
             Box::new(std::io::stdin().lock()),
             Box::new(std::io::stdout()),
-        )
+            Box::new(std::io::stderr()),
+        );
+        io.with_color(wants_color(std::io::stdout().is_terminal(), |name| {
+            std::env::var_os(name)
+        }))
     }
 
     /// Builds an `Io` from explicit parts.
-    pub fn new(interactive: bool, input: Box<dyn BufRead>, out: Box<dyn Write>) -> Self {
+    pub fn new(
+        interactive: bool,
+        input: Box<dyn BufRead>,
+        out: Box<dyn Write>,
+        err: Box<dyn Write>,
+    ) -> Self {
         Self {
             interactive,
+            color: false,
             input,
             out,
+            err,
         }
+    }
+
+    /// Turns ANSI colors on or off for this stream.
+    #[must_use]
+    pub fn with_color(mut self, color: bool) -> Self {
+        self.color = color;
+        self
+    }
+
+    /// Whether output should be colored.
+    pub fn color(&self) -> bool {
+        self.color
     }
 
     /// Whether a person can answer prompts.
@@ -40,6 +65,11 @@ impl Io {
         &mut *self.out
     }
 
+    /// The error stream (notices that must not pollute `--json` output).
+    pub fn err(&mut self) -> &mut dyn Write {
+        &mut *self.err
+    }
+
     /// Asks a question and returns the trimmed answer (`None` at end of input).
     pub fn ask(&mut self, question: &str) -> Result<Option<String>> {
         write!(self.out, "{question}")?;
@@ -50,6 +80,18 @@ impl Io {
         }
         Ok(Some(line.trim().to_owned()))
     }
+}
+
+/// Color policy: `NO_COLOR` always wins, `CLICOLOR_FORCE` forces color on, a dumb terminal
+/// gets none, and otherwise color is used when stdout is a terminal.
+fn wants_color(stdout_is_terminal: bool, var: impl Fn(&str) -> Option<std::ffi::OsString>) -> bool {
+    if var("NO_COLOR").is_some_and(|value| !value.is_empty()) {
+        return false;
+    }
+    if var("CLICOLOR_FORCE").is_some_and(|value| !value.is_empty() && value != "0") {
+        return true;
+    }
+    stdout_is_terminal && var("TERM").is_none_or(|term| term != "dumb")
 }
 
 #[cfg(test)]
@@ -84,15 +126,23 @@ pub mod testing {
         }
     }
 
-    /// An `Io` that answers from `input` and records its output.
+    /// An `Io` that answers from `input` and records its output (stderr is discarded).
     pub fn scripted(interactive: bool, input: &str) -> (Io, Capture) {
-        let capture = Capture::default();
+        let (io, out, _err) = scripted_with_err(interactive, input);
+        (io, out)
+    }
+
+    /// Like [`scripted`], also recording what is written to stderr.
+    pub fn scripted_with_err(interactive: bool, input: &str) -> (Io, Capture, Capture) {
+        let out = Capture::default();
+        let err = Capture::default();
         let io = Io::new(
             interactive,
             Box::new(std::io::Cursor::new(input.to_owned().into_bytes())),
-            Box::new(capture.clone()),
+            Box::new(out.clone()),
+            Box::new(err.clone()),
         );
-        (io, capture)
+        (io, out, err)
     }
 }
 
@@ -110,11 +160,51 @@ mod tests {
     }
 
     #[test]
+    fn err_writes_to_its_own_stream() {
+        let (mut io, out, err) = super::testing::scripted_with_err(false, "");
+        std::io::Write::write_all(io.err(), b"notice").unwrap();
+        assert_eq!(err.text(), "notice");
+        assert_eq!(out.text(), "");
+    }
+
+    #[test]
     fn out_writes_to_the_captured_stream() {
         let (mut io, out) = scripted(false, "");
         assert!(!io.interactive());
         std::io::Write::write_all(io.out(), b"hello").unwrap();
         assert_eq!(out.text(), "hello");
+    }
+
+    #[test]
+    fn the_color_policy_follows_no_color_clicolor_force_and_the_terminal() {
+        use std::ffi::OsString;
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(key, _)| *key == name)
+                    .map(|(_, v)| OsString::from(*v))
+            }
+        };
+        assert!(super::wants_color(true, env(&[])));
+        assert!(!super::wants_color(false, env(&[])));
+        assert!(!super::wants_color(true, env(&[("NO_COLOR", "1")])));
+        assert!(super::wants_color(true, env(&[("NO_COLOR", "")])));
+        assert!(!super::wants_color(true, env(&[("TERM", "dumb")])));
+        assert!(super::wants_color(true, env(&[("TERM", "xterm-256color")])));
+        assert!(super::wants_color(false, env(&[("CLICOLOR_FORCE", "1")])));
+        assert!(!super::wants_color(false, env(&[("CLICOLOR_FORCE", "0")])));
+        assert!(!super::wants_color(
+            true,
+            env(&[("CLICOLOR_FORCE", "1"), ("NO_COLOR", "1")])
+        ));
+    }
+
+    #[test]
+    fn with_color_toggles_the_flag() {
+        let (io, _) = scripted(false, "");
+        assert!(!io.color());
+        assert!(io.with_color(true).color());
     }
 
     #[test]

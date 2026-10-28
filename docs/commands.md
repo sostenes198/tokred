@@ -2,9 +2,23 @@
 
 # Commands
 
-Implemented in phase F0: `configure`, `unconfigure`, `doctor`, and the internal `hook`. The other commands from the spec arrive with their phases: `update`, `stats`, `metrics`, `pricing`, `cache` (F1), `audit` (F2).
+Every command that prints a report accepts `--json` for machine-readable output. Table output is colored when stdout is a terminal; set `NO_COLOR=1` to turn colors off (`CLICOLOR_FORCE=1` forces them on).
 
-All three commands accept `--claude-dir <path>`.
+| Command | What it does |
+|---|---|
+| `tokred configure` | Integrate with Claude Code |
+| `tokred update` | Update according to how tokred was installed |
+| `tokred unconfigure` | Remove tokred's parts from Claude Code |
+| `tokred doctor` | Show what is installed and what needs attention |
+| `tokred stats` | Tokens, cost, savings and projection, in the terminal |
+| `tokred stats latency` | Time the hooks added to Claude Code |
+| `tokred metrics` | The same numbers plus an HTML report |
+| `tokred audit` | Weight of the fixed context and unused MCP servers |
+| `tokred pricing sync` / `show` | Refresh or show the price table |
+| `tokred cache stats` / `prune` | State of the tiered cache; remove expired entries |
+| `tokred hook <event>` | Internal: called by Claude Code |
+
+The folder of Claude Code can be given with `--claude-dir <path>` on every command that needs it.
 
 ## `tokred configure [--claude-dir <path>] [--yes] [--force]`
 
@@ -15,45 +29,51 @@ Integrates tokred with Claude Code.
 3. Prints the **plan**: hooks to add (`+`), update (`~`) or keep (`=`), agents to create, update or leave alone, and the backup it will make. It asks for confirmation; `--yes` skips the question (required when stdin is not a terminal).
 4. Applies it: creates the data folder, database and `tokred.toml`, merges `settings.json` (backup in `settings.json.tokred.bak`, only the last one is kept), and installs the agents.
 
-Running it again is safe: the result is the same. If `settings.json` is not valid JSON the command aborts and **writes nothing**.
+Running it again is safe: the result is the same. If `settings.json` is not valid JSON the command aborts and **writes nothing**. `--force` overwrites agent files even if you edited them (otherwise your version is kept and the new one is written to `tokred-x.md.new`).
 
-`--force` overwrites agent files even if you edited them (otherwise your version is kept and the new one is written to `tokred-x.md.new`).
+## `tokred update [--claude-dir <path>]`
+
+Checks the latest release and acts according to how tokred was installed (detected from the path of the executable):
+
+| Installed with | `tokred update` |
+|---|---|
+| Homebrew, winget, scoop, cargo | Prints the command to run (`brew upgrade tokred`, `winget upgrade tokred`, `scoop update tokred`, `cargo install tokred --force`) |
+| Install script | Downloads the archive for this platform, **verifies its SHA-256**, replaces the binary atomically and re-applies the configuration with the new binary |
+
+After the binary changes version, the first CLI command you run re-applies the configuration quietly (hooks never do this), so a package-manager upgrade needs no extra step. Needs the network; refuses to run when `TOKRED_OFFLINE` is set.
 
 ## `tokred unconfigure [--claude-dir <path>] [--purge]`
 
-Removes the tokred hooks from `settings.json` and the agent files tokred installed and you did not edit. Edited agents are kept and reported. Files without the `tokred-` prefix are never touched. `--purge` also deletes the data folder; it refuses to do so if the folder does not contain `tokred.db` or `tokred.toml`.
+Removes the tokred hooks from `settings.json` and the agent files tokred installed and you did not edit. Edited agents are kept and reported. Files without the `tokred-` prefix are never touched, and anything in `settings.json` that tokred does not understand is left as it is. `--purge` also deletes the data folder; it refuses to do so if the folder does not contain `tokred.db` or `tokred.toml`.
 
-## `tokred doctor [--claude-dir <path>] [--json]`
+## `tokred doctor [--claude-dir <path>] [--json] [--bench]`
 
-Shows the tokred version, binary path, Claude Code and data folders, database schema version, config status, rtk detection, a table of hooks (`ok`, `missing`, `outdated`, or a binary path that no longer exists), a table of agents (`current`, `outdated`, `edited by you`, `missing`, `.new` pending), and a list of problems and notes.
+Shows the tokred version, binary path, Claude Code and data folders, database schema version, config status, rtk detection, a table of hooks (`ok`, `missing`, `outdated`, or a binary path that no longer exists), a table of agents (`current`, `outdated`, `edited by you`, `missing`, `.new` pending), and a list of problems and notes. With `--bench` it also runs every hook many times with realistic input and measures the real latency from the outside (process start to exit); the result is saved and used by `stats latency`.
 
-With `--json` it prints one JSON object:
+## `tokred stats [--since 7d] [--by model|day|project] [--json]`
 
-```json
-{
-  "tokred_version": "0.1.0",
-  "binary": "/opt/homebrew/bin/tokred",
-  "binary_on_path": true,
-  "data_dir": "…",
-  "database": true,
-  "schema_version": 1,
-  "config": true,
-  "rtk_binary_on_path": true,
-  "install": {
-    "claude_dir": "…",
-    "settings_exists": true,
-    "settings_valid": true,
-    "hooks": [{ "hook": "guard-read", "event": "PreToolUse", "state": "ok", "binary_missing": false }],
-    "agents": [{ "file": "tokred-dev.md", "state": "current", "pending_new": false }],
-    "rtk_hooks_detected": true,
-    "issues": [],
-    "notes": []
-  }
-}
-```
+The cost dashboard, printed in the terminal: totals (messages, tokens, real cost), what the same tokens would cost if everything ran on opus, the saving from routing and from the guards (**an estimate**, labelled as such), the prompt-cache hit rate, the monthly projection, an efficiency meter, and a numbered table with a share column and an impact bar. Models priced by family fallback are flagged. When data exists from before the first `configure`, the cost per session before and after is compared. Transcripts are ingested incrementally first, so it is fast after the first run. `--since` accepts hours, days and weeks (`12h`, `7d`, `2w`).
 
-`doctor --bench` (hook latency) arrives in phase F3.
+## `tokred stats latency [--since 7d] [--by hook|day|session] [--json]`
+
+How much time the tokred hooks added to Claude Code: runs, p50/p95/p99/max per hook, total added time (an estimate: it includes the process start-up cost measured by `doctor --bench`), average per prompt, outcomes (ok, error, panic, timeout guard), an alert when a hook's p95 passes the 50 ms budget, and a comparison with what the guards saved in the same period.
+
+## `tokred metrics [--since 30d] [--no-open]`
+
+Prints the same dashboard as `stats` and writes the self-contained HTML report to `<data>/reports/metrics.html` (always the same file, overwritten atomically), then opens it in the browser unless `--no-open`. The report works offline: no network, no external fonts or scripts.
+
+## `tokred audit [--project <path>] [--json]`
+
+Estimates (characters / 4) the weight of the context Claude Code loads before you type: `CLAUDE.md` files with their `@` imports, rules, skills and agents; and lists MCP servers that were not used in the last 30 days. The project defaults to the current folder. The exact weight of MCP tool schemas cannot be computed locally, so only usage is shown.
+
+## `tokred pricing sync` / `tokred pricing show [--json]`
+
+`sync` refreshes the price table from the public LiteLLM list; if it cannot be reached the embedded snapshot stays in use. `show` prints the table (USD per million tokens). Prices are also synced automatically, at most once a day, by the commands above.
+
+## `tokred cache stats [--json]` / `tokred cache prune`
+
+`stats` shows entries and hits per tier (L1/L2/L3); `prune` removes expired entries. See [cache](cache.md).
 
 ## `tokred hook <event>` (internal)
 
-Called by Claude Code, never by hand (except for testing, see [development](development.md)). Reads JSON on stdin, writes JSON on stdout. Events: `route`, `enforce`, `guard-read`, `guard-search`, `session-check`, `session-start`. It **always exits 0**, even for an unknown event or invalid input. In phase F0 every hook is a stub that prints nothing.
+Called by Claude Code, never by hand (except for testing, see [development](development.md)). Reads JSON on stdin, writes JSON on stdout. Events: `route`, `enforce`, `guard-read`, `guard-search`, `session-check`, `session-start`. It **always exits 0**, even for an unknown event or invalid input. See [hooks](hooks.md).
