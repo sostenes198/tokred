@@ -105,11 +105,11 @@ mod tests {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let sink_seen = seen.clone();
         let (sink, handle) = spawn_writer(Box::new(move |record| {
-            let ProxyRecord::Request(request) = record else {
-                return Err("unexpected".to_owned());
-            };
-            sink_seen.lock().unwrap().push(request.id.clone());
-            if request.id == "bad" {
+            let mut ids = sink_seen.lock().unwrap();
+            if let ProxyRecord::Request(request) = record {
+                ids.push(request.id.clone());
+            }
+            if ids.last().is_some_and(|id| id == "bad") {
                 Err("disk full".to_owned())
             } else {
                 Ok(())
@@ -132,28 +132,27 @@ mod tests {
 
     #[test]
     fn a_full_queue_drops_instead_of_blocking() {
+        let (started, in_apply) = channel::<()>();
         let (release, wait) = channel::<()>();
         let (sink, handle) = spawn_writer_with_capacity(
             0,
             Box::new(move |_| {
-                wait.recv().map_err(|error| error.to_string())?;
+                started.send(()).unwrap();
+                wait.recv().unwrap();
                 Ok(())
             }),
         );
-        // The first record is taken by the thread (blocked in apply), the second fills the
-        // queue of one, the rest are dropped.
+        // The first record is taken by the thread, which then blocks in apply; the second
+        // fills the queue of one; the third is dropped.
         sink.record(request("1"));
-        while sink.sender.try_send(request("probe")).is_ok() {
-            std::thread::yield_now();
-        }
-        sink.record(request("dropped"));
-        assert!(sink.dropped() >= 1);
-        drop(release);
+        in_apply.recv().unwrap();
+        sink.record(request("2"));
+        sink.record(request("3"));
+        assert_eq!(sink.dropped(), 1);
+        release.send(()).unwrap();
+        release.send(()).unwrap();
         drop(sink);
         let report = handle.join().unwrap();
-        assert_eq!(
-            report.written, 0,
-            "every apply failed once the release closed"
-        );
+        assert_eq!(report.written, 2);
     }
 }

@@ -721,6 +721,7 @@ dependencies = [
  "http",
  "http-body",
  "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]
@@ -1961,12 +1962,14 @@ dependencies = [
  "hyper",
  "hyper-rustls",
  "hyper-util",
+ "proptest",
  "serde_json",
  "tempfile",
  "thiserror",
  "tokio",
  "tokred-core",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

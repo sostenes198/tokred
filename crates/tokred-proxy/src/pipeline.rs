@@ -118,7 +118,7 @@ pub(crate) fn prepare(
         }
     };
     let send = if changed {
-        serde_json::to_vec(&body).map_or_else(|_| original.clone(), Bytes::from)
+        serde_json::to_vec(&body).map_or(original.clone(), Bytes::from)
     } else {
         original.clone()
     };

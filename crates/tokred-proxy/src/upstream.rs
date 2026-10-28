@@ -99,11 +99,9 @@ mod tests {
             "/relative",
             "not a url",
         ] {
+            let refused = Upstream::parse(bad);
             assert!(
-                matches!(
-                    Upstream::parse(bad),
-                    Err(ProxyError::InvalidUpstream { .. })
-                ),
+                matches!(refused, Err(ProxyError::InvalidUpstream { .. })),
                 "{bad}"
             );
         }
