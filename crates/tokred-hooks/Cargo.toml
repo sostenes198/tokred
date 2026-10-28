@@ -11,6 +11,9 @@ authors.workspace = true
 [lints]
 workspace = true
 
+[dev-dependencies]
+tracing-subscriber = { workspace = true }
+
 [dependencies]
 thiserror = { workspace = true }
 tokred-core = { workspace = true }

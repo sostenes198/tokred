@@ -17,23 +17,24 @@ pub struct BinaryPath {
 /// target (`.../Cellar/tokred/0.3.2/bin/tokred`) that `current_exe()` returns after resolution.
 pub fn find() -> anyhow::Result<BinaryPath> {
     let current = std::env::current_exe()?;
-    let current_canonical = current.canonicalize().unwrap_or_else(|_| current.clone());
-    if let Ok(candidates) = which::which_all("tokred") {
-        for candidate in candidates {
-            let same = candidate
+    let current_canonical = current.canonicalize().unwrap_or(current.clone());
+    let on_path = which::which_all("tokred")
+        .into_iter()
+        .flatten()
+        .find(|candidate| {
+            candidate
                 .canonicalize()
-                .is_ok_and(|canonical| canonical == current_canonical);
-            if same {
-                return Ok(BinaryPath {
-                    path: display(&candidate),
-                    stable: true,
-                });
-            }
-        }
-    }
-    Ok(BinaryPath {
-        path: display(&current),
-        stable: false,
+                .is_ok_and(|canonical| canonical == current_canonical)
+        });
+    Ok(match on_path {
+        Some(found) => BinaryPath {
+            path: display(&found),
+            stable: true,
+        },
+        None => BinaryPath {
+            path: display(&current),
+            stable: false,
+        },
     })
 }
 

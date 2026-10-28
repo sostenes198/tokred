@@ -26,6 +26,9 @@ pub enum OpenError {
     },
 }
 
+const TABLE_NAMES_SQL: &str =
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name";
+
 /// Handle to the tokred database.
 #[derive(Debug)]
 pub struct Store {
@@ -59,10 +62,7 @@ impl Store {
 
     /// Names of the user tables, sorted.
     pub fn table_names(&self) -> Result<Vec<String>, rusqlite::Error> {
-        let mut stmt = self.conn.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' \
-             ORDER BY name",
-        )?;
+        let mut stmt = self.conn.prepare(TABLE_NAMES_SQL)?;
         stmt.query_map([], |row| row.get(0))?.collect()
     }
 }

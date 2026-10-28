@@ -52,3 +52,38 @@ pub enum ConfigError {
     #[error("`{0}` in tokred.toml must be a table")]
     NotATable(String),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fs_error_names_the_path_and_keeps_the_source() {
+        let err = FsError::new("/a/b", std::io::Error::other("boom"));
+        assert_eq!(err.path, PathBuf::from("/a/b"));
+        assert!(err.to_string().contains("/a/b") && err.to_string().contains("boom"));
+        assert!(std::error::Error::source(&err).is_some());
+    }
+
+    #[test]
+    fn store_error_wraps_the_backend_error() {
+        let err = StoreError::backend(std::io::Error::other("disk"));
+        assert!(err.to_string().contains("disk"));
+        assert!(std::error::Error::source(&err).is_some());
+    }
+
+    #[test]
+    fn config_errors_are_readable() {
+        let parse = toml::from_str::<toml::Table>("[[[").unwrap_err();
+        assert!(
+            ConfigError::from(parse)
+                .to_string()
+                .contains("invalid TOML")
+        );
+        assert!(
+            ConfigError::NotATable("modes".into())
+                .to_string()
+                .contains("modes")
+        );
+    }
+}

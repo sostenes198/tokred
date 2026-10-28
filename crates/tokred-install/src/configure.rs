@@ -9,7 +9,7 @@ use serde_json::Value;
 use tokred_core::{Clock, FileSystem, ManifestEntry, ManifestRepo};
 
 use crate::agents::{
-    self, AgentAction, TEMPLATES, agents_dir, conflict_path, content_hash, plan_agent, render,
+    AgentAction, TEMPLATES, agents_dir, conflict_path, content_hash, plan_agent, render,
 };
 use crate::error::InstallError;
 use crate::settings::{HookChange, hook_entries, merge_settings, plan_hook_changes};
@@ -50,6 +50,10 @@ pub struct AgentPlan {
 /// Everything `configure` is about to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigurePlan {
+    /// The Claude Code folder.
+    pub claude_dir: PathBuf,
+    /// `<claude>/agents/`.
+    pub agents_dir: PathBuf,
     /// `<claude>/settings.json`.
     pub settings_path: PathBuf,
     /// `<claude>/settings.json.tokred.bak`.
@@ -163,6 +167,8 @@ pub fn plan_configure(
 
     Ok(ConfigurePlan {
         backup_path: backup_path(input.claude_dir),
+        claude_dir: input.claude_dir.to_owned(),
+        agents_dir: dir,
         settings_path,
         original_settings,
         new_settings,
@@ -186,17 +192,13 @@ pub fn apply_configure(
             fs.write_atomic(&plan.backup_path, original.as_bytes())?;
             backup_written = true;
         }
-        if let Some(parent) = plan.settings_path.parent() {
-            fs.create_dir_all(parent)?;
-        }
+        fs.create_dir_all(&plan.claude_dir)?;
         fs.write_atomic(&plan.settings_path, new_settings.as_bytes())?;
         settings_written = true;
     }
 
     let mut done = Vec::with_capacity(plan.agents.len());
-    if let Some(parent) = plan.agents.first().and_then(|agent| agent.path.parent()) {
-        fs.create_dir_all(parent)?;
-    }
+    fs.create_dir_all(&plan.agents_dir)?;
     for agent in &plan.agents {
         let stale_new = conflict_path(&agent.path);
         match agent.action {
@@ -238,10 +240,4 @@ fn record(
         installed_at: clock.now(),
     })?;
     Ok(())
-}
-
-/// Re-exported for callers that only need the prefix check.
-#[must_use]
-pub fn is_tokred_agent_file(name: &str) -> bool {
-    name.starts_with(agents::FILE_PREFIX)
 }

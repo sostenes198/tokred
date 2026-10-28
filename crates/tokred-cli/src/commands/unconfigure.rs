@@ -1,17 +1,22 @@
 //! `tokred unconfigure`.
 
-use std::path::PathBuf;
+use std::fmt::Write as _;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
 use tokred_core::{FileSystem, ManifestRepo};
-use tokred_install::{StdFileSystem, unconfigure};
+use tokred_install::{StdFileSystem, UnconfigureReport, unconfigure};
 
 use super::{existing_store, select_claude_dir, show};
 use crate::env::Env;
+use crate::io::Io;
 
-pub fn run(env: &Env, dir_flag: Option<PathBuf>, purge: bool) -> Result<()> {
+const FOOTER: &str =
+    "The tokred binary itself is removed with your package manager (brew, winget, scoop, cargo).";
+
+pub fn run(env: &Env, io: &mut Io, dir_flag: Option<PathBuf>, purge: bool) -> Result<()> {
     let fs = StdFileSystem;
-    let claude_dir = select_claude_dir(&fs, env, dir_flag, false)?;
+    let claude_dir = select_claude_dir(&fs, env, io, dir_flag, false)?;
     let store = existing_store(env)?;
     let report = unconfigure(
         &fs,
@@ -21,44 +26,158 @@ pub fn run(env: &Env, dir_flag: Option<PathBuf>, purge: bool) -> Result<()> {
     // Release the database file before a possible purge (required on Windows).
     drop(store);
 
-    println!("tokred unconfigure ({})", show(&claude_dir));
-    println!(
+    let shown = render_report(&claude_dir, &report);
+    write!(io.out(), "{shown}")?;
+    if purge {
+        let outcome = purge_data_folder(&fs, env)?;
+        writeln!(io.out(), "  {outcome}")?;
+    }
+    writeln!(io.out(), "\n{FOOTER}")?;
+    Ok(())
+}
+
+fn render_report(claude_dir: &Path, report: &UnconfigureReport) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "tokred unconfigure ({})", show(claude_dir));
+    let _ = writeln!(
+        out,
         "  hooks removed from settings.json: {}",
         report.hooks_removed
     );
-    println!("  agents removed: {}", report.agents_removed.len());
+    let _ = writeln!(out, "  agents removed: {}", report.agents_removed.len());
     for kept in &report.agents_kept {
-        println!(
+        let _ = writeln!(
+            out,
             "  kept {} (edited by you, or its origin cannot be verified)",
             show(kept)
         );
     }
     if !report.conflict_files_removed.is_empty() {
-        println!(
+        let _ = writeln!(
+            out,
             "  .new files removed: {}",
             report.conflict_files_removed.len()
         );
     }
+    out
+}
 
-    if purge {
-        let root = env.data.root();
-        if !fs.exists(root) {
-            println!(
-                "  data folder {} does not exist; nothing to purge",
-                show(root)
-            );
-        } else if !(fs.exists(&env.data.db_path()) || fs.exists(&env.data.config_path())) {
-            bail!(
-                "refusing to purge {}: it does not look like a tokred data folder",
-                show(root)
-            );
-        } else {
-            fs.remove_dir_all(root)?;
-            println!("  data folder deleted: {}", show(root));
-        }
+/// Deletes the data folder, but only if it looks like tokred's.
+fn purge_data_folder(fs: &dyn FileSystem, env: &Env) -> Result<String> {
+    let root = env.data.root();
+    if !fs.exists(root) {
+        return Ok(format!(
+            "data folder {} does not exist; nothing to purge",
+            show(root)
+        ));
     }
-    println!(
-        "\nThe tokred binary itself is removed with your package manager (brew, winget, scoop, cargo)."
-    );
-    Ok(())
+    if !(fs.exists(&env.data.db_path()) || fs.exists(&env.data.config_path())) {
+        bail!(
+            "refusing to purge {}: it does not look like a tokred data folder",
+            show(root)
+        );
+    }
+    fs.remove_dir_all(root)?;
+    Ok(format!("data folder deleted: {}", show(root)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::testing::Sandbox;
+    use super::*;
+    use crate::io::testing::scripted;
+
+    fn configured() -> Sandbox {
+        let sb = Sandbox::new();
+        let (mut io, _) = scripted(false, "");
+        super::super::configure::run(&sb.env, &mut io, Some(sb.claude.clone()), true, false)
+            .unwrap();
+        sb
+    }
+
+    fn unconfigure_cmd(sb: &Sandbox, purge: bool) -> (Result<()>, String) {
+        let (mut io, out) = scripted(false, "");
+        let result = run(&sb.env, &mut io, Some(sb.claude.clone()), purge);
+        (result, out.text())
+    }
+
+    #[test]
+    fn removes_hooks_and_agents() {
+        let sb = configured();
+        let (result, out) = unconfigure_cmd(&sb, false);
+        result.unwrap();
+        assert!(out.contains("hooks removed from settings.json: 6"));
+        assert!(out.contains("agents removed: 6"));
+        assert!(!out.contains("kept"));
+        assert!(!sb.agent("tokred-dev.md").exists());
+        assert!(sb.env.data.root().exists(), "no --purge, data stays");
+    }
+
+    #[test]
+    fn reports_kept_agents_and_removed_conflict_files() {
+        let sb = configured();
+        std::fs::write(sb.agent("tokred-dev.md"), "my edits").unwrap();
+        // Leave a stale .new file next to it, as an update would.
+        std::fs::write(sb.agent("tokred-dev.md.new"), "new").unwrap();
+
+        let (result, out) = unconfigure_cmd(&sb, false);
+        result.unwrap();
+        assert!(out.contains("kept "), "{out}");
+        assert!(out.contains(".new files removed: 1"), "{out}");
+        assert!(sb.agent("tokred-dev.md").exists());
+    }
+
+    #[test]
+    fn purge_deletes_a_tokred_data_folder() {
+        let sb = configured();
+        let (result, out) = unconfigure_cmd(&sb, true);
+        result.unwrap();
+        assert!(out.contains("data folder deleted"));
+        assert!(!sb.env.data.root().exists());
+    }
+
+    #[test]
+    fn purge_with_no_data_folder_has_nothing_to_do() {
+        let sb = Sandbox::new();
+        sb.write_settings("{}");
+        let (result, out) = unconfigure_cmd(&sb, true);
+        result.unwrap();
+        assert!(out.contains("nothing to purge"));
+    }
+
+    #[test]
+    fn purge_refuses_a_folder_that_is_not_tokreds() {
+        let sb = Sandbox::new();
+        sb.write_settings("{}");
+        std::fs::create_dir_all(sb.env.data.root()).unwrap();
+        std::fs::write(sb.env.data.root().join("precious.txt"), "keep").unwrap();
+        let (result, _) = unconfigure_cmd(&sb, true);
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("refusing to purge")
+        );
+        assert!(sb.env.data.root().join("precious.txt").exists());
+    }
+
+    #[test]
+    fn invalid_settings_json_is_an_error_and_changes_nothing() {
+        let sb = Sandbox::new();
+        sb.write_settings("{ nope");
+        let (result, out) = unconfigure_cmd(&sb, false);
+        assert!(result.unwrap_err().to_string().contains("not valid JSON"));
+        assert_eq!(out, "");
+        assert_eq!(std::fs::read_to_string(sb.settings()).unwrap(), "{ nope");
+    }
+
+    #[test]
+    fn a_corrupt_database_is_an_error() {
+        let sb = Sandbox::new();
+        sb.write_settings("{}");
+        std::fs::create_dir_all(sb.env.data.root()).unwrap();
+        std::fs::write(sb.env.data.db_path(), "garbage").unwrap();
+        let (result, _) = unconfigure_cmd(&sb, false);
+        assert!(result.is_err());
+    }
 }

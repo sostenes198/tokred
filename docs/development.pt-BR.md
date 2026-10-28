@@ -57,7 +57,16 @@ git diff -- '*.snap'                  # revise antes de commitar
 cargo llvm-cov --workspace --all-features --summary-only
 ```
 
-Meta: pelo menos 80% no `tokred-core` e nos crates de caso de uso.
+Meta: pelo menos 80% no `tokred-core` e nos crates de caso de uso; o workspace está hoje em **100% das linhas** (toda linha instrumentada executa) e 100% das funções.
+
+Para listar linhas que nunca executam:
+
+```sh
+cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info   # DA:<linha>,0 = nunca executada
+cargo llvm-cov report --text                                               # código anotado, `^0` marca uma região que nunca rodou
+```
+
+A cobertura de regiões é menor (cerca de 98%) porque cada `?` tem um ramo de erro; forçar cada falha de I/O só traria ruído, não segurança. Prompts, o texto do plano e a saída do `doctor` são testados por unidade através da abstração `Io` e de funções puras de renderização, então nenhum teste precisa de terminal.
 
 ## Testando um hook localmente
 

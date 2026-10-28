@@ -225,26 +225,32 @@ impl Config {
 pub fn merge_config(existing: &str, claude_dir: Option<&Path>) -> Result<String, ConfigError> {
     let mut table: toml::Table = toml::from_str(existing)?;
     let defaults = toml::Table::try_from(Config::default())?;
-    let mut changed = add_missing(&mut table, &defaults, "")?;
-
+    let mut changed = false;
     if let Some(dir) = claude_dir {
-        let value = toml::Value::String(dir.to_string_lossy().into_owned());
-        let claude = table
-            .entry("claude")
-            .or_insert_with(|| toml::Value::Table(toml::Table::new()))
-            .as_table_mut()
-            .ok_or_else(|| ConfigError::NotATable("claude".to_owned()))?;
-        if claude.get("dir") != Some(&value) {
-            claude.insert("dir".to_owned(), value);
-            changed = true;
-        }
+        changed |= set_claude_dir(&mut table, dir)?;
     }
+    changed |= add_missing(&mut table, &defaults, "")?;
 
     if changed || existing.trim().is_empty() {
         Ok(toml::to_string_pretty(&table)?)
     } else {
         Ok(existing.to_owned())
     }
+}
+
+/// Stores `dir` in `[claude] dir`; returns whether the value changed.
+fn set_claude_dir(table: &mut toml::Table, dir: &Path) -> Result<bool, ConfigError> {
+    let value = toml::Value::String(dir.to_string_lossy().into_owned());
+    let claude = table
+        .entry("claude")
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()))
+        .as_table_mut()
+        .ok_or_else(|| ConfigError::NotATable("claude".to_owned()))?;
+    if claude.get("dir") == Some(&value) {
+        return Ok(false);
+    }
+    claude.insert("dir".to_owned(), value);
+    Ok(true)
 }
 
 fn add_missing(
@@ -324,14 +330,34 @@ mod tests {
     #[test]
     fn merge_rejects_wrong_section_type() {
         let err = merge_config("modes = 3\n", None).unwrap_err();
-        assert!(matches!(err, ConfigError::NotATable(_)));
+        assert_eq!(err.to_string(), "`modes` in tokred.toml must be a table");
+    }
+
+    #[test]
+    fn a_claude_key_that_is_not_a_table_is_rejected_when_saving_the_dir() {
+        let err = merge_config("claude = 3\n", Some(Path::new("/c"))).unwrap_err();
+        assert_eq!(err.to_string(), "`claude` in tokred.toml must be a table");
+        // Without a dir to save, the same file is caught by the defaults merge.
+        assert!(merge_config("claude = 3\n", None).is_err());
+    }
+
+    #[test]
+    fn changing_the_saved_dir_rewrites_it() {
+        let first = merge_config("", Some(Path::new("/a"))).unwrap();
+        let second = merge_config(&first, Some(Path::new("/b"))).unwrap();
+        assert_eq!(
+            Config::from_toml_str(&second)
+                .unwrap()
+                .claude
+                .dir
+                .as_deref(),
+            Some("/b")
+        );
     }
 
     #[test]
     fn invalid_toml_is_an_error() {
-        assert!(matches!(
-            merge_config("[[[", None),
-            Err(ConfigError::Parse(_))
-        ));
+        let err = merge_config("[[[", None).unwrap_err();
+        assert!(err.to_string().starts_with("invalid TOML in tokred.toml"));
     }
 }

@@ -1136,6 +1136,7 @@ dependencies = [
  "thiserror",
  "tokred-core",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

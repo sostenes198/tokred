@@ -45,8 +45,12 @@ impl Sandbox {
     }
 
     fn tokred(&self) -> Command {
+        self.sandboxed(cargo_bin_cmd!("tokred"))
+    }
+
+    /// Applies the sandbox environment to a command.
+    fn sandboxed(&self, mut cmd: Command) -> Command {
         let home = self.root.path().join("home");
-        let mut cmd = cargo_bin_cmd!("tokred");
         cmd.env("HOME", &home)
             .env("USERPROFILE", &home)
             .env("APPDATA", home.join("appdata"))
@@ -279,4 +283,125 @@ fn edited_agent_survives_reconfigure_and_doctor_reports_it() {
         .assert()
         .success()
         .stdout(predicate::str::contains("edited by you"));
+}
+
+/// A copy of the binary placed on `PATH` (plus a fake `rtk`) in a folder of its own.
+fn install_on_path(sb: &Sandbox) -> (PathBuf, PathBuf) {
+    let bin_dir = sb.root.path().join("bin dir");
+    std::fs::create_dir_all(&bin_dir).unwrap();
+    let suffix = std::env::consts::EXE_SUFFIX;
+    let tokred = bin_dir.join(format!("tokred{suffix}"));
+    std::fs::copy(env!("CARGO_BIN_EXE_tokred"), &tokred).unwrap();
+    std::fs::copy(
+        env!("CARGO_BIN_EXE_tokred"),
+        bin_dir.join(format!("rtk{suffix}")),
+    )
+    .unwrap();
+    (tokred, bin_dir)
+}
+
+#[test]
+fn a_tokred_found_on_path_is_the_one_written_into_the_hooks() {
+    let sb = Sandbox::new();
+    sb.write_settings("{}");
+    let (tokred, bin_dir) = install_on_path(&sb);
+
+    let mut configure = sb.sandboxed(Command::new(&tokred));
+    configure
+        .env("PATH", &bin_dir)
+        .args(["configure", "--yes"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "Binary: {}",
+            tokred.display()
+        )))
+        .stdout(predicate::str::contains("not found on PATH").not())
+        .stdout(predicate::str::contains("rtk detected"));
+    let settings = std::fs::read_to_string(sb.settings()).unwrap();
+    assert!(
+        settings.contains("tokred") && settings.contains("bin dir"),
+        "{settings}"
+    );
+
+    let mut doctor = sb.sandboxed(Command::new(&tokred));
+    doctor
+        .env("PATH", &bin_dir)
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("rtk:         detected"))
+        .stdout(predicate::str::contains("No problems found."))
+        .stdout(predicate::str::contains("not found on PATH").not());
+}
+
+#[test]
+fn doctor_without_rtk_says_so() {
+    let sb = Sandbox::new();
+    sb.write_settings("{}");
+    let empty_path = sb.root.path().join("empty path");
+    std::fs::create_dir_all(&empty_path).unwrap();
+    sb.tokred()
+        .env("PATH", &empty_path)
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("rtk:         not detected"));
+}
+
+#[test]
+fn configure_detects_rtk_hooks_in_settings_even_without_the_binary_on_path() {
+    let sb = Sandbox::new();
+    sb.write_settings(&fixture("settings-rtk.json"));
+    let empty_path = sb.root.path().join("empty path");
+    std::fs::create_dir_all(&empty_path).unwrap();
+    sb.tokred()
+        .env("PATH", &empty_path)
+        .args(["configure", "--yes"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("rtk detected"));
+}
+
+#[test]
+fn hooks_log_only_when_the_data_folder_exists() {
+    let sb = Sandbox::new();
+    sb.write_settings("{}");
+    let stdin = r#"{"session_id":"s1"}"#;
+
+    // No data folder (e.g. after --purge): the hook must not recreate it.
+    sb.tokred()
+        .args(["hook", "guard-read"])
+        .write_stdin(stdin)
+        .assert()
+        .success();
+    assert!(!sb.data().exists());
+
+    // With a data folder the hook logs into it.
+    sb.tokred().args(["configure", "--yes"]).assert().success();
+    std::fs::remove_dir_all(sb.data().join("logs")).unwrap();
+    sb.tokred()
+        .env("TOKRED_LOG", "debug")
+        .args(["hook", "guard-read"])
+        .write_stdin(stdin)
+        .assert()
+        .success()
+        .stdout("");
+    assert!(sb.data().join("logs").is_dir());
+}
+
+#[test]
+fn a_different_tokred_on_path_is_not_mistaken_for_the_running_one() {
+    let sb = Sandbox::new();
+    sb.write_settings("{}");
+    let (other_tokred, bin_dir) = install_on_path(&sb);
+
+    // Run the original binary (not the copy on PATH): the copy is a different file.
+    sb.tokred()
+        .env("PATH", &bin_dir)
+        .args(["configure", "--yes"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("not found on PATH"))
+        .stdout(predicate::str::contains(other_tokred.display().to_string()).not());
 }

@@ -21,6 +21,8 @@ tokred (cli) ──► casos de uso (install, hooks, metrics, pricing, audit, up
 | `tokred-store` | Adapter: SQLite (`rusqlite`), migrations versionadas, implementação dos repositórios |
 | `tokred` (`crates/tokred-cli`) | O binário. Faz o parse dos argumentos, monta os adapters reais, chama os casos de uso, formata a saída e decide o código de saída. Único crate que usa `anyhow` e `println!` |
 
+Dentro do binário, o I/O de terminal passa por uma pequena abstração `Io` (flag interativa, entrada, saída) e a saída dos comandos é montada por funções puras, então prompts e relatórios são testados por unidade sem TTY.
+
 O pacote do binário se chama `tokred` para que `cargo install tokred` funcione; o diretório mantém o nome `tokred-cli`.
 
 ## Regras
