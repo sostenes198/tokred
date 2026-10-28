@@ -3,27 +3,52 @@
 use tokred_core::cache::{TierPolicy, cache_get, cache_put, content_key};
 use tokred_core::config::Mode;
 use tokred_core::hook_event::{decision, reason};
+use tokred_core::prompts::SuggestionRepo;
 use tokred_core::session::{Classification, TaskClass};
 
 use crate::classify::{Rules, classify, suggestion};
 use crate::error::HookError;
-use crate::io::{HookInput, context, deny};
-use crate::ports::{HookDeps, HookResponse};
+use crate::io::{HookInput, context, deny, prompt_answer};
+use crate::ports::{EventNote, HookDeps, HookResponse};
+use crate::suggest::suggestion_message;
 
-/// `route` (spec 7.1): classifies the prompt and, when the class changed since the previous
-/// actionable prompt of the session, suggests the right subagent in one line.
+/// `route` (spec 7.1), the `UserPromptSubmit` hook: classifies the prompt and, when the class
+/// changed since the previous actionable prompt of the session, suggests the right subagent in
+/// one line of context for the model.
 ///
 /// Prompts that classify as `other` (including short one-off prompts) are recorded as a
 /// `route` event but do not become the session's "last classification": a "yes, go ahead"
 /// between two implementation prompts must not make the suggestion repeat.
-pub fn route(input: &HookInput, deps: &HookDeps<'_>) -> Result<HookResponse, HookError> {
-    let mode = deps.config.modes.route;
-    let session = input.session_id.as_str();
+///
+/// With `suggestions` (and `[suggest] channel = "message"`), it also shows the user, once and
+/// only at a safe moment, a pending suggestion of a cheaper main model (see
+/// [`crate::suggest`]). That part is independent of the route mode and never fails the hook.
+pub fn route(
+    input: &HookInput,
+    deps: &HookDeps<'_>,
+    suggestions: Option<&dyn SuggestionRepo>,
+) -> Result<HookResponse, HookError> {
     let Some(prompt) = input.prompt.as_deref() else {
         return Ok(HookResponse::silent());
     };
-    if mode == Mode::Off || session.is_empty() {
-        return Ok(HookResponse::silent());
+    let (line, note) = classify_prompt(input, prompt, deps)?;
+    let message = suggestions.and_then(|repo| suggestion_message(input, deps, repo));
+    Ok(HookResponse {
+        stdout: prompt_answer(line.as_deref(), message.as_deref()),
+        note,
+    })
+}
+
+/// The classification part of `route`: the line of context (when the class changed) and the
+/// note to record. Nothing at all when the mode is `off` or the session is unknown.
+fn classify_prompt(
+    input: &HookInput,
+    prompt: &str,
+    deps: &HookDeps<'_>,
+) -> Result<(Option<String>, Option<EventNote>), HookError> {
+    let session = input.session_id.as_str();
+    if deps.config.modes.route == Mode::Off || session.is_empty() {
+        return Ok((None, None));
     }
 
     let class = cached_class(prompt, deps)?;
@@ -37,17 +62,19 @@ pub fn route(input: &HookInput, deps: &HookDeps<'_>) -> Result<HookResponse, Hoo
             prompt_len: prompt.chars().count() as u64,
         })?;
     }
-    let output = if changed {
-        suggestion(class).map(|line| context("UserPromptSubmit", &line))
-    } else {
-        None
-    };
+    let line = if changed { suggestion(class) } else { None };
     let why = if changed {
         reason::SUGGESTED
     } else {
         reason::UNCHANGED
     };
-    Ok(HookResponse::noted(session, class.as_str(), why, 0, output))
+    let note = EventNote {
+        session_id: session.to_owned(),
+        decision: class.as_str(),
+        reason: why,
+        bytes_saved: 0,
+    };
+    Ok((line, Some(note)))
 }
 
 /// `enforce` (spec 7.2): compares the chosen tokred subagent with the session's last
