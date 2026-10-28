@@ -12,6 +12,9 @@ use crate::io::Io;
 use crate::term::Term;
 use crate::view::render_prices;
 
+/// Appended to a failed sync when the embedded snapshot is what remains in use.
+const SNAPSHOT_NOTE: &str = " (the embedded price snapshot is in use)";
+
 pub fn run(env: &Env, io: &mut Io, command: &PricingCommand, net: &Network<'_>) -> Result<()> {
     let store = existing_store(env)?
         .ok_or_else(|| anyhow!("no database yet; run `tokred configure` first"))?;
@@ -25,11 +28,7 @@ pub fn run(env: &Env, io: &mut Io, command: &PricingCommand, net: &Network<'_>) 
                 reason,
                 seeded_fallback,
             } => {
-                let note = if seeded_fallback {
-                    " (the embedded price snapshot is in use)"
-                } else {
-                    ""
-                };
+                let note = if seeded_fallback { SNAPSHOT_NOTE } else { "" };
                 bail!("could not refresh the prices: {reason}{note}")
             }
         },
@@ -66,7 +65,7 @@ mod tests {
     use tokred_core::Timestamp;
     use tokred_core::pricing::{ModelPrice, PriceEntry, PriceSource, SourceError};
 
-    use super::super::testing::Sandbox;
+    use super::super::testing::{FakeReleases, Sandbox};
     use super::*;
     use crate::io::testing::scripted;
 
@@ -77,13 +76,6 @@ mod tests {
             self.0
                 .clone()
                 .map_err(|()| SourceError::Invalid("no network".to_owned()))
-        }
-    }
-
-    struct NoReleases;
-    impl tokred_core::release::ReleaseSource for NoReleases {
-        fn latest(&self) -> Result<tokred_core::release::Release, SourceError> {
-            Err(SourceError::Invalid("unused".to_owned()))
         }
     }
 
@@ -113,7 +105,10 @@ mod tests {
         let (mut io, out) = scripted(false, "");
         let net = Network {
             prices: source,
-            releases: &NoReleases,
+            releases: &FakeReleases {
+                version: "0.0.0",
+                calls: std::cell::Cell::new(0),
+            },
         };
         let result = run(&sb.env, &mut io, command, &net);
         (result, out.text())

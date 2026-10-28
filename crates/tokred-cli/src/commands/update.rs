@@ -44,24 +44,19 @@ pub fn run(io: &mut Io, ctx: &UpdateContext<'_>) -> Result<()> {
 
     if method != InstallMethod::Script {
         let command = upgrade_command(method).unwrap_or("reinstall tokred");
-        writeln!(
-            io.out(),
+        let message = format!(
             "tokred {} is available (current {}). Update with: {command}",
-            latest.version,
-            ctx.current
-        )?;
+            latest.version, ctx.current
+        );
+        writeln!(io.out(), "{message}")?;
         return Ok(());
     }
 
     let Some(target) = ctx.target else {
         bail!("no prebuilt tokred binary for this platform; reinstall with the method you used");
     };
-    writeln!(
-        io.out(),
-        "Updating tokred {} -> {} ...",
-        ctx.current,
-        latest.version
-    )?;
+    let message = format!("Updating tokred {} -> {} ...", ctx.current, latest.version);
+    writeln!(io.out(), "{message}")?;
     let updated = self_update(
         ctx.downloader,
         ctx.fs,
@@ -70,16 +65,10 @@ pub fn run(io: &mut Io, ctx: &UpdateContext<'_>) -> Result<()> {
         &latest.version,
         target,
     )?;
-    writeln!(
-        io.out(),
-        "Updated to tokred {} ({}).",
-        updated.version,
-        updated.asset
-    )?;
-    writeln!(
-        io.out(),
-        "Re-applying the configuration with the new binary ..."
-    )?;
+    let message = format!("Updated to tokred {} ({}).", updated.version, updated.asset);
+    writeln!(io.out(), "{message}")?;
+    let note = "Re-applying the configuration with the new binary ...";
+    writeln!(io.out(), "{note}")?;
     (ctx.reapply)(ctx.exe)?;
     Ok(())
 }
@@ -87,6 +76,7 @@ pub fn run(io: &mut Io, ctx: &UpdateContext<'_>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use std::cell::{Cell, RefCell};
+    use std::fmt::Write as _;
     use std::io::Write;
 
     use sha2::{Digest, Sha256};
@@ -127,8 +117,10 @@ mod tests {
                 } else {
                     Sha256::digest(&self.archive)
                         .iter()
-                        .map(|b| format!("{b:02x}"))
-                        .collect()
+                        .fold(String::new(), |mut hex, b| {
+                            let _ = write!(hex, "{b:02x}");
+                            hex
+                        })
                 };
                 return Ok(format!("{digest}  asset\n").into_bytes());
             }
@@ -157,6 +149,16 @@ mod tests {
 
     const TARGET: &str = "x86_64-unknown-linux-musl";
 
+    #[allow(clippy::unnecessary_wraps)] // the signature is dictated by `UpdateContext::reapply`
+    fn no_reapply(_: &Path) -> Result<()> {
+        Ok(())
+    }
+
+    #[test]
+    fn the_no_op_reapply_helper_succeeds() {
+        no_reapply(Path::new("x")).unwrap();
+    }
+
     #[test]
     fn an_up_to_date_install_says_so() {
         let (mut io, out) = scripted(false, "");
@@ -171,7 +173,7 @@ mod tests {
             &downloads,
             exe,
             Some(TARGET),
-            &|_| Ok(()),
+            &no_reapply,
         );
         run(&mut io, &ctx).unwrap();
         assert_eq!(out.text(), "tokred 0.1.0 is up to date.\n");
@@ -225,7 +227,7 @@ mod tests {
                 &downloads,
                 exe,
                 Some(TARGET),
-                &|_| Ok(()),
+                &no_reapply,
             );
             run(&mut io, &ctx).unwrap();
             assert!(
@@ -293,7 +295,7 @@ mod tests {
             &downloads,
             &exe,
             Some(TARGET),
-            &|_| Ok(()),
+            &no_reapply,
         );
         let err = run(&mut io, &ctx).unwrap_err();
         assert!(err.to_string().contains("checksum mismatch"), "{err}");
@@ -326,7 +328,7 @@ mod tests {
         );
 
         let (mut io, _) = scripted(false, "");
-        let ctx = ctx_with(&Releases(Ok("0.2.0")), &downloads, &exe, None, &|_| Ok(()));
+        let ctx = ctx_with(&Releases(Ok("0.2.0")), &downloads, &exe, None, &no_reapply);
         assert!(
             run(&mut io, &ctx)
                 .unwrap_err()
@@ -344,9 +346,13 @@ mod tests {
             requested: RefCell::default(),
         };
         let exe = Path::new("/home/u/.cargo/bin/tokred");
-        let ctx = ctx_with(&Releases(Err(())), &downloads, exe, Some(TARGET), &|_| {
-            Ok(())
-        });
+        let ctx = ctx_with(
+            &Releases(Err(())),
+            &downloads,
+            exe,
+            Some(TARGET),
+            &no_reapply,
+        );
         let err = run(&mut io, &ctx).unwrap_err();
         assert!(format!("{err:#}").contains("rate limited"), "{err:#}");
     }

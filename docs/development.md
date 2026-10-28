@@ -70,16 +70,20 @@ Region coverage is lower (about 98%) because every `?` has an error branch; forc
 
 ## Trying a hook locally
 
-Hooks read JSON on stdin, so you can run one by hand against a sandbox:
+Hooks read JSON on stdin, so you can run one by hand against a sandbox. A hook does nothing unless the data folder and its database already exist (a purged installation must stay purged), so configure a throwaway sandbox first:
 
 ```sh
-export TOKRED_DATA_DIR=$(mktemp -d)
+export TOKRED_DATA_DIR=$(mktemp -d) CLAUDE_CONFIG_DIR=$(mktemp -d) TOKRED_OFFLINE=1
+mkdir "$CLAUDE_CONFIG_DIR/projects"
+cargo run -q -- configure --yes
 echo '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"Cargo.lock"}}' \
   | cargo run -q -- hook guard-read; echo "exit=$?"
 ```
+
+`TOKRED_BENCH_RUNS=3 cargo run -q -- doctor --bench` runs the latency benchmark with fewer runs (the default is 50 per payload).
 
 Before implementing a hook, read the official docs (<https://code.claude.com/docs/en/hooks>) for the exact input and output format, and record any divergence from the spec in [decisions](decisions.md).
 
 ## Releases
 
-The release pipeline (`dist`, Homebrew tap, scoop bucket, winget, `cargo publish`) is part of phase F1. Note for that phase: `tokred-install` embeds `templates/agents/*.md` with `include_str!` from the repository root, so those files must be packaged with the crate before `cargo publish` can work.
+Releases are built by `dist` (`dist-workspace.toml`, generated `.github/workflows/release.yml`) when a tag `vX.Y.Z` is pushed; `publish-package-managers.yml` handles Scoop, winget, the Homebrew caveat and crates.io. See [installation](installation.md). After changing `dist-workspace.toml`, run `dist generate` and commit the result; `dist plan` shows what a release would contain. The agent templates live inside the `tokred-install` crate (`crates/tokred-install/templates/`) so the published crate contains them.

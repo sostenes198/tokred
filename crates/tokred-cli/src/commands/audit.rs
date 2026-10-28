@@ -1,9 +1,10 @@
 //! `tokred audit`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use tokred_audit::fs::{StdDirLister, TranscriptScanner};
+use tokred_audit::report::AuditReport;
 use tokred_audit::{AuditRequest, Ports, audit};
 use tokred_install::StdFileSystem;
 
@@ -23,6 +24,24 @@ fn resolve_project(project: Option<PathBuf>) -> Result<PathBuf> {
     Ok(path.canonicalize().unwrap_or(path))
 }
 
+/// Audits `project` against the Claude Code folder.
+pub fn build_report(env: &Env, claude_dir: &Path, project: PathBuf) -> AuditReport {
+    let request = AuditRequest::new(claude_dir.to_owned(), env.home_dir.clone(), Some(project));
+    let scanner = TranscriptScanner::new(claude_dir.join("projects"));
+    let ports = Ports {
+        fs: &StdFileSystem,
+        dirs: &StdDirLister,
+        usage: &scanner,
+        clock: &SystemClock,
+    };
+    audit(&ports, &request)
+}
+
+/// The project to audit when none is given: the current folder.
+pub fn default_project() -> Result<PathBuf> {
+    resolve_project(None)
+}
+
 pub fn run(
     env: &Env,
     io: &mut Io,
@@ -30,19 +49,8 @@ pub fn run(
     project: Option<PathBuf>,
     json: bool,
 ) -> Result<()> {
-    let fs = StdFileSystem;
-    let claude_dir = select_claude_dir(&fs, env, io, dir_flag, false)?;
-    let project = resolve_project(project)?;
-
-    let request = AuditRequest::new(claude_dir.clone(), env.home_dir.clone(), Some(project));
-    let scanner = TranscriptScanner::new(claude_dir.join("projects"));
-    let ports = Ports {
-        fs: &fs,
-        dirs: &StdDirLister,
-        usage: &scanner,
-        clock: &SystemClock,
-    };
-    let report = audit(&ports, &request);
+    let claude_dir = select_claude_dir(&StdFileSystem, env, io, dir_flag, false)?;
+    let report = build_report(env, &claude_dir, resolve_project(project)?);
 
     if json {
         let text = serde_json::to_string_pretty(&report)?;

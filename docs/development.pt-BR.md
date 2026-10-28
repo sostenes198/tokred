@@ -70,16 +70,20 @@ A cobertura de regiões é menor (cerca de 98%) porque cada `?` tem um ramo de e
 
 ## Testando um hook localmente
 
-Hooks leem JSON do stdin, então dá para rodar um à mão contra uma sandbox:
+Hooks leem JSON do stdin, então dá para rodar um à mão contra uma sandbox. Um hook não faz nada se a pasta de dados e o banco ainda não existirem (uma instalação apagada com `--purge` tem de continuar apagada), então configure antes uma sandbox descartável:
 
 ```sh
-export TOKRED_DATA_DIR=$(mktemp -d)
+export TOKRED_DATA_DIR=$(mktemp -d) CLAUDE_CONFIG_DIR=$(mktemp -d) TOKRED_OFFLINE=1
+mkdir "$CLAUDE_CONFIG_DIR/projects"
+cargo run -q -- configure --yes
 echo '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"Cargo.lock"}}' \
   | cargo run -q -- hook guard-read; echo "exit=$?"
 ```
+
+`TOKRED_BENCH_RUNS=3 cargo run -q -- doctor --bench` roda o benchmark de latência com menos execuções (o padrão é 50 por payload).
 
 Antes de implementar um hook, leia a documentação oficial (<https://code.claude.com/docs/en/hooks>) para o formato exato de entrada e saída, e registre qualquer divergência da spec em [decisões](decisions.pt-BR.md).
 
 ## Releases
 
-O pipeline de release (`dist`, tap do Homebrew, bucket do scoop, winget, `cargo publish`) faz parte da fase F1. Nota para essa fase: o `tokred-install` embute `templates/agents/*.md` com `include_str!` a partir da raiz do repositório, então esses arquivos precisam ser empacotados com o crate para o `cargo publish` funcionar.
+As releases são construídas pelo `dist` (`dist-workspace.toml`, `.github/workflows/release.yml` gerado) quando uma tag `vX.Y.Z` é enviada; o `publish-package-managers.yml` cuida do Scoop, do winget, do aviso do Homebrew e do crates.io. Veja [instalação](installation.pt-BR.md). Depois de mudar o `dist-workspace.toml`, rode `dist generate` e comite o resultado; `dist plan` mostra o que uma release conteria. Os templates dos agentes ficam dentro do crate `tokred-install` (`crates/tokred-install/templates/`) para que o crate publicado os contenha.

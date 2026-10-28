@@ -62,10 +62,8 @@ fn run_hook(name: Option<&str>, start: Instant) -> ExitCode {
 /// database is missing: a hook never creates them (they are made by `tokred configure`, and a
 /// purged installation must stay purged).
 fn compose_and_run_hook(name: Option<&str>, start: Instant) {
-    let Some(event) = name.and_then(HookEvent::from_arg) else {
-        return;
-    };
-    let Ok(env) = env::Env::from_process() else {
+    let (Some(event), Ok(env)) = (name.and_then(HookEvent::from_arg), env::Env::from_process())
+    else {
         return;
     };
     let db = env.data.db_path();
@@ -165,8 +163,9 @@ mod tests {
         // Setting an environment variable needs `unsafe` on edition 2024, which is forbidden
         // here: the override is covered end to end in the e2e suite and only the default is
         // checked in-process.
-        if std::env::var_os("TOKRED_HOOK_GUARD_MS").is_none() {
-            assert_eq!(guard_limit(), Duration::from_millis(DEFAULT_GUARD_MS));
-        }
+        assert!(
+            std::env::var_os("TOKRED_HOOK_GUARD_MS").is_some()
+                || guard_limit() == Duration::from_millis(DEFAULT_GUARD_MS)
+        );
     }
 }

@@ -4,6 +4,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use tokred_core::meta::MetaRepo;
 use tokred_core::{FileSystem, ManifestRepo};
 use tokred_install::agents::AgentAction;
 use tokred_install::settings::{ChangeKind, hook_entries};
@@ -11,6 +12,7 @@ use tokred_install::{
     ConfigureInput, ConfigurePlan, ConfigureReport, StdFileSystem, apply_configure, plan_configure,
 };
 
+use super::data::FIRST_CONFIGURED_AT;
 use super::{SystemClock, existing_store, open_store, select_claude_dir, show};
 use crate::binary::{self, BinaryPath};
 use crate::env::Env;
@@ -70,6 +72,10 @@ pub fn run(
     let plan = plan_configure(&fs, Some(&store as &dyn ManifestRepo), &input)?;
     let report = apply_configure(&fs, &store, &SystemClock, &plan)?;
     tokred_update::mark_configured(&store, version)?;
+    if store.meta_get(FIRST_CONFIGURED_AT)?.is_none() {
+        let now = tokred_core::Clock::now(&SystemClock).0.to_string();
+        store.meta_set(FIRST_CONFIGURED_AT, &now)?;
+    }
     tracing::info!(claude_dir = %claude_dir.display(), "configured");
 
     let summary = render_summary(&plan, &report);

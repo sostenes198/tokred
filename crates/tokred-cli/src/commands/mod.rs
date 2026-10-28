@@ -1,12 +1,22 @@
 //! Command implementations: composition of adapters and use cases, plus terminal output.
 
 mod audit;
+mod bench;
+mod cache;
 mod configure;
+mod data;
 mod doctor;
 mod housekeeping;
+mod metrics;
 mod pricing;
+mod report_data;
+mod stats;
 mod unconfigure;
 mod update;
+
+pub use bench::BenchReport;
+#[cfg(test)]
+pub use bench::HookBench;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -20,7 +30,9 @@ use tokred_store::Store;
 use tokred_update::http::{GithubReleaseSource, LATEST_RELEASE_URL, UreqDownloader};
 use tokred_update::{StdBinarySwap, current_target};
 
-use crate::args::{Cli, Command};
+use tokred_report::SystemOpener;
+
+use crate::args::{Cli, Command, StatsCommand};
 use crate::env::Env;
 use crate::io::Io;
 
@@ -101,11 +113,16 @@ fn dispatch(
             configure::run(env, io, dir.claude_dir, yes, force)
         }
         Command::Unconfigure { dir, purge } => unconfigure::run(env, io, dir.claude_dir, purge),
-        Command::Doctor {
-            dir,
-            json,
-            bench: _,
-        } => doctor::run(env, io, dir.claude_dir, json),
+        Command::Doctor { dir, json, bench } => {
+            let runner = if bench {
+                let exe = exe.context("could not locate the running executable")?;
+                Some(bench::ProcessRunner { exe })
+            } else {
+                None
+            };
+            let runner = runner.as_ref().map(|r| r as &dyn bench::HookRunner);
+            doctor::run(env, io, dir.claude_dir, json, runner)
+        }
         Command::Audit { dir, project, json } => audit::run(env, io, dir.claude_dir, project, json),
         Command::Pricing { command } => pricing::run(env, io, &command, net),
         Command::Update { dir } => {
@@ -129,10 +146,25 @@ fn dispatch(
             };
             update::run(io, &ctx)
         }
-        // Wired once the hook storage lands.
-        Command::Stats { .. } | Command::Metrics { .. } | Command::Cache { .. } => {
-            bail!("this command is not available yet")
-        }
+        Command::Stats { dir, command, args } => match command {
+            None => stats::run(env, io, dir.claude_dir, &args),
+            Some(StatsCommand::Latency(latency)) => {
+                stats::run_latency(env, io, dir.claude_dir, &latency)
+            }
+        },
+        Command::Metrics {
+            dir,
+            since,
+            no_open,
+        } => metrics::run(
+            env,
+            io,
+            dir.claude_dir,
+            &since,
+            no_open,
+            &SystemOpener::new(),
+        ),
+        Command::Cache { command } => cache::run(env, io, &command),
     }
 }
 
@@ -267,6 +299,35 @@ pub mod testing {
 
     use crate::env::Env;
 
+    /// A release source with a fixed answer that counts its requests.
+    pub struct FakeReleases {
+        pub version: &'static str,
+        pub calls: std::cell::Cell<u32>,
+    }
+
+    impl tokred_core::release::ReleaseSource for FakeReleases {
+        fn latest(
+            &self,
+        ) -> Result<tokred_core::release::Release, tokred_core::pricing::SourceError> {
+            self.calls.set(self.calls.get() + 1);
+            Ok(tokred_core::release::Release {
+                version: self.version.to_owned(),
+                url: "https://example.invalid".to_owned(),
+            })
+        }
+    }
+
+    #[test]
+    fn the_fake_release_source_counts_requests() {
+        use tokred_core::release::ReleaseSource as _;
+        let fake = FakeReleases {
+            version: "1.2.3",
+            calls: std::cell::Cell::new(0),
+        };
+        assert_eq!(fake.latest().unwrap().version, "1.2.3");
+        assert_eq!(fake.calls.get(), 1);
+    }
+
     /// A sandbox: a Claude folder (with a space in its name) and a data folder.
     pub struct Sandbox {
         pub root: tempfile::TempDir,
@@ -302,6 +363,108 @@ pub mod testing {
 
         pub fn path(&self, name: &str) -> PathBuf {
             Path::new(self.root.path()).join(name)
+        }
+
+        /// Runs `configure` so the database, config and hooks exist.
+        pub fn configure(&self) {
+            let (mut io, _) = crate::io::testing::scripted(false, "");
+            super::configure::run(&self.env, &mut io, Some(self.claude.clone()), true, false)
+                .unwrap();
+        }
+
+        /// The database.
+        pub fn store(&self) -> tokred_store::Store {
+            tokred_store::Store::open(&self.env.data.db_path()).unwrap()
+        }
+
+        /// Writes a transcript with two assistant messages from yesterday (opus and sonnet),
+        /// one repeated streaming line, one subagent message and some noise.
+        pub fn seed_usage(&self) {
+            let now = tokred_core::Clock::now(&super::SystemClock).0;
+            let day = crate::view::ymd(now - 86_400);
+            let line = |id: &str, model: &str, input: u64| {
+                format!(
+                    r#"{{"type":"assistant","sessionId":"s1","timestamp":"{day}T12:00:00.000Z","requestId":"r-{id}","cwd":"/p","isSidechain":false,"message":{{"id":"{id}","model":"{model}","usage":{{"input_tokens":{input},"output_tokens":{},"cache_creation_input_tokens":100,"cache_read_input_tokens":2000}}}}}}"#,
+                    input / 2
+                )
+            };
+            let text = [
+                line("m1", "claude-opus-4-1-20250805", 200_000),
+                line("m2", "claude-sonnet-4-20250514", 300_000),
+                line("m2", "claude-sonnet-4-20250514", 300_000),
+                r#"{"type":"user","message":{"content":"hi"}}"#.to_owned(),
+                "not json at all".to_owned(),
+            ]
+            .join("\n");
+            let dir = self.claude.join("projects/-tmp-proj");
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("s1.jsonl"), format!("{text}\n")).unwrap();
+        }
+
+        /// Records a few hook runs from the last days.
+        pub fn seed_events(&self) {
+            use tokred_core::hook_event::{
+                HookEventRecord, HookEventRepo, Outcome, decision, reason,
+            };
+            let now = tokred_core::Clock::now(&super::SystemClock).0;
+            let store = self.store();
+            let event = |hook: &str, decision: &str, why: &str, bytes: u64, us: u64, ago: i64| {
+                HookEventRecord {
+                    ts: tokred_core::Timestamp(now - ago),
+                    session_id: "s1".to_owned(),
+                    hook: hook.to_owned(),
+                    decision: decision.to_owned(),
+                    reason: why.to_owned(),
+                    bytes_saved: bytes,
+                    duration_us: us,
+                    outcome: Outcome::Ok,
+                }
+            };
+            for e in [
+                event(
+                    "guard-read",
+                    decision::DENY,
+                    reason::REREAD,
+                    40_000,
+                    3_000,
+                    3_600,
+                ),
+                event("guard-read", decision::ALLOW, "", 0, 2_000, 3_000),
+                event(
+                    "guard-search",
+                    decision::DENY,
+                    reason::BROAD_SEARCH,
+                    10_000,
+                    4_000,
+                    2_000,
+                ),
+                event(
+                    "route",
+                    "implementation",
+                    reason::SUGGESTED,
+                    0,
+                    5_000,
+                    1_000,
+                ),
+                event(
+                    "enforce",
+                    decision::ALLOW,
+                    reason::AGENT_MATCHES,
+                    0,
+                    2_500,
+                    900,
+                ),
+                event(
+                    "enforce",
+                    decision::WARN,
+                    reason::AGENT_MISMATCH,
+                    0,
+                    2_500,
+                    800,
+                ),
+            ] {
+                store.insert_event(&e).unwrap();
+            }
         }
     }
 }

@@ -79,3 +79,56 @@ Formato: data, contexto, decisão, consequências. Onde a spec diverge da docume
 - **Critérios para seguir com a F6** (conferir com `tokred stats` e `tokred metrics` após cerca de quatro semanas de uso real): as negações `large_file` mais `reread` são uma fatia relevante dos eventos das guardas (limite sugerido: mais de 20% das leituras guardadas) **e** os tokens evitados estimados pelas guardas são pequenos frente ao custo real de input (sugerido: abaixo de 5%), o que indicaria que as guardas bloqueiam sem repor o conteúdo; e a taxa de acerto L3 do cache mostra acesso repetido aos mesmos artefatos.
 - **Critérios para seguir com a F7:** uma fatia medida de prompts idênticos byte a byte acima de 10% (nenhuma é esperada: prompts agênticos quase não se repetem, hooks não interceptam chamadas à API e a Anthropic já faz cache do prefixo no servidor). Sem essa evidência o proxy continua fora do escopo, como dizem os não-objetivos da spec.
 - **Consequências:** nada se perde: o modelo de dados e os eventos dos hooks já registram o que os critérios precisam. Rever esta entrada quando os critérios puderem ser avaliados.
+
+
+## 2026-10-28 — Hooks: onde a documentação oficial vence a spec
+
+Confirmado em <https://code.claude.com/docs/en/hooks> ao implementar as fases F3 a F5:
+
+- O modo `warn` emite só `additionalContext`. Nunca emite `permissionDecision: "allow"`, porque isso pularia o prompt de permissão do próprio usuário.
+- O `Stop` emite só `systemMessage` (uma mensagem para o usuário). `additionalContext` ou `decision` no `Stop` fariam o Claude continuar, o que a spec proíbe. O `SessionStart` não imprime nada, porque o stdout dele vira contexto do modelo.
+- O `source` do `SessionStart` tem um quinto valor, `fork`; como `startup` e `resume`, não é um corte (só `clear` e `compact` são).
+- As leituras de arquivo são rastreadas por `sessão/agent_id`, porque o contexto de um subagente é separado do pai. Uma leitura no mesmo segundo do corte é permitida (`>` estrito).
+- Os globs de bloqueio casam o path relativo ao `cwd` da sessão. Imagens e PDFs ficam isentos da checagem de tamanho. Um `Read` com qualquer argumento além de `file_path`, `offset` e `limit` (como `pages`) pula a checagem de releitura. Os bytes evitados por uma leitura em faixa são estimados em 80 bytes por linha, e arquivos acima de 16 MiB não são hasheados.
+- O `guard-search` conta arquivos por raiz de repositório (em cache na camada de cache, chave = raiz, limite e mtime da raiz), para de contar em limite + 1 e desiste após 100 ms, caso em que permite a busca.
+- O `route` grava só classes acionáveis em `classifications` (nunca `other`), faz cache das classificações por `blake3(prompt)` mais uma versão das regras, e no modo `enforce` se comporta como `warn`. No `enforce`, architect e planner são intercambiáveis.
+- O `session-check` avisa uma vez por sessão, de novo depois que o contexto cresce metade do limite, ou após um clear/compact. Um `~/` literal no `transcript_path` não é expandido.
+- O stdout não pode ser fechado (`unsafe` é proibido): a resposta é descarregada e a linha do banco é gravada por último, mas o Claude Code só vê o fim quando o processo termina. Um hook nunca cria a pasta de dados nem o `tokred.db`; um `tokred.toml` inválido significa os padrões. Um watchdog (`TOKRED_HOOK_GUARD_MS`, padrão 2 s) transforma um hook travado em um resultado `timeout_guard`.
+- Medido num Mac de desenvolvimento ocioso, com build de release: p95 de spawn até o fim de 10 a 12 ms (cerca de 7 ms disso é a base do spawn), p95 interno de até cerca de 6 ms. Sob carga o p95 chegou a 37 ms. Tudo dentro do orçamento de 50 ms.
+
+## 2026-10-28 — Preços, update e o caminho do self-update
+
+- O snapshot de preços mantém o formato do próprio LiteLLM com chaves normalizadas, então um único parser lê tanto a lista online quanto o arquivo embutido (39 linhas, regeneradas por `scripts/update-price-snapshot.sh`). Preferência de chaves: chaves Anthropic sem prefixo, depois `anthropic/`, `vertex_ai/`, `bedrock/`, depois o nativo do Bedrock `anthropic.`; chaves regionais e de revendedores são descartadas. Preços de cache ausentes são derivados (escrita 1,25x, leitura 0,1x do input).
+- "Preço mais recente de uma família" é a entrada com a data mais recente no id do modelo; ids sem data ficam abaixo dos datados.
+- Um sync que não devolve linhas nunca substitui a tabela. O `price_sync_attempt_at` é gravado para que um sync que falhou não seja repetido a cada comando.
+- O `BinarySwap` é um port do `tokred-update` (o port `FileSystem` não tem rename nem chmod). O self-update verifica o SHA-256 antes de tocar em qualquer coisa, troca o binário de forma atômica e, no Windows, renomeia o `.exe` antigo para `.old` e o remove na execução seguinte. Linux sempre mapeia para o build musl. As tags de release são `v<versão>`.
+- Depois de um self-update a configuração é reaplicada rodando o binário **novo** (`configure --yes`), para que os templates de agentes instalados sejam os novos. Em instalações por gerenciador de pacotes, o primeiro comando da CLI depois de um upgrade reaplica a configuração em silêncio (`needs_reconfigure`).
+- `TOKRED_OFFLINE`, `TOKRED_PRICES_URL` e `TOKRED_RELEASES_URL` são acréscimos à spec: um único interruptor para toda chamada de rede, e substituição de URLs para espelhos e para testes contra um servidor local.
+
+## 2026-10-28 — Cálculos das métricas
+
+- O contrafactual "tudo no opus" usa o preço **mais recente** de opus da tabela. Quando o modelo realmente usado é um opus mais antigo e mais caro, o contrafactual pode ficar abaixo do custo real; a economia por roteamento fica então negativa, o que é correto.
+- Um "bloqueio" de guarda é um evento `guard-*` com decisão `deny`; `warn` não economiza nada. A economia das guardas é sempre rotulada estimativa. O modelo da sessão usado para precificá-la é o de mais mensagens (empate: menor id; fallback opus).
+- O divisor da projeção é `min(janela, dias desde a primeira linha)`, no mínimo 1. `TimeRange::last` é `[agora - período, agora + 1)`.
+- Um arquivo substituído por outro maior não é detectado pela ingestão, porque não há hash do conteúdo; um arquivo que encolheu recomeça do zero.
+- As classificações do `route` são contadas a partir dos eventos do hook `route`, então não há tabela de classificações separada para o relatório consultar.
+
+## 2026-10-28 — Audit: locais confirmados na documentação oficial
+
+- Servidores MCP não são configurados no `settings.json`. O escopo de usuário é o `mcpServers` de nível superior do `~/.claude.json`, o escopo local é `projects["<path>"].mcpServers` no mesmo arquivo, o escopo de projeto é `<projeto>/.mcp.json`; a precedência é local, depois projeto, depois usuário. O `settings.json` só contribui com `disabledMcpjsonServers`. Não é documentado se o `.claude.json` acompanha o `CLAUDE_CONFIG_DIR`, então `<claude>/.claude.json` é tentado primeiro e depois `~/.claude.json`.
+- A memória do projeto também inclui `.claude/CLAUDE.md`, `CLAUDE.local.md`, diretórios ancestrais e os arquivos `.claude/rules` sempre ativos. Os imports seguem o limite documentado de 4 níveis e ignoram blocos de código, trechos inline e comentários HTML de bloco.
+- A sugestão "dividir com @import" da spec foi trocada por "mover para rules com escopo de path ou uma skill", porque imports não reduzem o custo de contexto. Corpos de skills só carregam quando invocados, então as skills também informam o peso na inicialização. Limites: 200 linhas para `CLAUDE.md` e 500 para skills (ambos da documentação) e 2000 tokens para agentes (uma heurística do tokred).
+- Skills, agentes e servidores de plugins, `commands/*.md`, conectores do claude.ai e servidores gerenciados não são enumerados; o uso visto nos transcripts de servidores não configurados localmente é listado à parte.
+
+## 2026-10-28 — Pipeline de release e licenças
+
+- O `dist` constrói seis alvos (macOS, Linux musl e Windows em x86_64 e aarch64) com arquivos `.tar.gz` / `.zip` e sidecars `.sha256`. Os templates dos agentes saíram de `templates/agents/` para `crates/tokred-install/templates/` porque o `include_str!` a partir da raiz do repositório quebraria o crate publicado.
+- O `dist` não consegue adicionar caveats do Homebrew, então o `publish-package-managers.yml` espera a fórmula da nova versão chegar ao tap e inclui o aviso nela. O manifest do Scoop, o pull request do winget e o `cargo publish --workspace` também estão nesse workflow. Nada disso rodou ainda: precisa dos quatro secrets do repositório e de uma tag, e o pacote do winget precisa ter o primeiro manifest enviado à mão.
+- O `deny.toml` permite `CDLA-Permissive-2.0` (os dados de certificados da Mozilla embutidos pelo `webpki-roots`, trazido pelo cliente HTTP) além da exceção de `MPL-2.0` para o `option-ext`.
+
+## 2026-10-28 — Painéis no terminal, tarefas de fundo e o benchmark
+
+- `tokred stats`, `stats latency` e `metrics` imprimem um painel colorido no terminal (o relatório HTML são os mesmos dados, não um substituto). A cor segue `NO_COLOR` (sempre vence), `CLICOLOR_FORCE`, um `TERM` dumb e se o stdout é um terminal.
+- Os avisos das tarefas de fundo vão para o **stderr**, para que a saída `--json` continue limpa. As tarefas rodam só depois de comandos que não são hooks, são de melhor esforço e nunca fazem o comando falhar: a sincronização diária de preços, a verificação diária de versão e a reaplicação silenciosa da configuração depois de um upgrade.
+- O `doctor --bench` executa cada hook como um processo separado numa pasta de dados temporária com banco próprio (os hooks fazem trabalho real e os dados do usuário ficam intactos), cronometra do spawn até o fim e guarda a diferença para as medições internas dos hooks como o overhead de inicialização do processo, em `meta`. `TOKRED_BENCH_RUNS` substitui o padrão de 50 execuções por payload (usado nos testes).
+- A cobertura de linhas é 100% no workspace inteiro. O resumo do LLVM pode mostrar uma fração de ponto percentual a menos porque conta regiões de macro e ramos de erro do `?` à parte; as visões por linha (`lcov`, texto anotado) são a referência.

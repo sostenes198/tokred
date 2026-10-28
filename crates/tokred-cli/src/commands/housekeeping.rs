@@ -114,9 +114,8 @@ mod tests {
     use tokred_core::Timestamp;
     use tokred_core::meta::MetaRepo;
     use tokred_core::pricing::{ModelPrice, PriceEntry, SourceError};
-    use tokred_core::release::Release;
 
-    use super::super::testing::Sandbox;
+    use super::super::testing::{FakeReleases, Sandbox};
     use super::*;
     use crate::io::testing::{scripted, scripted_with_err};
 
@@ -145,28 +144,13 @@ mod tests {
         }
     }
 
-    struct Releases {
-        calls: Cell<u32>,
-        version: &'static str,
-    }
-
-    impl ReleaseSource for Releases {
-        fn latest(&self) -> Result<Release, SourceError> {
-            self.calls.set(self.calls.get() + 1);
-            Ok(Release {
-                version: self.version.to_owned(),
-                url: "https://example.invalid".to_owned(),
-            })
-        }
-    }
-
-    fn sources(version: &'static str) -> (Prices, Releases) {
+    fn sources(version: &'static str) -> (Prices, FakeReleases) {
         (
             Prices {
                 calls: Cell::new(0),
                 fail: false,
             },
-            Releases {
+            FakeReleases {
                 calls: Cell::new(0),
                 version,
             },
@@ -180,7 +164,7 @@ mod tests {
         sb
     }
 
-    fn chores(sb: &Sandbox, p: &Prices, r: &Releases, switches: Switches) -> String {
+    fn chores(sb: &Sandbox, p: &Prices, r: &FakeReleases, switches: Switches) -> String {
         let (mut io, out, err) = scripted_with_err(false, "");
         background_chores(
             &sb.env,
@@ -275,7 +259,7 @@ mod tests {
             calls: Cell::new(0),
             fail: true,
         };
-        let r = Releases {
+        let r = FakeReleases {
             calls: Cell::new(0),
             version: "0.1.0",
         };
@@ -348,11 +332,8 @@ mod tests {
         let (mut io, out, err) = scripted_with_err(false, "");
         reapply_configuration(&sb.env, &mut io, "0.1.0");
         assert_eq!(out.text(), "");
-        assert!(
-            err.text().contains("could not be re-applied"),
-            "{}",
-            err.text()
-        );
-        assert!(err.text().contains("tokred configure"));
+        let text = err.text();
+        assert!(text.contains("could not be re-applied"));
+        assert!(text.contains("tokred configure"));
     }
 }

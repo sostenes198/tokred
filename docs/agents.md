@@ -13,7 +13,7 @@
 | `tokred-explorer.md` | haiku | Read, Grep, Glob | Codebase search (read-only) |
 | `tokred-summarizer.md` | haiku | Read, Grep, Glob | Summaries of docs, logs and long output (read-only) |
 
-The templates live in `templates/agents/` and are written in English. Frontmatter: `name`, `description` (when to delegate), `model`, `tools`.
+The templates live in `crates/tokred-install/templates/` (embedded in the binary) and are written in English. Frontmatter: `name`, `description` (when to delegate), `model`, `tools`.
 
 ## Common rules and return format
 

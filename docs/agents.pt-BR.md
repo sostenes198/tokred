@@ -13,7 +13,7 @@ O `tokred configure` instala seis subagentes em `<claude>/agents/`, cada um com 
 | `tokred-explorer.md` | haiku | Read, Grep, Glob | Busca no código (somente leitura) |
 | `tokred-summarizer.md` | haiku | Read, Grep, Glob | Resumo de docs, logs e saídas longas (somente leitura) |
 
-Os templates ficam em `templates/agents/` e são escritos em inglês. Frontmatter: `name`, `description` (quando delegar), `model`, `tools`.
+Os templates ficam em `crates/tokred-install/templates/` (embutidos no binário) e são escritos em inglês. Frontmatter: `name`, `description` (quando delegar), `model`, `tools`.
 
 ## Regras comuns e formato de retorno
 

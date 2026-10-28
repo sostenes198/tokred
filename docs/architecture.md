@@ -16,8 +16,12 @@ tokred (cli) ──► use cases (install, hooks, metrics, pricing, audit, updat
 |---|---|
 | `tokred-core` | Domain: types, errors, config model, path rules, hook event model, and the ports (`Clock`, `FileSystem`, `ManifestRepo`; more arrive with their phases). **No I/O.** |
 | `tokred-install` | Use cases `configure`, `unconfigure`, `doctor`: pure settings merge, agent templates and install rules. Contains the `std::fs` adapter (`fs` module) |
-| `tokred-hooks` | Hook handlers (fail-open stubs in F0) |
-| `tokred-metrics`, `tokred-pricing`, `tokred-audit`, `tokred-update`, `tokred-report` | Use cases of later phases (placeholders in F0) |
+| `tokred-hooks` | The six hook handlers, the time guard and the benchmark payloads (fail-open) |
+| `tokred-metrics` | Transcript ingestion, cost, savings, projection, latency and routing/guard summaries (pure) |
+| `tokred-pricing` | Price list parsing, embedded fallback snapshot, sync use cases and the LiteLLM adapter |
+| `tokred-update` | Install-method detection, version check, self-update with checksum verification, GitHub adapter |
+| `tokred-audit` | Fixed-context audit: `CLAUDE.md` with imports, rules, skills, agents, MCP usage |
+| `tokred-report` | The offline HTML report: model, SVG charts, template, atomic write |
 | `tokred-store` | Adapter: SQLite (`rusqlite`), versioned migrations, repository implementations |
 | `tokred` (`crates/tokred-cli`) | The binary. Parses arguments, builds the real adapters, calls the use cases, formats output, decides the exit code. The only crate that uses `anyhow` and `println!` |
 

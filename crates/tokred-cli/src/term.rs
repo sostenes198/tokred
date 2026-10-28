@@ -3,6 +3,8 @@
 //! Everything here returns plain `String`s so screens can be unit-tested; whether color is
 //! used is decided once (see `Io::color`) and carried in [`Term`].
 
+use std::fmt::Write as _;
+
 const RESET: &str = "\x1b[0m";
 
 /// Style switch for one output stream.
@@ -162,9 +164,10 @@ pub fn key_values(rows: &[(&str, String)]) -> String {
         .max()
         .unwrap_or(0)
         + 1;
-    rows.iter()
-        .map(|(label, value)| format!("{:<width$} {value}\n", format!("{label}:")))
-        .collect()
+    rows.iter().fold(String::new(), |mut out, (label, value)| {
+        let _ = writeln!(out, "{:<width$} {value}", format!("{label}:"));
+        out
+    })
 }
 
 /// Horizontal alignment of a table column.

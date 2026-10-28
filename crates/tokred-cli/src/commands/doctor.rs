@@ -10,10 +10,13 @@ use tokred_core::{Config, FileSystem, ManifestRepo};
 use tokred_install::StdFileSystem;
 use tokred_install::doctor::{AgentState, DoctorReport, HookState, doctor};
 
+use super::bench::{BUDGET_MS, BenchReport, HookRunner, measure, runs_from_env};
 use super::{existing_store, select_claude_dir, show};
 use crate::binary::{self, BinaryPath};
 use crate::env::Env;
 use crate::io::Io;
+use crate::term::Term;
+use crate::view::render_bench;
 
 /// Facts about the machine that are not part of the Claude Code installation report.
 struct Machine<'a> {
@@ -25,7 +28,13 @@ struct Machine<'a> {
     config_exists: bool,
 }
 
-pub fn run(env: &Env, io: &mut Io, dir_flag: Option<PathBuf>, json: bool) -> Result<()> {
+pub fn run(
+    env: &Env,
+    io: &mut Io,
+    dir_flag: Option<PathBuf>,
+    json: bool,
+    bench: Option<&dyn HookRunner>,
+) -> Result<()> {
     let fs = StdFileSystem;
     let claude_dir = select_claude_dir(&fs, env, io, dir_flag, false)?;
     let binary = binary::find()?;
@@ -63,6 +72,11 @@ pub fn run(env: &Env, io: &mut Io, dir_flag: Option<PathBuf>, json: bool) -> Res
         config_exists: config_text.is_some(),
     };
 
+    let bench_report = match bench {
+        Some(runner) => Some(measure(env, runner, runs_from_env())?),
+        None => None,
+    };
+
     if json {
         let value = json!({
             "tokred_version": machine.version,
@@ -74,13 +88,41 @@ pub fn run(env: &Env, io: &mut Io, dir_flag: Option<PathBuf>, json: bool) -> Res
             "config": machine.config_exists,
             "rtk_binary_on_path": machine.rtk_binary,
             "install": report,
+            "bench": bench_report.as_ref().map(bench_json),
         });
         writeln!(io.out(), "{}", serde_json::to_string_pretty(&value)?)?;
     } else {
         let shown = render_human(&machine, &report);
         write!(io.out(), "{shown}")?;
+        if let Some(bench) = &bench_report {
+            let table = render_bench(Term::new(io.color()), bench, BUDGET_MS);
+            write!(io.out(), "\n{table}")?;
+        }
     }
     Ok(())
+}
+
+fn bench_json(report: &BenchReport) -> serde_json::Value {
+    let hooks: Vec<_> = report
+        .hooks
+        .iter()
+        .map(|h| {
+            json!({
+                "hook": h.hook,
+                "runs": h.runs,
+                "mean_ms": h.mean_ms,
+                "p50_ms": h.p50_ms,
+                "p95_ms": h.p95_ms,
+                "max_ms": h.max_ms,
+            })
+        })
+        .collect();
+    json!({
+        "runs_per_payload": report.runs_per_payload,
+        "budget_ms": BUDGET_MS,
+        "spawn_overhead_us": report.spawn_overhead_us,
+        "hooks": hooks,
+    })
 }
 
 /// The human-readable report. (Writing to a `String` cannot fail.)
@@ -172,7 +214,7 @@ mod tests {
 
     fn run_doctor(sb: &Sandbox, json: bool) -> (Result<()>, String) {
         let (mut io, out) = scripted(false, "");
-        let result = run(&sb.env, &mut io, Some(sb.claude.clone()), json);
+        let result = run(&sb.env, &mut io, Some(sb.claude.clone()), json, None);
         (result, out.text())
     }
 

@@ -7,12 +7,14 @@ use std::fmt::Write as _;
 
 use tokred_audit::AuditReport;
 use tokred_audit::report::{ItemKind, McpScope, Scope};
+use tokred_core::cache::CacheStats;
 use tokred_core::pricing::PriceEntry;
 use tokred_metrics::stats::{BeforeAfter, Group, UnpricedReason};
 use tokred_metrics::{GroupBy, LatencyStats, Stats, Tradeoff};
 use tokred_report::format::{compact, integer, ms, percent, usd};
 
 use crate::args::LatencyBy;
+use crate::commands::BenchReport;
 use crate::term::{Align, Column, Term, key_values, table, title, truncate};
 
 /// Rows shown per table before the rest is summarized.
@@ -112,16 +114,14 @@ pub fn render_stats(term: Term, stats: &Stats, label: &str) -> String {
         ));
     }
     let meter = match savings.total_saving_usd.zip(savings.opus_cost_usd) {
-        Some((saved, opus)) => fraction(saved, opus).map_or_else(
-            || "n/a".to_owned(),
-            |f| {
-                format!(
-                    "{} {}",
-                    term.meter(f, METER_WIDTH),
-                    term.heat(f, &percent(f))
-                )
-            },
-        ),
+        Some((saved, opus)) => {
+            let f = fraction(saved, opus).unwrap_or(0.0);
+            format!(
+                "{} {}",
+                term.meter(f, METER_WIDTH),
+                term.heat(f, &percent(f))
+            )
+        }
         None => "n/a (no opus price)".to_owned(),
     };
     rows.push(("Efficiency meter", meter));
@@ -820,6 +820,155 @@ pub fn render_prices(term: Term, entries: &[PriceEntry]) -> String {
     out
 }
 
+/// The tiered-cache state.
+#[must_use]
+pub fn render_cache(term: Term, stats: &CacheStats) -> String {
+    let mut out = title(term, "tokred Cache");
+    out.push('\n');
+    if stats.total_entries() == 0 {
+        out.push_str(&term.dim("The cache is empty.\n"));
+        return out;
+    }
+    let max = stats.tiers.iter().map(|t| t.entries).max().unwrap_or(0);
+    let rows: Vec<Vec<String>> = stats
+        .tiers
+        .iter()
+        .map(|tier| {
+            #[allow(clippy::cast_precision_loss)]
+            let weight = fraction(tier.entries as f64, max as f64).unwrap_or(0.0);
+            vec![
+                term.accent(&format!("{:?}", tier.tier)),
+                integer(tier.entries),
+                if tier.expired > 0 {
+                    term.yellow(&integer(tier.expired))
+                } else {
+                    integer(tier.expired)
+                },
+                integer(tier.hits),
+                crate::view::bytes(tier.bytes),
+                term.bar(weight, IMPACT_WIDTH),
+            ]
+        })
+        .collect();
+    let columns = [
+        Column {
+            title: "Tier",
+            align: Align::Left,
+        },
+        Column {
+            title: "Entries",
+            align: Align::Right,
+        },
+        Column {
+            title: "Expired",
+            align: Align::Right,
+        },
+        Column {
+            title: "Hits",
+            align: Align::Right,
+        },
+        Column {
+            title: "Size",
+            align: Align::Right,
+        },
+        Column {
+            title: "Impact",
+            align: Align::Left,
+        },
+    ];
+    out.push_str(&table(term, &columns, &rows));
+    let _ = writeln!(
+        out,
+        "{}",
+        term.dim("Run `tokred cache prune` to remove expired entries.")
+    );
+    out
+}
+
+fn bytes(n: u64) -> String {
+    tokred_report::format::bytes(n)
+}
+
+/// The hook-latency benchmark of `doctor --bench`.
+#[must_use]
+pub fn render_bench(term: Term, report: &BenchReport, budget_ms: f64) -> String {
+    let mut out = title(
+        term,
+        &format!(
+            "tokred Hook Benchmark ({} runs per payload)",
+            report.runs_per_payload
+        ),
+    );
+    out.push('\n');
+    let rows: Vec<Vec<String>> = report
+        .hooks
+        .iter()
+        .enumerate()
+        .map(|(index, hook)| {
+            let verdict = if hook.p95_ms <= budget_ms {
+                term.heat(1.0, "within budget")
+            } else {
+                term.red("over budget")
+            };
+            vec![
+                format!("{}.", index + 1),
+                term.accent(&hook.hook),
+                integer(hook.runs as u64),
+                ms(hook.mean_ms),
+                ms(hook.p50_ms),
+                ms(hook.p95_ms),
+                ms(hook.max_ms),
+                verdict,
+            ]
+        })
+        .collect();
+    let columns = [
+        Column {
+            title: "#",
+            align: Align::Right,
+        },
+        Column {
+            title: "Hook",
+            align: Align::Left,
+        },
+        Column {
+            title: "Runs",
+            align: Align::Right,
+        },
+        Column {
+            title: "Mean",
+            align: Align::Right,
+        },
+        Column {
+            title: "p50",
+            align: Align::Right,
+        },
+        Column {
+            title: "p95",
+            align: Align::Right,
+        },
+        Column {
+            title: "Max",
+            align: Align::Right,
+        },
+        Column {
+            title: "Budget",
+            align: Align::Left,
+        },
+    ];
+    out.push_str(&table(term, &columns, &rows));
+    let _ = writeln!(
+        out,
+        "Process start-up overhead: {} per run {}",
+        ms(to_ms(report.spawn_overhead_us)),
+        term.dim(&format!(
+            "(saved for `tokred stats latency`; budget: p95 under {})",
+            ms(budget_ms)
+        ))
+    );
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use tokred_core::Timestamp;
@@ -964,24 +1113,6 @@ mod tests {
     }
 
     #[test]
-    fn print_a_sample() {
-        if std::env::var_os("TOKRED_SHOW_SAMPLE").is_some() {
-            let color = Term::new(true);
-            println!("{}", render_stats(color, &rich(), "last 7 days"));
-            let events = vec![
-                event("guard-read", decision::ALLOW, "", 0, 2_000, 1),
-                event("guard-read", decision::DENY, reason::REREAD, 10, 4_000, 1),
-                event("route", "implementation", reason::SUGGESTED, 0, 90_000, 2),
-            ];
-            let (lat, trade) = latency(&events, 5_000);
-            println!(
-                "{}",
-                render_latency(color, &lat, &trade, None, "last 7 days")
-            );
-        }
-    }
-
-    #[test]
     fn color_mode_paints_without_changing_the_layout() {
         let plain = render_stats(OFF, &rich(), "last 7 days");
         let colored = render_stats(Term::new(true), &rich(), "last 7 days");
@@ -1109,7 +1240,7 @@ mod tests {
             now: Timestamp(NOW),
             first_configure: Some(Timestamp(NOW - 10 * DAY)),
         });
-        assert!(render_stats(OFF, &worse, "x").contains("+"));
+        assert!(render_stats(OFF, &worse, "x").contains('+'));
         // Nothing before configuring: no comparison line.
         assert!(!render_stats(OFF, &build(Some(NOW - 60 * DAY)), "x").contains("Cost per session"));
     }
@@ -1201,5 +1332,232 @@ mod tests {
         assert_eq!(fraction(5.0, 2.0), Some(1.0));
         assert_eq!(money_or_na(None), "n/a");
         assert!((to_ms(2_500) - 2.5).abs() < f64::EPSILON);
+    }
+
+    // ---- audit and benchmark screens ----
+
+    use tokred_audit::report::{AuditItem, KindTotal, McpServerReport, Summary, UnconfiguredUsage};
+
+    fn item(
+        kind: ItemKind,
+        scope: Scope,
+        name: &str,
+        tokens: u64,
+        action: Option<&str>,
+    ) -> AuditItem {
+        AuditItem {
+            kind,
+            scope,
+            name: name.to_owned(),
+            path: std::path::PathBuf::from("/x"),
+            imported_by: None,
+            estimated_tokens: tokens,
+            startup_tokens: None,
+            action: action.map(str::to_owned),
+        }
+    }
+
+    fn server(
+        name: &str,
+        scope: McpScope,
+        calls: u64,
+        last: Option<i64>,
+        unused: bool,
+        disabled: bool,
+    ) -> McpServerReport {
+        McpServerReport {
+            name: name.to_owned(),
+            scope,
+            also_in: vec![],
+            source: std::path::PathBuf::from("/x"),
+            transport: "stdio".to_owned(),
+            disabled,
+            calls,
+            last_seen_unix: last,
+            unused,
+            action: None,
+        }
+    }
+
+    fn audit_report(items: Vec<AuditItem>, servers: Vec<McpServerReport>) -> AuditReport {
+        let mut by_kind = std::collections::BTreeMap::new();
+        by_kind.insert(
+            ItemKind::ClaudeMd,
+            KindTotal {
+                count: 1,
+                estimated_tokens: 900,
+            },
+        );
+        AuditReport {
+            token_estimate: "estimate: characters / 4".to_owned(),
+            window_days: 30,
+            items,
+            mcp_servers: servers,
+            mcp_usage_without_local_config: vec![UnconfiguredUsage {
+                server: "plugin-x".to_owned(),
+                calls: 7,
+                last_seen_unix: None,
+            }],
+            summary: Summary {
+                by_kind,
+                total_estimated_tokens: 1_200,
+                total_startup_tokens: 900,
+                mcp_servers: 3,
+                mcp_servers_unused: 1,
+            },
+            notes: vec!["MCP schema weight is not computable locally".to_owned()],
+            warnings: vec!["a skill listing is long".to_owned()],
+        }
+    }
+
+    #[test]
+    fn the_audit_screen_shows_items_servers_notes_and_warnings() {
+        let items = vec![
+            item(
+                ItemKind::ClaudeMd,
+                Scope::User,
+                "CLAUDE.md",
+                900,
+                Some("move to path-scoped rules"),
+            ),
+            item(ItemKind::Rule, Scope::Project, "style", 200, None),
+            item(ItemKind::Skill, Scope::User, "deploy", 100, None),
+            item(ItemKind::Agent, Scope::Project, "helper", 50, None),
+        ];
+        let servers = vec![
+            server(
+                "busy",
+                McpScope::Local,
+                12,
+                Some(1_700_000_000),
+                false,
+                false,
+            ),
+            server("idle", McpScope::Project, 0, None, true, false),
+            server("off", McpScope::User, 0, None, true, true),
+        ];
+        let text = render_audit(OFF, &audit_report(items, servers));
+        for expected in [
+            "tokred Context Audit",
+            "Fixed context:",
+            "~1.2k tokens",
+            "estimate: characters / 4",
+            "Loaded at start-up:",
+            "Items:",
+            "1 (CLAUDE.md 1, rules 0, skills 0, agents 0)",
+            "1 unused",
+            "▶ a skill listing is long",
+            "MCP schema weight is not computable locally",
+            "Heaviest Items",
+            "CLAUDE.md",
+            "rule",
+            "skill",
+            "agent",
+            "user",
+            "project",
+            "move to path-scoped rules",
+            "MCP Servers",
+            "local",
+            "stdio",
+            "2023-11-14",
+            "never",
+            "in use",
+            "unused",
+            "disabled",
+            "used but not configured here: plugin-x (7 calls",
+        ] {
+            assert!(text.contains(expected), "missing {expected:?} in:\n{text}");
+        }
+    }
+
+    #[test]
+    fn an_empty_audit_and_a_long_one() {
+        let empty = render_audit(OFF, &audit_report(vec![], vec![]));
+        assert!(empty.contains("No CLAUDE.md, rules, skills or agents found."));
+        assert!(empty.contains("No MCP servers configured."));
+
+        let many: Vec<_> = (0..20)
+            .map(|i| {
+                item(
+                    ItemKind::Skill,
+                    Scope::User,
+                    &format!("skill-{i}"),
+                    10 + i,
+                    None,
+                )
+            })
+            .collect();
+        let long = render_audit(Term::new(true), &audit_report(many, vec![]));
+        assert!(long.contains("... and 5 more"), "{long}");
+    }
+
+    #[test]
+    fn dates_are_civil_utc() {
+        assert_eq!(ymd(0), "1970-01-01");
+        assert_eq!(ymd(951_782_400), "2000-02-29");
+        assert_eq!(ymd(1_700_000_000), "2023-11-14");
+        assert_eq!(ymd(-86_400), "1969-12-31");
+    }
+
+    #[test]
+    fn prices_are_listed_by_family_newest_first() {
+        let text = render_prices(OFF, prices().entries());
+        assert!(text.contains("tokred Prices (USD per million tokens)"));
+        let opus = text.find("claude-opus").unwrap();
+        let sonnet = text.find("claude-sonnet").unwrap();
+        assert!(opus < sonnet, "opus before sonnet");
+        assert!(text.contains("Cache write") && text.contains("$15.00"));
+    }
+
+    #[test]
+    fn the_benchmark_screen_marks_hooks_over_budget() {
+        use crate::commands::BenchReport;
+        let hook = |name: &str, p95: f64| crate::commands::HookBench {
+            hook: name.to_owned(),
+            runs: 50,
+            mean_ms: 8.0,
+            p50_ms: 7.5,
+            p95_ms: p95,
+            max_ms: p95 + 5.0,
+        };
+        let report = BenchReport {
+            runs_per_payload: 50,
+            hooks: vec![hook("guard-read", 12.0), hook("route", 80.0)],
+            spawn_overhead_us: 7_000,
+        };
+        let text = render_bench(OFF, &report, 50.0);
+        for expected in [
+            "tokred Hook Benchmark (50 runs per payload)",
+            "guard-read",
+            "within budget",
+            "over budget",
+            "Process start-up overhead: 7.00 ms",
+            "budget: p95 under 50.0 ms",
+        ] {
+            assert!(text.contains(expected), "missing {expected:?} in:\n{text}");
+        }
+        assert!(render_bench(Term::new(true), &report, 50.0).contains("\x1b[31mover budget"));
+    }
+
+    #[test]
+    fn the_cost_screen_covers_zero_cost_baselines_and_missing_cache_data() {
+        // A "before" period priced at $0 (unpriced model): no division by zero, no change shown as inf.
+        let usage = vec![
+            record("a", "old", "mystery-model", 30, 4_000_000),
+            record("b", "new", "claude-sonnet-4-20250514", 1, 1_000_000),
+        ];
+        let table = prices();
+        let stats = compute_stats(&StatsInput {
+            usage: &usage,
+            prices: &table,
+            events: &[],
+            range: TimeRange::new(Timestamp(NOW - 40 * DAY), Timestamp(NOW + 1)),
+            group_by: GroupBy::Model,
+            now: Timestamp(NOW),
+            first_configure: Some(Timestamp(NOW - 10 * DAY)),
+        });
+        let text = render_stats(OFF, &stats, "x");
+        assert!(text.contains("Cost per session"), "{text}");
+        assert!(text.contains("+0%") || text.contains("0%"));
     }
 }

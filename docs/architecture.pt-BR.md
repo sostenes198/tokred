@@ -16,8 +16,12 @@ tokred (cli) ──► casos de uso (install, hooks, metrics, pricing, audit, up
 |---|---|
 | `tokred-core` | Domínio: tipos, erros, modelo de config, regras de paths, modelo dos eventos de hook e os ports (`Clock`, `FileSystem`, `ManifestRepo`; outros chegam com suas fases). **Sem I/O.** |
 | `tokred-install` | Casos de uso `configure`, `unconfigure`, `doctor`: merge puro do settings, templates dos agentes e regras de instalação. Contém o adapter de `std::fs` (módulo `fs`) |
-| `tokred-hooks` | Handlers dos hooks (stubs fail-open na F0) |
-| `tokred-metrics`, `tokred-pricing`, `tokred-audit`, `tokred-update`, `tokred-report` | Casos de uso das fases seguintes (placeholders na F0) |
+| `tokred-hooks` | Os seis handlers de hook, o guarda de tempo e os payloads do benchmark (fail-open) |
+| `tokred-metrics` | Ingestão de transcripts, custo, economia, projeção, latência e resumos de roteamento/guardas (puro) |
+| `tokred-pricing` | Parse da lista de preços, snapshot embutido de fallback, casos de uso de sync e o adapter do LiteLLM |
+| `tokred-update` | Detecção do método de instalação, verificação de versão, self-update com checksum e o adapter do GitHub |
+| `tokred-audit` | Auditoria do contexto fixo: `CLAUDE.md` com imports, rules, skills, agentes, uso de MCP |
+| `tokred-report` | O relatório HTML offline: modelo, gráficos SVG, template, gravação atômica |
 | `tokred-store` | Adapter: SQLite (`rusqlite`), migrations versionadas, implementação dos repositórios |
 | `tokred` (`crates/tokred-cli`) | O binário. Faz o parse dos argumentos, monta os adapters reais, chama os casos de uso, formata a saída e decide o código de saída. Único crate que usa `anyhow` e `println!` |
 

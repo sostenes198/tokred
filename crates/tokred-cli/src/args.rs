@@ -216,39 +216,21 @@ mod tests {
 
     #[test]
     fn stats_has_defaults_and_a_latency_subcommand() {
-        let Command::Stats {
-            command: None,
-            args,
-            ..
-        } = parse(&["stats"])
-        else {
-            panic!()
-        };
-        assert_eq!(args.since, "7d");
-        assert!(args.by.is_none() && !args.json);
-
-        let Command::Stats {
-            command: None,
-            args,
-            ..
-        } = parse(&["stats", "--since", "30d", "--by", "model", "--json"])
-        else {
-            panic!()
-        };
-        assert_eq!(
-            (args.since.as_str(), args.by, args.json),
-            ("30d", Some(StatsBy::Model), true)
-        );
-
-        let Command::Stats {
-            command: Some(StatsCommand::Latency(latency)),
-            ..
-        } = parse(&["stats", "latency", "--by", "session"])
-        else {
-            panic!()
-        };
-        assert_eq!(latency.by, Some(LatencyBy::Session));
-        assert_eq!(latency.since, "7d");
+        assert!(matches!(
+            parse(&["stats"]),
+            Command::Stats { command: None, ref args, .. }
+                if args.since == "7d" && args.by.is_none() && !args.json
+        ));
+        assert!(matches!(
+            parse(&["stats", "--since", "30d", "--by", "model", "--json"]),
+            Command::Stats { command: None, ref args, .. }
+                if args.since == "30d" && args.by == Some(StatsBy::Model) && args.json
+        ));
+        assert!(matches!(
+            parse(&["stats", "latency", "--by", "session"]),
+            Command::Stats { command: Some(StatsCommand::Latency(ref latency)), .. }
+                if latency.by == Some(LatencyBy::Session) && latency.since == "7d"
+        ));
     }
 
     #[test]
@@ -262,15 +244,14 @@ mod tests {
                 ..
             }
         ));
-        let Command::Metrics { since, no_open, .. } = parse(&["metrics", "--no-open"]) else {
-            panic!()
-        };
-        assert_eq!((since.as_str(), no_open), ("30d", true));
-        let Command::Audit { project, json, .. } = parse(&["audit", "--project", "/p", "--json"])
-        else {
-            panic!()
-        };
-        assert_eq!((project, json), (Some(PathBuf::from("/p")), true));
+        assert!(matches!(
+            parse(&["metrics", "--no-open"]),
+            Command::Metrics { ref since, no_open: true, .. } if since == "30d"
+        ));
+        assert!(matches!(
+            parse(&["audit", "--project", "/p", "--json"]),
+            Command::Audit { project: Some(ref p), json: true, .. } if p == &PathBuf::from("/p")
+        ));
         assert!(matches!(
             parse(&["pricing", "sync"]),
             Command::Pricing {
