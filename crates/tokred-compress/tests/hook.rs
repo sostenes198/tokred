@@ -616,3 +616,39 @@ fn a_fallback_without_compression_changes_nothing() {
     }
     assert!(!hook.is_tripped());
 }
+
+#[test]
+fn a_rate_limited_fallback_keeps_the_conversation_whole_without_tripping() {
+    use tokred_core::proxy::{HookNotes, RequestCtx, RequestShape, classify_origin};
+
+    let sink = Sink::new();
+    let hook = hook(TrafficMode::Enforce, true, &sink);
+    let mut conversation = Conversation::new("go");
+    conversation.tool_turn("Bash", json!(big("limited", 300)));
+    let meta = meta_for("s1");
+    let body = conversation.body();
+    let shape = RequestShape::of(&body);
+    let origin = classify_origin(&meta, &shape);
+    let mut ctx = RequestCtx {
+        meta: &meta,
+        shape: &shape,
+        origin: &origin,
+        now: Timestamp(1),
+        body,
+        changed: false,
+        notes: HookNotes::default(),
+    };
+    hook.before(&mut ctx).unwrap();
+    hook.fallback(&ctx, 429);
+    assert!(!hook.is_tripped());
+
+    // That conversation saw its originals; other conversations still get new replacements.
+    conversation.tool_turn("Bash", json!(big("later", 300)));
+    assert_eq!(
+        run(&hook, &meta, conversation.body(), 2).body,
+        conversation.body()
+    );
+    let mut other = Conversation::new("go");
+    other.tool_turn("Bash", json!(big("fresh", 300)));
+    assert!(run(&hook, &meta_for("s2"), other.body(), 3).changed);
+}

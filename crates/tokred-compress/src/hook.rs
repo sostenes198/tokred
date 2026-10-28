@@ -215,7 +215,7 @@ impl CompressionHook {
         self.lock().excluded.extend(tools);
     }
 
-    /// Whether a rejected request opened the circuit breaker: blocks already replaced keep
+    /// Whether a request rejected with `400` opened the circuit breaker: blocks already replaced keep
     /// their bytes (except in the rejected conversation), and no new block is replaced until the
     /// proxy restarts. The proxy should record why and turn compression off.
     #[must_use]
@@ -306,9 +306,10 @@ impl ProxyHook for CompressionHook {
     }
 
     /// The upstream rejected a request this hook changed, and the proxy sent the original: the
-    /// model saw the originals of that conversation, so from now on it gets them on every turn,
-    /// and the circuit breaker stops new replacements everywhere.
-    fn fallback(&self, ctx: &RequestCtx<'_>, _status: u16) {
+    /// model saw the originals of that conversation, so from now on it gets them on every turn.
+    /// A `400` (the binding/thinking class of error) also opens the circuit breaker, which stops
+    /// new replacements everywhere; a rate limit or an overload does not.
+    fn fallback(&self, ctx: &RequestCtx<'_>, status: u16) {
         if ctx.notes.blocks_compressed == 0 {
             return;
         }
@@ -316,7 +317,7 @@ impl ProxyHook for CompressionHook {
             return;
         };
         let mut state = self.lock();
-        state.tripped = true;
+        state.tripped |= status == 400;
         state.conversations.get(&key, None).disabled = true;
     }
 

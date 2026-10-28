@@ -1,5 +1,6 @@
 //! Helpers shared by the integration tests: a recording sink, a request runner and a simulated
 //! Claude Code conversation.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(dead_code, clippy::needless_pass_by_value)]
 
 use std::sync::{Arc, Mutex};
