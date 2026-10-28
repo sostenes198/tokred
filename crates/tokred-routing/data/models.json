@@ -1,0 +1,398 @@
+{
+  "version": "2026-10-28",
+  "sources": [
+    "https://platform.claude.com/docs/en/about-claude/models/overview",
+    "https://platform.claude.com/docs/en/build-with-claude/thinking",
+    "https://platform.claude.com/docs/en/build-with-claude/extended-thinking",
+    "https://platform.claude.com/docs/en/build-with-claude/effort",
+    "https://platform.claude.com/docs/en/build-with-claude/context-windows",
+    "https://platform.claude.com/docs/en/build-with-claude/context-editing",
+    "https://platform.claude.com/docs/en/build-with-claude/preserved-thinking"
+  ],
+  "notes": [
+    "A capability is listed only when the documentation confirms it; anything unconfirmed is left out, which means: do not route a request that needs it.",
+    "reads_thinking_from lists the models whose thinking blocks this model can read on the Claude API (preserved thinking). An empty list means the documentation does not say.",
+    "Tiers list the routing targets of each tier in order of preference. Retired models are never targets."
+  ],
+  "neutral_betas": [
+    "oauth-",
+    "claude-code-",
+    "extended-cache-ttl-",
+    "prompt-caching-",
+    "fine-grained-tool-streaming-"
+  ],
+  "capability_betas": {
+    "context-1m-": "context_1m",
+    "interleaved-thinking-": "interleaved_thinking",
+    "context-management-": "context_management",
+    "compact-": "compaction",
+    "effort-": "effort",
+    "thinking-display-updates-": "thinking_display_updates",
+    "task-budgets-": "task_budget",
+    "mid-conversation-output-config-": "per_message_effort",
+    "structured-outputs-": "structured_outputs"
+  },
+  "neutral_fields": [
+    "model",
+    "messages",
+    "system",
+    "tools",
+    "tool_choice",
+    "max_tokens",
+    "stream",
+    "metadata",
+    "stop_sequences"
+  ],
+  "tiers": {
+    "cheap": ["claude-haiku-5-5", "claude-haiku-4-5"],
+    "mid": ["claude-sonnet-5-5", "claude-sonnet-5", "claude-sonnet-4-6"],
+    "strong": ["claude-opus-5-5", "claude-opus-5"]
+  },
+  "models": [
+    {
+      "id": "claude-fable-5-1",
+      "aliases": [],
+      "family": "fable",
+      "tier": "strong",
+      "status": "current",
+      "default_thinking": "adaptive",
+      "max_output": 128000,
+      "effort": ["low", "medium", "high", "xhigh", "max"],
+      "capabilities": [
+        "adaptive_thinking", "thinking_display", "thinking_display_updates", "effort",
+        "per_message_effort", "interleaved_thinking", "context_management", "compaction",
+        "context_1m", "structured_outputs", "system_messages"
+      ],
+      "reads_thinking_from": [
+        "claude-mythos-5-1", "claude-fable-5", "claude-mythos-5", "claude-mythos-preview",
+        "claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7",
+        "claude-opus-4-6", "claude-opus-4-5", "claude-opus-4-1", "claude-opus-4",
+        "claude-sonnet-5", "claude-sonnet-4-6", "claude-sonnet-4-5", "claude-sonnet-4",
+        "claude-haiku-4-5"
+      ]
+    },
+    {
+      "id": "claude-mythos-5-1",
+      "aliases": [],
+      "family": "mythos",
+      "tier": "strong",
+      "status": "current",
+      "default_thinking": "adaptive",
+      "max_output": 128000,
+      "effort": ["low", "medium", "high", "xhigh", "max"],
+      "capabilities": [
+        "adaptive_thinking", "thinking_display", "thinking_display_updates", "effort",
+        "per_message_effort", "interleaved_thinking", "context_management", "compaction",
+        "context_1m", "structured_outputs", "system_messages"
+      ],
+      "reads_thinking_from": [
+        "claude-fable-5-1", "claude-fable-5", "claude-mythos-5", "claude-mythos-preview",
+        "claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7",
+        "claude-opus-4-6", "claude-opus-4-5", "claude-opus-4-1", "claude-opus-4",
+        "claude-sonnet-5", "claude-sonnet-4-6", "claude-sonnet-4-5", "claude-sonnet-4",
+        "claude-haiku-4-5"
+      ]
+    },
+    {
+      "id": "claude-fable-5",
+      "aliases": [],
+      "family": "fable",
+      "tier": "strong",
+      "status": "legacy",
+      "default_thinking": "adaptive",
+      "max_output": 128000,
+      "effort": ["low", "medium", "high", "xhigh", "max"],
+      "capabilities": [
+        "adaptive_thinking", "thinking_display", "thinking_display_updates", "effort",
+        "interleaved_thinking", "context_management", "compaction", "context_1m",
+        "structured_outputs", "system_messages", "forced_tool_choice", "task_budget"
+      ],
+      "reads_thinking_from": []
+    },
+    {
+      "id": "claude-mythos-5",
+      "aliases": [],
+      "family": "mythos",
+      "tier": "strong",
+      "status": "legacy",
+      "default_thinking": "adaptive",
+      "max_output": 128000,
+      "effort": ["low", "medium", "high", "xhigh", "max"],
+      "capabilities": [
+        "adaptive_thinking", "thinking_display", "effort", "interleaved_thinking",
+        "context_management", "compaction", "context_1m", "structured_outputs",
+        "system_messages", "forced_tool_choice"
+      ],
+      "reads_thinking_from": []
+    },
+    {
+      "id": "claude-mythos-preview",
+      "aliases": [],
+      "family": "mythos",
+      "tier": "strong",
+      "status": "legacy",
+      "default_thinking": "adaptive",
+      "max_output": 128000,
+      "effort": ["low", "medium", "high", "max"],
+      "capabilities": [
+        "adaptive_thinking", "budget_thinking", "thinking_display", "effort",
+        "interleaved_thinking", "context_management", "compaction", "context_1m",
+        "structured_outputs"
+      ],
+      "reads_thinking_from": []
+    },
+    {
+      "id": "claude-opus-5-5",
+      "aliases": [],
+      "family": "opus",
+      "tier": "strong",
+      "status": "current",
+      "default_thinking": "adaptive",
+      "max_output": 128000,
+      "effort": ["low", "medium", "high", "xhigh", "max"],
+      "capabilities": [
+        "adaptive_thinking", "thinking_display", "thinking_display_updates", "effort",
+        "per_message_effort", "interleaved_thinking", "context_management", "compaction",
+        "context_1m", "structured_outputs", "system_messages", "task_budget"
+      ],
+      "reads_thinking_from": [
+        "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
+        "claude-opus-4-5", "claude-opus-4-1", "claude-opus-4", "claude-sonnet-5-5",
+        "claude-sonnet-5", "claude-sonnet-4-6", "claude-sonnet-4-5", "claude-sonnet-4",
+        "claude-haiku-5-5", "claude-haiku-4-5"
+      ]
+    },
+    {
+      "id": "claude-opus-5",
+      "aliases": [],
+      "family": "opus",
+      "tier": "strong",
+      "status": "legacy",
+      "default_thinking": "adaptive",
+      "max_output": 128000,
+      "effort": ["low", "medium", "high", "xhigh", "max"],
+      "capabilities": [
+        "adaptive_thinking", "thinking_disabled_at_high", "thinking_display", "effort",
+        "per_message_effort", "interleaved_thinking", "context_management", "compaction",
+        "context_1m", "structured_outputs", "system_messages", "forced_tool_choice",
+        "task_budget"
+      ],
+      "reads_thinking_from": []
+    },
+    {
+      "id": "claude-opus-4-8",
+      "aliases": [],
+      "family": "opus",
+      "tier": "strong",
+      "status": "legacy",
+      "default_thinking": "off",
+      "max_output": 128000,
+      "effort": ["low", "medium", "high", "xhigh", "max"],
+      "capabilities": [
+        "adaptive_thinking", "thinking_disabled", "thinking_disabled_at_high",
+        "thinking_display", "effort", "interleaved_thinking", "context_management",
+        "compaction", "context_1m", "structured_outputs", "system_messages",
+        "forced_tool_choice", "task_budget"
+      ],
+      "reads_thinking_from": []
+    },
+    {
+      "id": "claude-opus-4-7",
+      "aliases": ["claude-opus-4-7-20260416"],
+      "family": "opus",
+      "tier": "strong",
+      "status": "legacy",
+      "default_thinking": "off",
+      "max_output": 128000,
+      "effort": ["low", "medium", "high", "xhigh", "max"],
+      "capabilities": [
+        "adaptive_thinking", "thinking_disabled", "thinking_disabled_at_high",
+        "thinking_display", "effort", "interleaved_thinking", "context_management",
+        "compaction", "context_1m", "structured_outputs", "forced_tool_choice", "task_budget"
+      ],
+      "reads_thinking_from": []
+    },
+    {
+      "id": "claude-opus-4-6",
+      "aliases": ["claude-opus-4-6-20260205"],
+      "family": "opus",
+      "tier": "strong",
+      "status": "legacy",
+      "default_thinking": "off",
+      "max_output": 128000,
+      "effort": ["low", "medium", "high", "max"],
+      "capabilities": [
+        "adaptive_thinking", "budget_thinking", "thinking_disabled", "thinking_disabled_at_high",
+        "thinking_display", "effort", "interleaved_thinking", "context_management",
+        "compaction", "context_1m", "structured_outputs", "forced_tool_choice", "sampling"
+      ],
+      "reads_thinking_from": []
+    },
+    {
+      "id": "claude-opus-4-5",
+      "aliases": ["claude-opus-4-5-20251101"],
+      "family": "opus",
+      "tier": "strong",
+      "status": "legacy",
+      "default_thinking": "off",
+      "max_output": 64000,
+      "effort": ["low", "medium", "high"],
+      "capabilities": [
+        "budget_thinking", "thinking_disabled", "thinking_disabled_at_high", "effort",
+        "interleaved_thinking", "context_management", "structured_outputs",
+        "forced_tool_choice", "sampling"
+      ],
+      "reads_thinking_from": []
+    },
+    {
+      "id": "claude-opus-4-1",
+      "aliases": ["claude-opus-4-1-20250805"],
+      "family": "opus",
+      "tier": "strong",
+      "status": "retired",
+      "default_thinking": "off",
+      "max_output": 32000,
+      "effort": [],
+      "capabilities": [
+        "budget_thinking", "thinking_disabled", "thinking_disabled_at_high",
+        "interleaved_thinking", "context_management", "structured_outputs",
+        "forced_tool_choice", "sampling"
+      ],
+      "reads_thinking_from": []
+    },
+    {
+      "id": "claude-opus-4",
+      "aliases": ["claude-opus-4-0", "claude-opus-4-20250514"],
+      "family": "opus",
+      "tier": "strong",
+      "status": "retired",
+      "default_thinking": "off",
+      "max_output": 32000,
+      "effort": [],
+      "capabilities": [
+        "budget_thinking", "thinking_disabled", "thinking_disabled_at_high",
+        "interleaved_thinking", "context_management", "forced_tool_choice", "sampling"
+      ],
+      "reads_thinking_from": []
+    },
+    {
+      "id": "claude-sonnet-5-5",
+      "aliases": [],
+      "family": "sonnet",
+      "tier": "mid",
+      "status": "current",
+      "default_thinking": "adaptive",
+      "max_output": 128000,
+      "effort": ["low", "medium", "high", "xhigh", "max"],
+      "capabilities": [
+        "adaptive_thinking", "between_tools_at_high", "thinking_display",
+        "thinking_display_updates", "effort", "per_message_effort", "interleaved_thinking",
+        "context_management", "compaction", "context_1m", "structured_outputs",
+        "system_messages", "task_budget"
+      ],
+      "reads_thinking_from": [
+        "claude-sonnet-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
+        "claude-opus-4-5", "claude-opus-4-1", "claude-opus-4", "claude-sonnet-4-6",
+        "claude-sonnet-4-5", "claude-sonnet-4", "claude-haiku-5-5", "claude-haiku-4-5"
+      ]
+    },
+    {
+      "id": "claude-sonnet-5",
+      "aliases": [],
+      "family": "sonnet",
+      "tier": "mid",
+      "status": "legacy",
+      "default_thinking": "adaptive",
+      "max_output": 128000,
+      "effort": ["low", "medium", "high", "xhigh", "max"],
+      "capabilities": [
+        "adaptive_thinking", "thinking_disabled", "thinking_disabled_at_high",
+        "thinking_display", "effort", "interleaved_thinking", "context_management",
+        "compaction", "context_1m", "structured_outputs", "forced_tool_choice"
+      ],
+      "reads_thinking_from": []
+    },
+    {
+      "id": "claude-sonnet-4-6",
+      "aliases": [],
+      "family": "sonnet",
+      "tier": "mid",
+      "status": "legacy",
+      "default_thinking": "off",
+      "max_output": 128000,
+      "effort": ["low", "medium", "high", "max"],
+      "capabilities": [
+        "adaptive_thinking", "budget_thinking", "thinking_disabled", "thinking_disabled_at_high",
+        "thinking_display", "effort", "interleaved_thinking", "context_management",
+        "compaction", "context_1m", "structured_outputs", "forced_tool_choice", "sampling"
+      ],
+      "reads_thinking_from": []
+    },
+    {
+      "id": "claude-sonnet-4-5",
+      "aliases": ["claude-sonnet-4-5-20250929"],
+      "family": "sonnet",
+      "tier": "mid",
+      "status": "deprecated",
+      "default_thinking": "off",
+      "max_output": 64000,
+      "effort": [],
+      "capabilities": [
+        "budget_thinking", "thinking_disabled", "thinking_disabled_at_high",
+        "interleaved_thinking", "context_management", "structured_outputs",
+        "forced_tool_choice", "sampling"
+      ],
+      "reads_thinking_from": []
+    },
+    {
+      "id": "claude-sonnet-4",
+      "aliases": ["claude-sonnet-4-0", "claude-sonnet-4-20250514"],
+      "family": "sonnet",
+      "tier": "mid",
+      "status": "retired",
+      "default_thinking": "off",
+      "max_output": 64000,
+      "effort": [],
+      "capabilities": [
+        "budget_thinking", "thinking_disabled", "thinking_disabled_at_high",
+        "interleaved_thinking", "context_management", "forced_tool_choice", "sampling"
+      ],
+      "reads_thinking_from": []
+    },
+    {
+      "id": "claude-haiku-5-5",
+      "aliases": [],
+      "family": "haiku",
+      "tier": "cheap",
+      "status": "current",
+      "default_thinking": "adaptive",
+      "max_output": 128000,
+      "effort": ["low", "medium", "high", "xhigh", "max"],
+      "capabilities": [
+        "adaptive_thinking", "thinking_disabled_at_high", "thinking_display", "effort",
+        "per_message_effort", "interleaved_thinking", "context_management", "compaction",
+        "context_1m", "structured_outputs", "system_messages", "task_budget"
+      ],
+      "reads_thinking_from": [
+        "claude-sonnet-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
+        "claude-opus-4-5", "claude-opus-4-1", "claude-opus-4", "claude-sonnet-4-6",
+        "claude-sonnet-4-5", "claude-sonnet-4", "claude-haiku-4-5"
+      ]
+    },
+    {
+      "id": "claude-haiku-4-5",
+      "aliases": ["claude-haiku-4-5-20251001"],
+      "family": "haiku",
+      "tier": "cheap",
+      "status": "legacy",
+      "default_thinking": "off",
+      "max_output": 64000,
+      "effort": [],
+      "capabilities": [
+        "budget_thinking", "thinking_disabled", "thinking_disabled_at_high",
+        "context_management", "structured_outputs", "forced_tool_choice", "sampling"
+      ],
+      "reads_thinking_from": []
+    }
+  ]
+}
