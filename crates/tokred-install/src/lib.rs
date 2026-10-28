@@ -11,6 +11,7 @@ pub mod configure;
 pub mod doctor;
 pub mod error;
 pub mod fs;
+pub mod mcp;
 pub mod settings;
 pub mod unconfigure;
 

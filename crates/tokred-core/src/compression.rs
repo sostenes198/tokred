@@ -9,6 +9,12 @@ use serde::Serialize;
 
 use crate::types::Timestamp;
 
+/// [`ShadowRecord::kind`] of what reversible compression would have saved.
+pub const SHADOW_KIND_COMPRESSION: &str = "compression";
+
+/// [`ShadowRecord::kind`] of a request that exactly repeats one seen in the last 24 hours.
+pub const SHADOW_KIND_RESPONSE_CACHE: &str = "response_cache";
+
 /// An original tool result kept for `tokred_retrieve` (row of `stored_results`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct StoredResult {
@@ -32,10 +38,12 @@ pub struct StoredResult {
     pub expires_at: Timestamp,
 }
 
-/// The exact bytes sent for a replaced block in a session (row of `compressed_blocks`).
+/// The exact bytes sent for a replaced block in a conversation (row of `compressed_blocks`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct CompressedBlock {
-    /// Session id.
+    /// The conversation key: the session id for the main loop, `<session id>/<agent id>` for a
+    /// subagent. Subagents share the main loop's session id but have their own history, so a
+    /// block replaced in one must never change a block the other already saw.
     pub session_id: String,
     /// blake3 of the original block.
     pub original_hash: String,
@@ -64,4 +72,22 @@ pub struct ShadowRecord {
     pub est_tokens_saved: u64,
     /// Version of the rules.
     pub rules_version: String,
+}
+
+/// Shadow-mode savings of one kind and key between two instants (aggregate of
+/// `shadow_savings`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ShadowSavings {
+    /// `compression` or `response_cache`.
+    pub kind: String,
+    /// The tool (compression) or the request hash (response cache).
+    pub key: String,
+    /// Number of records.
+    pub events: u64,
+    /// Number of distinct sessions.
+    pub sessions: u64,
+    /// Sum of the bytes that would not have been sent.
+    pub bytes_saved: u64,
+    /// Sum of the estimated tokens that would not have been sent.
+    pub est_tokens_saved: u64,
 }
