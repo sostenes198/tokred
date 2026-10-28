@@ -63,6 +63,7 @@ These facts shape the entire spec; they were read on the official Claude Code an
 | `route` hook as the main classifier | Claude Code headers replace the keyword classifier **for measuring**; `route` becomes an optional suggestion |
 | Response cache (phase F8) | **Shadow** only (measures repetition by hash); active cache goes to the backlog |
 | Artifact cache (F9) | Backlog |
+| No reversible compression | **Reversible compression** of large `tool_result` blocks (phase F11): the proxy deterministically replaces the block with a preview plus an id, and the model gets the original back through the `tokred_retrieve` tool of the `tokred mcp` MCP server (section 6.7). Starts in `observe` |
 
 ### 1.5 Non-goals
 
@@ -265,9 +266,27 @@ Without changing anything, the proxy computes and records:
 - **Compression (shadow):** it would apply the deterministic rules (`rules_version`) to text `tool_result` blocks and record the bytes and tokens that **would have** been avoided, per tool. Rules: remove ANSI/control characters, normalize line endings, collapse consecutive identical lines, truncate blocks above `max_tool_result_bytes` keeping the start and end. Gain estimate: a block of T tokens costs ≈ `1.25·T` on write and `0.1·T` per following turn; the report shows the expected gain already accounting for the observed number of turns.
 - **Response cache (shadow):** canonical hash (blake3) of the body to measure how many requests are **exact repeats**. Only hashes and counts.
 
-### 6.7 Active compression (conditional)
+### 6.7 Reversible compression of tool results
 
-It only exists if the phase F10 gate passes. Non-negotiable restrictions if it is ever turned on: same input → same bytes (pure function, no clock); `rules_version` pinned per session; never touch `system`, `tools`, `thinking`, `cache_control`, images, `tool_use` or user/assistant text; only text `tool_result`; store `(session, hash of the original) → hash of the compressed` to never diverge between turns; byte-by-byte prefix test between turns; a drop in the cache rate or any thinking/binding `400` turns it off immediately (circuit breaker) and investigates.
+Goal: the model does not pay, on every turn, for a huge `tool_result` it has already used (e.g. a 5,000-line JSON), but can get it back when it needs it. Inspired by the equivalent mechanism of `rtk-proxy`, with a deliberate difference in how the content is retrieved.
+
+**How it works**
+1. **Selection.** Only **text** `tool_result` blocks above `min_tokens` (default 1,500, estimated as bytes / 4). Never small source-file `Read` results, images, documents, `tool_use`, `system`, `tools`, `thinking` or `cache_control`.
+2. **Deterministic replacement.** The proxy stores the original (`stored_results`, compressed blob, `retention`, default 7 days) and sends instead a preview (the first `preview_head_lines` and last `preview_tail_lines` lines) followed by a one-line marker: `[tokred: N lines omitted (id=<id>). Call tokred_retrieve with this id and an optional offset/limit to read them.]`. The `id` is derived from the hash of the original content.
+3. **Same bytes on every turn.** The replacement happens **the first time** the block is sent to the model (the turn right after the tool ran), so the model **never** saw the original in that context. On later turns Claude Code resends the original and the proxy reapplies exactly the same replacement (map `(session, hash of the original) → bytes sent`). This keeps the cache prefix and the thinking blocks (*preserved thinking*) consistent. If the map disagrees with the current computation, the map wins.
+4. **Visible retrieval.** `configure` registers a local MCP server (`tokred mcp`, stdio) with the tool `tokred_retrieve(id, offset?, limit?)`. The model calls it like any other tool, Claude Code runs it, and the answer enters the history normally.
+
+**Why not inject a hidden tool (like `rtk_retrieve`)**
+- Answering the tool inside the proxy hides an exchange from Claude Code. On the next turn the resent history lacks that exchange, and on models with *preserved thinking* (Opus 5.5, Sonnet 5.5, Haiku 5.5, Fable 5.1) the API compares the prefix and may reject with `400` ("bound to a different conversation") or silently drop thinking blocks.
+- Injecting a tool changes the `tools` block, which invalidates the whole cache if it happens mid-session.
+- With the MCP server, the tool exists from the start of the session (MCP tools load on demand) and every retrieval is recorded in the transcript.
+
+**Safeguards**
+- Mode `off | observe | enforce` (default `observe`: only measures how much it would save, section 6.6). `enforce` only after gate G2.
+- If the proxy goes down mid-session, Claude Code starts sending the original: one cache rebuild and possible loss of thinking blocks; `doctor` and the metrics show it.
+- Retrieving the same `id` more than `max_retrievals` times in a session signals that the preview is too short for that tool: the tool is then excluded from compression automatically.
+- Circuit breaker: any binding/thinking `400` or a drop in the cache rate after enabling turns compression off immediately and records why.
+- **Future extension (not included):** replacing repeated file bodies in `Write`/`Edit` arguments with a pointer (`rtk-proxy`'s `retire-pointer`). It touches the assistant's `tool_use`; evaluate after measuring F11.
 
 ### 6.8 Administration and security
 
@@ -347,6 +366,7 @@ An embedded, updatable file (`models.json`, generated by a script from LiteLLM a
 | `tokred routing status\|on\|off\|explain <id>` | Mode, circuit breaker, latest decisions and explanation of a decision |
 | `tokred suggest [--since 7d]` | Model suggestions for the main loop, with the evidence |
 | `tokred statusline` | Short line for Claude Code's `statusLine` |
+| `tokred mcp` | **Internal.** MCP server (stdio) with the `tokred_retrieve` tool, registered by `configure` when compression is enabled (section 6.7) |
 | `tokred stats … --by request-class\|agent-type\|prompt` | New groupings |
 | `tokred doctor` | Proxy section (section 6.8) |
 
@@ -387,6 +407,14 @@ channel = "stats"                # off | stats | statusline | message
 min_simple_prompts = 3
 cooldown = "6h"
 
+[compression]                    # reversible compression (section 6.7)
+mode = "observe"                 # off | observe | enforce
+min_tokens = 1500
+preview_head_lines = 40
+preview_tail_lines = 20
+retention = "7d"
+max_retrievals = 3
+
 [shadow]
 compression = true               # computes what it would save (changes nothing)
 response_cache = true            # measures exact repeats by hash
@@ -426,7 +454,7 @@ Each phase ends with green tests on all 3 OSes, clean clippy, coverage maintaine
 | **F8 — Proxy: forwarding and measurement** | `tokred-proxy` (6.1 to 6.5, 6.8), `tokred claude`, `proxy start/stop/status/service`, migration v3, cache miss explanation, integration into metrics and `doctor` | Tests with fake API and streaming; p95 overhead < 10 ms; Claude Code normal with and without the proxy; no byte change in the traffic |
 | **F9 — Model policy** | Layered classification, subagent and auxiliary routing in `observe` → `enforce` mode, capabilities catalog, fallback and circuit breaker, `routing explain` | In `observe`, hypothetical savings visible; **gate G1:** only turn on `enforce` if the rate of correct reviewed decisions is high and `observe` showed no quality losses; in `enforce`, 0 binding/thinking `400`s in test sessions |
 | **F10 — Suggestions and shadow** | `prompt_summaries`, `suggest`, `statusline`, suggestion hook at safe boundaries; compression and response cache shadow; gain report | Suggestions with correct evidence in the tests; **gate G2:** active compression only if the shadow shows material gain (threshold defined in the data) **and** a canary with no `400` and no cache drop |
-| **F11 — Optional** | Active compression (6.7) and active response cache, only if G2 passes | Determinism and prefix tests; cache metric with no drop |
+| **F11 — Reversible compression** | Section 6.7: deterministic replacement + `stored_results` + the `tokred mcp` MCP server with `tokred_retrieve`, in `observe` by default; MCP registration by `configure`; the active response cache stays in the backlog | Determinism and byte-for-byte prefix tests across turns; end-to-end retrieval with the real Claude Code; **gate G2** for `enforce`: gain measured in shadow mode and no `400` or cache drop in a canary |
 | **Backlog** | Artifact cache (summaries by hash) and the other v1 ideas | Only with data |
 
 ---
@@ -445,6 +473,8 @@ Each phase ends with green tests on all 3 OSes, clean clippy, coverage maintaine
 | Terms of use for subscription via proxy | Check and record in the spike; if not allowed, "API key only" |
 | Proxy maintenance cost | Minimal scope, data instead of code (catalog), tests with fake API, matrix in CI |
 | Gain smaller than expected | Measure first (F8), shadow before acting (F10), gates G1/G2 with thresholds in the data |
+| Reversible compression breaks the cache or thinking | Replacement the first time the block is sent and identical afterwards; retrieval through a visible MCP tool (no hidden exchange); circuit breaker; `observe` by default |
+| The preview is not enough and the model does not retrieve | Explicit marker with the id and the tool; automatic exclusion of a tool with repeated retrievals; high threshold (`min_tokens`) |
 
 ### 13.1 Open questions (resolve in the F7 spike)
 
