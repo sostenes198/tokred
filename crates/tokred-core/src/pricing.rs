@@ -83,7 +83,7 @@ pub struct PriceEntry {
 }
 
 /// Token counts of one or many messages.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Usage {
     /// Uncached input tokens.
     pub input: u64,

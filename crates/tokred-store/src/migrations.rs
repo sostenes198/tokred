@@ -52,6 +52,62 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE pricing ADD COLUMN cache_write_1h REAL;
     DELETE FROM ingest_state;
     ",
+    // v4: the local proxy (spec section 7.1). Fields a workstream needs later go in the JSON
+    // `detail`/`notes` columns instead of new migrations.
+    "
+    CREATE TABLE proxy_requests(
+        id TEXT PRIMARY KEY, ts INTEGER NOT NULL, session_id TEXT NOT NULL, agent_id TEXT,
+        agent_type TEXT, prompt_id TEXT, origin TEXT NOT NULL, model_requested TEXT NOT NULL,
+        model_effective TEXT NOT NULL, input INTEGER NOT NULL, output INTEGER NOT NULL,
+        cache_write INTEGER NOT NULL, cache_write_1h INTEGER NOT NULL, cache_read INTEGER NOT NULL,
+        thinking INTEGER NOT NULL, message_key TEXT, bytes_in INTEGER NOT NULL,
+        bytes_out INTEGER NOT NULL, upstream_ttfb_ms INTEGER NOT NULL, total_ms INTEGER NOT NULL,
+        proxy_overhead_us INTEGER NOT NULL, status INTEGER NOT NULL,
+        notes TEXT NOT NULL DEFAULT '{}', miss_cause TEXT, tools_hash TEXT NOT NULL,
+        system_hash TEXT NOT NULL
+    );
+    CREATE INDEX proxy_requests_ts ON proxy_requests(ts);
+    CREATE INDEX proxy_requests_session ON proxy_requests(session_id, ts);
+    CREATE TABLE routing_decisions(
+        id TEXT PRIMARY KEY, ts INTEGER NOT NULL, session_id TEXT NOT NULL, agent_id TEXT,
+        scope TEXT NOT NULL, task_class TEXT NOT NULL, confidence REAL NOT NULL,
+        layer TEXT NOT NULL, reason TEXT NOT NULL, model_from TEXT NOT NULL,
+        model_to TEXT NOT NULL, mode TEXT NOT NULL, est_cost_from REAL NOT NULL,
+        est_cost_to REAL NOT NULL, rules_version TEXT NOT NULL, outcome TEXT NOT NULL,
+        detail TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX routing_decisions_ts ON routing_decisions(ts);
+    CREATE INDEX routing_decisions_agent ON routing_decisions(session_id, agent_id);
+    CREATE TABLE prompt_summaries(
+        prompt_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, ts INTEGER NOT NULL,
+        model TEXT NOT NULL, turns INTEGER NOT NULL, tools TEXT NOT NULL,
+        output_tokens INTEGER NOT NULL, thinking_tokens INTEGER NOT NULL, cost_usd REAL NOT NULL,
+        edited INTEGER NOT NULL, subagents INTEGER NOT NULL, simple INTEGER NOT NULL,
+        est_saving_usd REAL NOT NULL, detail TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX prompt_summaries_session ON prompt_summaries(session_id, ts);
+    CREATE TABLE suggestions(
+        id TEXT PRIMARY KEY, ts INTEGER NOT NULL, session_id TEXT NOT NULL, kind TEXT NOT NULL,
+        message TEXT NOT NULL, shown INTEGER NOT NULL DEFAULT 0, detail TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX suggestions_session ON suggestions(session_id, ts);
+    CREATE TABLE shadow_savings(
+        ts INTEGER NOT NULL, session_id TEXT NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL,
+        bytes_saved INTEGER NOT NULL, est_tokens_saved INTEGER NOT NULL,
+        rules_version TEXT NOT NULL
+    );
+    CREATE INDEX shadow_savings_ts ON shadow_savings(ts);
+    CREATE TABLE stored_results(
+        id TEXT PRIMARY KEY, session_id TEXT NOT NULL, tool TEXT NOT NULL,
+        original_hash TEXT NOT NULL, content BLOB NOT NULL, lines INTEGER NOT NULL,
+        bytes INTEGER NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL
+    );
+    CREATE INDEX stored_results_expires ON stored_results(expires_at);
+    CREATE TABLE compressed_blocks(
+        session_id TEXT NOT NULL, original_hash TEXT NOT NULL, replacement TEXT NOT NULL,
+        rules_version TEXT NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY(session_id, original_hash)
+    );
+    ",
 ];
 
 /// Highest schema version this build understands.

@@ -2,8 +2,9 @@
 
 use std::path::PathBuf;
 
-/// A point in time, as whole seconds since the Unix epoch.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// A point in time, as whole seconds since the Unix epoch. Serializes as the bare number.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[serde(transparent)]
 pub struct Timestamp(pub i64);
 
 /// A file installed by tokred into the Claude Code folder (row of `installed_files`).

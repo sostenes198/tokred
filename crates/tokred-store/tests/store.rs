@@ -93,7 +93,7 @@ fn in_memory_store_has_the_schema() {
         store.schema_version().unwrap(),
         Store::latest_schema_version()
     );
-    assert_eq!(store.table_names().unwrap().len(), 10);
+    assert_eq!(store.table_names().unwrap().len(), 17);
 }
 
 #[test]

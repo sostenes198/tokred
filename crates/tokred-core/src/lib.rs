@@ -8,6 +8,7 @@
 //! never the other way around.
 
 pub mod cache;
+pub mod compression;
 pub mod config;
 pub mod error;
 pub mod hook;
@@ -16,7 +17,10 @@ pub mod meta;
 pub mod paths;
 pub mod ports;
 pub mod pricing;
+pub mod prompts;
+pub mod proxy;
 pub mod release;
+pub mod routing;
 pub mod session;
 pub mod types;
 pub mod usage;

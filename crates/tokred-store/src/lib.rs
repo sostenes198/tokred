@@ -4,11 +4,15 @@
 //! `PRAGMA user_version`, and implements the repository ports defined in `tokred-core`.
 
 mod cache;
+mod compression;
 mod hook_event;
 mod manifest;
 mod meta;
 mod migrations;
 mod pricing;
+mod prompts;
+mod proxy;
+mod routing;
 mod session;
 mod usage;
 
