@@ -263,10 +263,12 @@ Para cada requisição `main` com `cache_read` baixo, o proxy explica o prováve
 ### 6.6 Sombra de compressão e de cache de respostas
 
 Sem alterar nada, o proxy calcula e registra:
-- **Compressão (sombra):** aplicaria as regras determinísticas (`rules_version`) aos `tool_result` de texto e registra bytes e tokens que **teriam** sido evitados, por ferramenta. Regras: remover ANSI/controle, normalizar fim de linha, colapsar linhas idênticas consecutivas, truncar blocos acima de `max_tool_result_bytes` mantendo início e fim. Estimativa de ganho: um bloco de T tokens custa ≈ `1,25·T` na escrita e `0,1·T` por turno seguinte; o relatório mostra o ganho esperado já considerando a quantidade de turnos observada.
+- **Compressão (sombra):** aplicaria a compressão reversível da seção 6.7 (prévia + id, original guardado no banco) aos `tool_result` de texto e registra bytes e tokens que **teriam** sido evitados, por ferramenta. **Nunca há truncamento com perda:** todo conteúdo trocado continua recuperável pelo `tokred_retrieve`. Estimativa de ganho: um bloco de T tokens custa ≈ `1,25·T` na escrita e `0,1·T` por turno seguinte; o relatório mostra o ganho esperado já considerando a quantidade de turnos observada.
 - **Cache de respostas (sombra):** hash canônico (blake3) do corpo para medir quantas requisições são **repetições exatas**. Só hashes e contagem.
 
 ### 6.7 Compressão reversível de resultados de ferramentas
+
+**Princípio: nenhuma informação se perde.** O tokred nunca trunca conteúdo sem guardar o original; tudo o que sai da requisição pode ser recuperado.
 
 Objetivo: o modelo não paga, a cada turno, por um `tool_result` enorme que já usou (ex.: um JSON de 5.000 linhas), mas consegue recuperá-lo quando precisar. Inspirado no mecanismo equivalente do `rtk-proxy`, com uma diferença deliberada na forma de recuperar.
 
@@ -418,7 +420,6 @@ max_retrievals = 3
 [shadow]
 compression = true               # calcula o que economizaria (não altera nada)
 response_cache = true            # mede repetições exatas por hash
-max_tool_result_bytes = 60000
 ```
 
 As chaves de hooks, preços, update, cache e guardas da v1 continuam (veja `docs/configuration.md`). A config do usuário continua passando por merge no update.

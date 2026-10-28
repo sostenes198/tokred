@@ -263,10 +263,12 @@ For each `main` request with low `cache_read`, the proxy explains the likely rea
 ### 6.6 Compression and response cache shadow
 
 Without changing anything, the proxy computes and records:
-- **Compression (shadow):** it would apply the deterministic rules (`rules_version`) to text `tool_result` blocks and record the bytes and tokens that **would have** been avoided, per tool. Rules: remove ANSI/control characters, normalize line endings, collapse consecutive identical lines, truncate blocks above `max_tool_result_bytes` keeping the start and end. Gain estimate: a block of T tokens costs ≈ `1.25·T` on write and `0.1·T` per following turn; the report shows the expected gain already accounting for the observed number of turns.
+- **Compression (shadow):** it would apply the reversible compression of section 6.7 (preview + id, original kept in the database) to text `tool_result` blocks and record the bytes and tokens that **would have** been avoided, per tool. **There is never lossy truncation:** all replaced content stays retrievable through `tokred_retrieve`. Gain estimate: a block of T tokens costs ≈ `1.25·T` on write and `0.1·T` per following turn; the report shows the expected gain already accounting for the observed number of turns.
 - **Response cache (shadow):** canonical hash (blake3) of the body to measure how many requests are **exact repeats**. Only hashes and counts.
 
 ### 6.7 Reversible compression of tool results
+
+**Principle: no information is lost.** tokred never truncates content without keeping the original; everything removed from a request can be retrieved.
 
 Goal: the model does not pay, on every turn, for a huge `tool_result` it has already used (e.g. a 5,000-line JSON), but can get it back when it needs it. Inspired by the equivalent mechanism of `rtk-proxy`, with a deliberate difference in how the content is retrieved.
 
@@ -418,7 +420,6 @@ max_retrievals = 3
 [shadow]
 compression = true               # computes what it would save (changes nothing)
 response_cache = true            # measures exact repeats by hash
-max_tool_result_bytes = 60000
 ```
 
 The v1 keys for hooks, prices, update, cache and guards remain (see `docs/configuration.md`). The user's config continues to be merged on update.
