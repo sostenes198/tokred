@@ -45,7 +45,7 @@ Um **proxy local** (`tokred proxy`) vê cada requisição e cada resposta. Isso 
 
 Estes fatos moldam a spec inteira; foram lidos nas páginas oficiais da Claude Code e da API:
 
-1. **O Claude Code identifica cada requisição para gateways.** Cabeçalhos `x-claude-code-request-class` (`main`, `subagent`, `workflow`, `compaction`, `auxiliary`), `x-claude-code-session-id`, `x-claude-code-agent-id`, `x-claude-code-parent-agent-id`, `x-claude-code-agent-type` (`Explore`, `Plan`, `general-purpose`, `custom`, `teammate`, `fork`), `x-claude-code-prompt-id`, `x-claude-code-compaction`, `x-claude-code-context-compacted` e `x-claude-code-prev-tool-durations`. O proxy classifica o tráfego **sem interpretar o corpo**. Os cabeçalhos são uma lista aberta: tratar como tal.
+1. **O Claude Code identifica cada requisição para gateways.** Cabeçalhos `x-claude-code-request-class` (`main`, `subagent`, `workflow`, `compaction`, `auxiliary`), `x-claude-code-session-id`, `x-claude-code-agent-id`, `x-claude-code-parent-agent-id`, `x-claude-code-agent-type` (`Explore`, `Plan`, `general-purpose`, `custom`, `teammate`, `fork`), `x-claude-code-prompt-id`, `x-claude-code-compaction`, `x-claude-code-context-compacted` e `x-claude-code-prev-tool-durations`. O proxy classifica o tráfego **sem interpretar o corpo**. Os cabeçalhos são uma lista aberta: tratar como tal. **Verificado no spike F7** (Claude Code 2.1.312, modo `-p`, chave de API): só chegaram `x-claude-code-session-id` (todas as requisições) e `x-claude-code-agent-id` (só subagentes); `request-class`, `agent-type` e `prompt-id` **não** apareceram. Portanto a classificação usa a presença de `agent-id`, o conjunto de ferramentas e os blocos de system, e trata os demais cabeçalhos como bônus quando existirem (reconferir no modo interativo).
 2. **Gateways devem "inspecionar sem modificar".** Campos do corpo e cabeçalhos `anthropic-beta` vêm em pares; reescrever o corpo quebra o par e gera `400`. O corpo e os `anthropic-*` devem ser repassados sem filtragem por lista fixa.
 3. **Preserved thinking.** A API rejeita (`400`, "bound to a different conversation") quando `system`, `tools` ou `messages` anteriores diferem do que existia quando o bloco de thinking foi produzido. Um gateway que reescreve esse conteúdo pode causar a rejeição. Trocar o `model` entre turnos **não** viola essa checagem, mas blocos que o novo modelo não consegue ler são descartados sem erro.
 4. **Cache de prompt.** O cache é por prefixo idêntico (ferramentas → system → messages) e quebra quando algo anterior muda. TTL padrão de 5 minutos (1 hora opcional); escrita custa 1,25× (5 min) ou 2× (1 h) o preço de input; leitura custa 0,1× (0,05× no Opus 5.5 e no Sonnet 5.5, 0,025× no Fable 5.1 e no Mythos 5.1). Mínimos cacheáveis variam de 512 a 4.096 tokens por modelo. Trocar de modelo no loop principal reescreve o contexto inteiro.
@@ -159,7 +159,7 @@ Inalterados em relação à v1 (pasta do Claude Code, pasta de dados via `BaseDi
 
 | Classe da requisição (`x-claude-code-request-class`) | O proxy pode trocar o modelo? | Como |
 |---|---|---|
-| `main` (loop principal) | **Nunca** | Só mede e **sugere** (seção 5.6) |
+| `main` (loop principal) | **Nunca** (e nenhuma opção de configuração permite) | Só mede e **sugere** (seção 5.6) |
 | `subagent`, `workflow` | Sim, **uma vez por agente** | Decisão no primeiro pedido de cada `agent-id` e fixa até o fim dele (seção 5.3) |
 | `auxiliary` | Sim, **por requisição** e só se compensar | Cálculo de custo com estado de cache (seção 5.4) |
 | `compaction` | Não por padrão | Qualidade do resumo afeta todo o resto da sessão; opt-in por configuração |
@@ -448,9 +448,9 @@ Cada fase termina com testes verdes nos 3 SOs, clippy limpo, cobertura mantida e
 
 ### 13.1 Perguntas em aberto (resolver no spike F7)
 
-1. Tráfego de **assinatura** tolera a reescrita do campo `model` (planos têm limites por família)? E é permitido pelos termos?
-2. O Claude Code reage à resposta com `model` diferente do pedido (interface, contabilidade interna)?
-3. Os cabeçalhos `x-claude-code-*` aparecem em todas as superfícies (CLI, extensões)?
+1. Tráfego de **assinatura** tolera a reescrita do campo `model` (planos têm limites por família)? E é permitido pelos termos? **Pendente** (o spike com chave de API passou; a assinatura não foi testada).
+2. O Claude Code reage à resposta com `model` diferente do pedido (interface, contabilidade interna)? **Respondido para chave de API:** a API aceitou e o Claude Code não teve problema (spike F7).
+3. Os cabeçalhos `x-claude-code-*` aparecem em todas as superfícies (CLI, extensões)? **Parcial:** no modo `-p` só `session-id` e `agent-id`; falta o modo interativo.
 4. Quais requisições `auxiliary` compartilham o prefixo do cache na prática (medir)?
 
 ---

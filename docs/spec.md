@@ -45,7 +45,7 @@ A **local proxy** (`tokred proxy`) sees every request and every response. This g
 
 These facts shape the entire spec; they were read on the official Claude Code and API pages:
 
-1. **Claude Code identifies each request for gateways.** Headers `x-claude-code-request-class` (`main`, `subagent`, `workflow`, `compaction`, `auxiliary`), `x-claude-code-session-id`, `x-claude-code-agent-id`, `x-claude-code-parent-agent-id`, `x-claude-code-agent-type` (`Explore`, `Plan`, `general-purpose`, `custom`, `teammate`, `fork`), `x-claude-code-prompt-id`, `x-claude-code-compaction`, `x-claude-code-context-compacted` and `x-claude-code-prev-tool-durations`. The proxy classifies traffic **without interpreting the body**. The headers are an open list: treat them as such.
+1. **Claude Code identifies each request for gateways.** Headers `x-claude-code-request-class` (`main`, `subagent`, `workflow`, `compaction`, `auxiliary`), `x-claude-code-session-id`, `x-claude-code-agent-id`, `x-claude-code-parent-agent-id`, `x-claude-code-agent-type` (`Explore`, `Plan`, `general-purpose`, `custom`, `teammate`, `fork`), `x-claude-code-prompt-id`, `x-claude-code-compaction`, `x-claude-code-context-compacted` and `x-claude-code-prev-tool-durations`. The proxy classifies traffic **without interpreting the body**. The headers are an open list: treat them as such. **Verified in the F7 spike** (Claude Code 2.1.312, `-p` mode, API key): only `x-claude-code-session-id` (all requests) and `x-claude-code-agent-id` (subagents only) arrived; `request-class`, `agent-type` and `prompt-id` did **not** appear. Classification therefore uses the presence of `agent-id`, the tool set and the system blocks, and treats the other headers as a bonus when present (re-check in interactive mode).
 2. **Gateways must "inspect without modifying".** Body fields and `anthropic-beta` headers come in pairs; rewriting the body breaks the pair and produces `400`. The body and the `anthropic-*` headers must be forwarded without filtering by a fixed list.
 3. **Preserved thinking.** The API rejects (`400`, "bound to a different conversation") when the earlier `system`, `tools` or `messages` differ from what existed when the thinking block was produced. A gateway that rewrites that content can cause the rejection. Switching the `model` between turns does **not** violate this check, but blocks that the new model cannot read are dropped without error.
 4. **Prompt cache.** The cache is by identical prefix (tools → system → messages) and breaks when anything earlier changes. Default TTL of 5 minutes (1 hour optional); a write costs 1.25× (5 min) or 2× (1 h) the input price; a read costs 0.1× (0.05× on Opus 5.5 and Sonnet 5.5, 0.025× on Fable 5.1 and Mythos 5.1). Minimum cacheable sizes vary from 512 to 4,096 tokens per model. Switching models in the main loop rewrites the entire context.
@@ -159,7 +159,7 @@ This is the heart of v3. Principle: **respect what the user chose; decide only w
 
 | Request class (`x-claude-code-request-class`) | Can the proxy switch the model? | How |
 |---|---|---|
-| `main` (main loop) | **Never** | Only measures and **suggests** (section 5.6) |
+| `main` (main loop) | **Never** (and no configuration option allows it) | Only measures and **suggests** (section 5.6) |
 | `subagent`, `workflow` | Yes, **once per agent** | Decision on the first request of each `agent-id`, fixed until it ends (section 5.3) |
 | `auxiliary` | Yes, **per request** and only if it pays off | Cost calculation with cache state (section 5.4) |
 | `compaction` | Not by default | Summary quality affects the rest of the session; opt-in via configuration |
@@ -448,9 +448,9 @@ Each phase ends with green tests on all 3 OSes, clean clippy, coverage maintaine
 
 ### 13.1 Open questions (resolve in the F7 spike)
 
-1. Does **subscription** traffic tolerate rewriting the `model` field (plans have per-family limits)? And is it allowed by the terms?
-2. Does Claude Code react to a response with a `model` different from the requested one (interface, internal accounting)?
-3. Do the `x-claude-code-*` headers appear on all surfaces (CLI, extensions)?
+1. Does **subscription** traffic tolerate rewriting the `model` field (plans have per-family limits)? And is it allowed by the terms? **Pending** (the API-key spike passed; a subscription was not tested).
+2. Does Claude Code react to a response with a `model` different from the requested one (interface, internal accounting)? **Answered for an API key:** the API accepted it and Claude Code had no problem (F7 spike).
+3. Do the `x-claude-code-*` headers appear on all surfaces (CLI, extensions)? **Partial:** in `-p` mode only `session-id` and `agent-id`; interactive mode is still to be checked.
 4. Which `auxiliary` requests share the cache prefix in practice (measure)?
 
 ---
