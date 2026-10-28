@@ -46,9 +46,11 @@ fn without(headers: &HeaderMap, extra: &[HeaderName]) -> HeaderMap {
 }
 
 /// Headers to send upstream: the client's, minus hop-by-hop ones, `Host` (the client sets the
-/// upstream's) and `Content-Length` (recomputed from the body actually sent).
+/// upstream's), `Content-Length` (recomputed from the body actually sent) and tokred's own
+/// admin secret, which must never leave the machine.
 pub(crate) fn upstream_request(headers: &HeaderMap) -> HeaderMap {
-    without(headers, &[HOST, CONTENT_LENGTH])
+    let secret = HeaderName::from_static(crate::admin::SECRET_HEADER);
+    without(headers, &[HOST, CONTENT_LENGTH, secret])
 }
 
 /// Headers to return to the client: the upstream's, minus hop-by-hop ones. `Content-Length`
@@ -77,7 +79,7 @@ mod tests {
     }
 
     #[test]
-    fn request_headers_lose_only_hop_by_hop_host_and_length() {
+    fn request_headers_lose_hop_by_hop_host_length_and_the_admin_secret() {
         let headers = map(&[
             ("host", "127.0.0.1:8787"),
             ("content-length", "10"),
@@ -85,6 +87,7 @@ mod tests {
             ("keep-alive", "timeout=5"),
             ("transfer-encoding", "chunked"),
             ("x-private-hop", "1"),
+            ("x-tokred-secret", "admin"),
             ("authorization", "Bearer secret"),
             ("x-api-key", "sk-secret"),
             ("anthropic-beta", "a,b"),
