@@ -319,7 +319,7 @@ impl Default for RoutingConfig {
 pub enum SuggestChannel {
     /// Not shown.
     Off,
-    /// In `tokred stats` and `tokred metrics`.
+    /// In `tokred suggest` only.
     Stats,
     /// Also in the status line (`tokred statusline`).
     Statusline,

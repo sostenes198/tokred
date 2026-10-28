@@ -1,5 +1,6 @@
 //! Command implementations: composition of adapters and use cases, plus terminal output.
 
+mod advice;
 mod audit;
 mod bench;
 mod cache;
@@ -12,6 +13,7 @@ mod metrics;
 mod pricing;
 mod proxy;
 mod report_data;
+mod serve;
 mod stats;
 mod unconfigure;
 mod update;
@@ -167,51 +169,80 @@ fn dispatch(
             &SystemOpener::new(),
         ),
         Command::Cache { command } => cache::run(env, io, &command),
-        Command::Proxy { command } => {
-            let exe = exe.context("could not locate the running executable")?;
-            let config = housekeeping::load_config(env);
-            let ctx = proxy::ProxyCtx {
-                env,
-                config: &config,
-                exe,
-                serve_foreground: &|_bind: &str| bail!("the proxy server is not available yet"),
-                run_command: &crate::daemon::run_planned,
-            };
-            proxy::run(io, &ctx, &command)
-        }
-        Command::Claude { args } => {
-            let exe = exe.context("could not locate the running executable")?;
-            let config = housekeeping::load_config(env);
-            let port = crate::daemon::port_of(&config.proxy.bind)?;
-            let claude = claude::find_claude()?;
-            let start = || -> Result<()> {
-                proxy::files(env).secret()?;
-                crate::daemon::spawn_detached(exe, &["proxy", "start", "--foreground"]).map(|_| ())
-            };
-            let launcher = claude::Launcher {
-                port,
-                existing_base_url: std::env::var("ANTHROPIC_BASE_URL").ok(),
-                healthy: &|port| crate::daemon::healthy(port, std::time::Duration::from_secs(1)),
-                start_proxy: &start,
-                wait_healthy: &|port, timeout| {
-                    crate::daemon::wait_until(
-                        timeout,
-                        std::time::Duration::from_millis(100),
-                        &mut || crate::daemon::healthy(port, std::time::Duration::from_secs(1)),
-                    )
-                },
-                run_claude: &|env, args| claude::spawn_inherit(&claude, env, args),
-            };
-            match claude::run(io, &launcher, &args)? {
-                0 => Ok(()),
-                code => Err(ChildExit(code).into()),
-            }
-        }
-        // Wired once the proxy workstreams land.
-        Command::Routing { .. } | Command::Suggest { .. } | Command::Statusline | Command::Mcp => {
-            bail!("this command is not available yet")
-        }
+        Command::Proxy { command } => run_proxy(env, io, exe, &command),
+        Command::Claude { args } => run_claude(env, io, exe, &args),
+        Command::Routing { command } => advice::routing(env, io, &command),
+        Command::Compression { command } => run_compression(env, io, &command),
+        Command::Suggest { since, json } => advice::suggest(env, io, &since, json),
+        Command::Statusline => advice::statusline(env, io),
+        Command::Mcp => advice::mcp(env, io, version),
     }
+}
+
+/// `tokred proxy ...`: the proxy server runs in this process only for `start --foreground`.
+fn run_proxy(
+    env: &Env,
+    io: &mut Io,
+    exe: Option<&Path>,
+    command: &crate::args::ProxyCommand,
+) -> Result<()> {
+    let exe = exe.context("could not locate the running executable")?;
+    let config = housekeeping::load_config(env);
+    let claude_dir = select_claude_dir(&StdFileSystem, env, io, None, false).ok();
+    let ctx = proxy::ProxyCtx {
+        env,
+        config: &config,
+        exe,
+        settle: proxy::SETTLE_TIMEOUT,
+        serve_foreground: &|bind: &str| serve::run(env, &config, claude_dir.as_deref(), bind),
+        run_command: &crate::daemon::run_planned,
+    };
+    proxy::run(io, &ctx, command)
+}
+
+/// `tokred claude ...`: Claude Code through the proxy for this run, with `claude`'s exit code.
+fn run_claude(env: &Env, io: &mut Io, exe: Option<&Path>, args: &[OsString]) -> Result<()> {
+    let exe = exe.context("could not locate the running executable")?;
+    let config = housekeeping::load_config(env);
+    let port = crate::daemon::port_of(&config.proxy.bind)?;
+    let claude = claude::find_claude()?;
+    let probe = std::time::Duration::from_secs(1);
+    let start = || -> Result<()> {
+        proxy::files(env).secret()?;
+        crate::daemon::spawn_detached(exe, &["proxy", "start", "--foreground"]).map(|_| ())
+    };
+    let launcher = claude::Launcher {
+        port,
+        existing_base_url: std::env::var("ANTHROPIC_BASE_URL").ok(),
+        healthy: &|port| crate::daemon::healthy(port, probe),
+        start_proxy: &start,
+        wait_healthy: &|port, timeout| {
+            crate::daemon::wait_until(timeout, std::time::Duration::from_millis(100), &mut || {
+                crate::daemon::healthy(port, probe)
+            })
+        },
+        run_claude: &|env, args| claude::spawn_inherit(&claude, env, args),
+    };
+    match claude::run(io, &launcher, args)? {
+        0 => Ok(()),
+        code => Err(ChildExit(code).into()),
+    }
+}
+
+/// `tokred compression ...`.
+fn run_compression(
+    env: &Env,
+    io: &mut Io,
+    command: &crate::args::CompressionCommand,
+) -> Result<()> {
+    use crate::args::CompressionCommand as C;
+    let dir_flag = match command {
+        C::On { dir } | C::Off { dir } => dir.claude_dir.clone(),
+        C::Status => None,
+    };
+    let claude_dir = select_claude_dir(&StdFileSystem, env, io, dir_flag, false).ok();
+    let binary = crate::binary::find()?;
+    advice::compression(env, io, command, claude_dir, &binary.path)
 }
 
 /// Arguments to re-apply the configuration with a freshly installed binary.
@@ -396,6 +427,7 @@ pub mod testing {
     impl Sandbox {
         pub fn new() -> Self {
             let root = tempfile::tempdir().unwrap();
+            std::fs::create_dir_all(root.path().join("home")).unwrap();
             let claude = root.path().join("my claude");
             std::fs::create_dir_all(claude.join("projects")).unwrap();
             let env = Env {
@@ -532,6 +564,11 @@ mod tests {
     use super::testing::Sandbox;
     use super::*;
     use crate::io::testing::scripted;
+
+    #[test]
+    fn a_child_exit_names_its_code() {
+        assert_eq!(ChildExit(3).to_string(), "the program exited with code 3");
+    }
 
     #[test]
     fn system_clock_is_after_2020() {

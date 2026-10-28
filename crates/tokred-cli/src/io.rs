@@ -60,6 +60,13 @@ impl Io {
         self.interactive
     }
 
+    /// The input and output streams together, for commands that read and write at once.
+    /// Commands must read stdin through this (or `ask`), never by locking stdin again: the
+    /// real `Io` already holds the lock for the whole process.
+    pub fn streams(&mut self) -> (&mut dyn BufRead, &mut dyn Write) {
+        (&mut *self.input, &mut *self.out)
+    }
+
     /// The output stream.
     pub fn out(&mut self) -> &mut dyn Write {
         &mut *self.out
@@ -157,6 +164,16 @@ mod tests {
         assert_eq!(io.ask("Sure? ").unwrap().as_deref(), Some("yes"));
         assert_eq!(io.ask("Again? ").unwrap(), None);
         assert_eq!(out.text(), "Sure? Again? ");
+    }
+
+    #[test]
+    fn streams_read_and_write_without_a_second_stdin_lock() {
+        let (mut io, out) = scripted(false, "payload\n");
+        let (input, output) = io.streams();
+        let mut line = String::new();
+        input.read_line(&mut line).unwrap();
+        write!(output, "got {}", line.trim()).unwrap();
+        assert_eq!(out.text(), "got payload");
     }
 
     #[test]

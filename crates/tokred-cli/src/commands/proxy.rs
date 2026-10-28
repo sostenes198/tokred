@@ -22,7 +22,7 @@ use crate::io::Io;
 /// Timeout of one health or admin request.
 const ADMIN_TIMEOUT: Duration = Duration::from_secs(2);
 /// How long `start` and `stop` wait for the proxy to come up or go away.
-const SETTLE_TIMEOUT: Duration = Duration::from_secs(5);
+pub const SETTLE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The proxy's files for this data folder.
 #[must_use]
@@ -38,6 +38,8 @@ pub struct ProxyCtx<'a> {
     pub config: &'a Config,
     /// The running tokred executable (spawned for the background proxy).
     pub exe: &'a Path,
+    /// How long `start` and `stop` wait for the proxy to come up or go away.
+    pub settle: Duration,
     /// Runs the proxy in this process until it stops (the foreground mode).
     pub serve_foreground: &'a dyn Fn(&str) -> Result<()>,
     /// Runs a system command (`systemctl`, `launchctl`, `schtasks`) for the user service.
@@ -64,33 +66,27 @@ pub fn run(io: &mut Io, ctx: &ProxyCtx<'_>, command: &ProxyCommand) -> Result<()
 
 fn start_background(io: &mut Io, ctx: &ProxyCtx<'_>, bind: &str) -> Result<()> {
     let port = port_of(bind)?;
+    let url = base_url(port);
     if healthy(port, ADMIN_TIMEOUT) {
-        writeln!(
-            io.out(),
-            "The tokred proxy is already running on {}.",
-            base_url(port)
-        )?;
+        writeln!(io.out(), "The tokred proxy is already running on {url}.")?;
         return Ok(());
     }
     // Create the secret before the child needs it.
     files(ctx.env).secret()?;
     spawn_detached(ctx.exe, &["proxy", "start", "--foreground", "--bind", bind])?;
-    if !wait_until(SETTLE_TIMEOUT, Duration::from_millis(100), &mut || {
+    if !wait_until(ctx.settle, Duration::from_millis(50), &mut || {
         healthy(port, ADMIN_TIMEOUT)
     }) {
+        let logs = ctx.env.data.logs_dir();
         bail!(
-            "the proxy did not answer on {} within {}s; see the logs in {}",
-            base_url(port),
-            SETTLE_TIMEOUT.as_secs(),
-            ctx.env.data.logs_dir().display()
+            "the proxy did not answer on {url}; see the logs in {}",
+            logs.display()
         );
     }
-    writeln!(
-        io.out(),
-        "The tokred proxy is running on {}.",
-        base_url(port)
-    )?;
-    writeln!(io.out(), "Start Claude Code through it with: tokred claude")?;
+    let text = format!(
+        "The tokred proxy is running on {url}.\nStart Claude Code through it with: tokred claude\n"
+    );
+    write!(io.out(), "{text}")?;
     Ok(())
 }
 
@@ -120,7 +116,7 @@ fn stop(io: &mut Io, ctx: &ProxyCtx<'_>) -> Result<()> {
         return Ok(());
     }
     admin(port, &files.secret()?, "POST", "/__tokred/shutdown")?;
-    if !wait_until(SETTLE_TIMEOUT, Duration::from_millis(100), &mut || {
+    if !wait_until(ctx.settle, Duration::from_millis(50), &mut || {
         !healthy(port, ADMIN_TIMEOUT)
     }) {
         bail!("the proxy on port {port} did not stop");
@@ -172,36 +168,42 @@ fn status(io: &mut Io, ctx: &ProxyCtx<'_>, json: bool) -> Result<()> {
         "details": details,
     });
     if json {
-        writeln!(io.out(), "{}", serde_json::to_string_pretty(&value)?)?;
+        let text = serde_json::to_string_pretty(&value)?;
+        writeln!(io.out(), "{text}")?;
         return Ok(());
     }
-    let state = if running { "running" } else { "not running" };
-    writeln!(io.out(), "tokred proxy: {state} ({})", base_url(port))?;
-    writeln!(
-        io.out(),
-        "  user service:  {}",
-        if value["service_installed"] == true {
-            "installed"
-        } else {
-            "not installed"
-        }
-    )?;
-    writeln!(
-        io.out(),
-        "  this terminal: {}",
-        if points_here {
-            "ANTHROPIC_BASE_URL points to the proxy"
-        } else {
-            "ANTHROPIC_BASE_URL does not point to the proxy (use `tokred claude`)"
-        }
-    )?;
-    writeln!(
-        io.out(),
-        "  routing:       {}   compression: {}",
-        value["routing_mode"].as_str().unwrap_or("?"),
-        value["compression_mode"].as_str().unwrap_or("?")
-    )?;
+    let text = render_status(&value, running, points_here);
+    write!(io.out(), "{text}")?;
     Ok(())
+}
+
+/// The human-readable `tokred proxy status` from the figures of the JSON form.
+fn render_status(value: &Value, running: bool, points_here: bool) -> String {
+    let state = if running { "running" } else { "not running" };
+    let url = value["url"].as_str().unwrap_or("?");
+    let service = if value["service_installed"] == true {
+        "installed"
+    } else {
+        "not installed"
+    };
+    let terminal = if points_here {
+        "ANTHROPIC_BASE_URL points to the proxy"
+    } else {
+        "ANTHROPIC_BASE_URL does not point to the proxy (use `tokred claude`)"
+    };
+    let routing = value["routing_mode"].as_str().unwrap_or("?");
+    let compression = value["compression_mode"].as_str().unwrap_or("?");
+    format!(
+        "tokred proxy: {state} ({url})\n  user service:  {service}\n  this terminal: {terminal}\n  routing:       {routing}   compression: {compression}\n"
+    )
+}
+
+fn write_service_file(path: &Path, content: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("could not create {}", parent.display()))?;
+    }
+    std::fs::write(path, content).with_context(|| format!("could not write {}", path.display()))
 }
 
 fn service(io: &mut Io, ctx: &ProxyCtx<'_>, command: &ServiceCommand) -> Result<()> {
@@ -215,21 +217,14 @@ fn service(io: &mut Io, ctx: &ProxyCtx<'_>, command: &ServiceCommand) -> Result<
     match command {
         ServiceCommand::Install => {
             let plan = install_plan(kind, ctx.exe, home);
-            if let Some((path, content)) = &plan.file {
-                if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent)
-                        .with_context(|| format!("could not create {}", parent.display()))?;
-                }
-                std::fs::write(path, content)
-                    .with_context(|| format!("could not write {}", path.display()))?;
-            }
+            plan.file
+                .iter()
+                .try_for_each(|(path, content)| write_service_file(path, content))?;
             for command in &plan.commands {
                 (ctx.run_command)(command)?;
             }
-            writeln!(
-                io.out(),
-                "Installed the tokred proxy as a user service; it starts at login."
-            )?;
+            let text = "Installed the tokred proxy as a user service; it starts at login.";
+            writeln!(io.out(), "{text}")?;
         }
         ServiceCommand::Uninstall => {
             let plan = uninstall_plan(kind, home);
@@ -259,6 +254,11 @@ mod tests {
 
     /// A fake proxy: health, status and shutdown, checking the secret.
     fn fake_proxy(secret: String) -> (u16, Arc<AtomicBool>) {
+        fake_proxy_with(secret, true)
+    }
+
+    /// With `obey` false the shutdown request is acknowledged but the proxy keeps running.
+    fn fake_proxy_with(secret: String, obey: bool) -> (u16, Arc<AtomicBool>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let stopped = Arc::new(AtomicBool::new(false));
@@ -277,7 +277,7 @@ mod tests {
                 } else if request.starts_with("get /__tokred/status") && authorized {
                     (200, r#"{"requests":3}"#.to_owned())
                 } else if request.starts_with("post /__tokred/shutdown") && authorized {
-                    flag.store(true, Ordering::SeqCst);
+                    flag.store(obey, Ordering::SeqCst);
                     (200, "{}".to_owned())
                 } else {
                     (403, "{}".to_owned())
@@ -301,6 +301,7 @@ mod tests {
             env: &sb.env,
             config,
             exe: Path::new("/no/such/tokred"),
+            settle: Duration::from_millis(300),
             serve_foreground: serve,
             run_command: &refuse_commands,
         }
@@ -351,7 +352,8 @@ mod tests {
             bind: None,
         };
         run(&mut io, &ctx(&sb, &config, &no_serve), &command).unwrap();
-        assert!(out.text().contains("already running"), "{}", out.text());
+        let text = out.text();
+        assert!(text.contains("already running"), "{text}");
 
         // Nothing listens and the executable does not exist: a clear error.
         let closed = TcpListener::bind("127.0.0.1:0")
@@ -393,16 +395,14 @@ mod tests {
             &ProxyCommand::Status { json: false },
         )
         .unwrap();
-        assert!(
-            out.text().contains("tokred proxy: running"),
-            "{}",
-            out.text()
-        );
-        assert!(out.text().contains("routing:       observe"));
+        let text = out.text();
+        assert!(text.contains("tokred proxy: running"), "{text}");
+        assert!(text.contains("routing:       observe"));
 
         let (mut io, out) = scripted(false, "");
         run(&mut io, &ctx(&sb, &config, &no_serve), &ProxyCommand::Stop).unwrap();
-        assert!(out.text().contains("stopped"), "{}", out.text());
+        let text = out.text();
+        assert!(text.contains("stopped"), "{text}");
         assert!(stopped.load(Ordering::SeqCst));
         assert_eq!(files(&sb.env).read_pid(), None);
     }
@@ -426,19 +426,15 @@ mod tests {
             &ProxyCommand::Status { json: false },
         )
         .unwrap();
-        assert!(
-            out.text().contains("tokred proxy: not running"),
-            "{}",
-            out.text()
-        );
-        assert!(out.text().contains("use `tokred claude`"));
+        let text = out.text();
+        assert!(text.contains("tokred proxy: not running"), "{text}");
+        assert!(text.contains("use `tokred claude`"));
     }
 
     #[test]
     fn the_service_is_installed_and_removed_through_the_command_runner() {
-        let Some(kind) = ServiceKind::for_os(std::env::consts::OS) else {
-            return;
-        };
+        // Linux, macOS and Windows are all supported.
+        let kind = ServiceKind::for_os(std::env::consts::OS).unwrap();
         let sb = Sandbox::new();
         let config = Config::default();
         let ran = std::cell::RefCell::new(Vec::new());
@@ -462,9 +458,9 @@ mod tests {
                 .contains("Installed the tokred proxy as a user service")
         );
         let plan = install_plan(kind, ctx.exe, &home);
-        if let Some((path, content)) = &plan.file {
+        plan.file.iter().for_each(|(path, content)| {
             assert_eq!(std::fs::read_to_string(path).unwrap(), *content);
-        }
+        });
         assert_eq!(ran.borrow().len(), plan.commands.len());
         assert_eq!(service_installed(Some(kind), &ctx), plan.file.is_some());
 
@@ -474,9 +470,9 @@ mod tests {
         };
         run(&mut io, &ctx, &uninstall).unwrap();
         assert!(out.text().contains("Removed the tokred proxy user service"));
-        if let Some((path, _)) = &plan.file {
-            assert!(!path.exists());
-        }
+        plan.file
+            .iter()
+            .for_each(|(path, _)| assert!(!path.exists()));
 
         // A failing system command stops the install; uninstall carries on.
         let failing = ctx_with_refusal(&sb, &config);
@@ -494,6 +490,99 @@ mod tests {
 
     fn ctx_with_refusal<'a>(sb: &'a Sandbox, config: &'a Config) -> ProxyCtx<'a> {
         ctx(sb, config, &no_serve)
+    }
+
+    #[test]
+    fn the_admin_endpoints_refuse_a_wrong_secret_and_the_placeholder_serve_fails() {
+        let sb = Sandbox::new();
+        let (port, _) = fake_proxy(files(&sb.env).secret().unwrap());
+        let err = admin(port, "wrong", "GET", "/__tokred/status").unwrap_err();
+        assert!(err.to_string().contains("refused"), "{err}");
+        assert!(no_serve("127.0.0.1:1").is_err());
+    }
+
+    #[test]
+    fn the_status_text_names_the_service_and_where_this_terminal_points() {
+        let value = json!({
+            "url": "http://127.0.0.1:8787",
+            "service_installed": true,
+            "routing_mode": "enforce",
+            "compression_mode": "observe",
+        });
+        let text = render_status(&value, true, true);
+        assert!(
+            text.contains("tokred proxy: running (http://127.0.0.1:8787)"),
+            "{text}"
+        );
+        assert!(text.contains("user service:  installed"), "{text}");
+        assert!(
+            text.contains("ANTHROPIC_BASE_URL points to the proxy"),
+            "{text}"
+        );
+        assert!(
+            text.contains("routing:       enforce   compression: observe"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_proxy_that_never_answers_is_reported_with_the_logs_folder() {
+        let sb = Sandbox::new();
+        let closed = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let config = config_on(closed);
+        // The test binary starts (and exits at once, not understanding the arguments), so the
+        // spawn works but nothing ever listens.
+        let exe = std::env::current_exe().unwrap();
+        let ctx = ProxyCtx {
+            exe: &exe,
+            settle: Duration::from_millis(200),
+            ..ctx(&sb, &config, &no_serve)
+        };
+        let command = ProxyCommand::Start {
+            foreground: false,
+            bind: None,
+        };
+        let (mut io, _) = scripted(false, "");
+        let err = run(&mut io, &ctx, &command).unwrap_err();
+        assert!(format!("{err:#}").contains("did not answer"), "{err:#}");
+    }
+
+    #[test]
+    fn a_proxy_that_ignores_shutdown_is_reported() {
+        let sb = Sandbox::new();
+        let secret = files(&sb.env).secret().unwrap();
+        let (port, _) = fake_proxy_with(secret, false);
+        let config = config_on(port);
+        let ctx = ProxyCtx {
+            settle: Duration::from_millis(200),
+            ..ctx(&sb, &config, &no_serve)
+        };
+        let (mut io, _) = scripted(false, "");
+        let err = run(&mut io, &ctx, &ProxyCommand::Stop).unwrap_err();
+        assert!(err.to_string().contains("did not stop"), "{err}");
+    }
+
+    #[test]
+    fn service_files_report_which_step_failed() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a-file");
+        std::fs::write(&file, "x").unwrap();
+        // The parent is a regular file: it cannot become a folder.
+        let err = write_service_file(&file.join("unit"), "x").unwrap_err();
+        assert!(err.to_string().contains("could not create"), "{err}");
+        // The target is a folder: it cannot be written as a file.
+        let err = write_service_file(dir.path(), "x").unwrap_err();
+        assert!(err.to_string().contains("could not write"), "{err}");
+        // No parent at all: only the write is attempted, and it fails.
+        let err = write_service_file(Path::new(""), "x").unwrap_err();
+        assert!(err.to_string().contains("could not write"), "{err}");
+        let ok = dir.path().join("nested").join("unit");
+        write_service_file(&ok, "content").unwrap();
+        assert_eq!(std::fs::read_to_string(ok).unwrap(), "content");
     }
 
     #[test]

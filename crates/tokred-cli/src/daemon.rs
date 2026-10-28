@@ -29,12 +29,6 @@ impl ProxyFiles {
         Self { dir: dir.into() }
     }
 
-    /// The folder.
-    #[must_use]
-    pub fn dir(&self) -> &Path {
-        &self.dir
-    }
-
     /// The admin secret file.
     #[must_use]
     pub fn secret_path(&self) -> PathBuf {
@@ -364,7 +358,6 @@ mod tests {
         assert_eq!(first.len(), 64);
         assert!(first.bytes().all(|b| b.is_ascii_hexdigit()));
         assert_eq!(files.secret().unwrap(), first, "reused");
-        assert_eq!(files.dir(), tmp.path().join("proxy"));
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

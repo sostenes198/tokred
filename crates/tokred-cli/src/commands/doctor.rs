@@ -25,6 +25,7 @@ struct Machine<'a> {
     version: &'a str,
     schema_version: Option<u32>,
     rtk_binary: bool,
+    proxy: ProxyInfo,
     config_exists: bool,
 }
 
@@ -69,6 +70,7 @@ pub fn run(
         version,
         schema_version: store.as_ref().and_then(|s| s.schema_version().ok()),
         rtk_binary: binary::rtk_on_path(),
+        proxy: proxy_info(env, &super::housekeeping::load_config(env)),
         config_exists: config_text.is_some(),
     };
 
@@ -87,6 +89,7 @@ pub fn run(
             "schema_version": machine.schema_version,
             "config": machine.config_exists,
             "rtk_binary_on_path": machine.rtk_binary,
+            "proxy": machine.proxy,
             "install": report,
             "bench": bench_report.as_ref().map(bench_json),
         });
@@ -130,6 +133,7 @@ fn render_human(machine: &Machine<'_>, report: &DoctorReport) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "tokred {}", machine.version);
     let _ = writeln!(out, "  binary:      {}", machine.binary.path);
+    out.push_str(&proxy_lines(&machine.proxy));
     let _ = writeln!(out, "  claude dir:  {}", show(&report.claude_dir));
     let _ = writeln!(out, "  data dir:    {}", show(machine.env.data.root()));
     let _ = writeln!(
@@ -200,6 +204,69 @@ fn render_human(machine: &Machine<'_>, report: &DoctorReport) -> String {
     }
     for note in &report.notes {
         let _ = writeln!(out, "  note: {note}");
+    }
+    out
+}
+
+/// What `doctor` shows about the local proxy.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ProxyInfo {
+    /// The proxy answers its health endpoint.
+    pub running: bool,
+    /// Its URL.
+    pub url: String,
+    /// `ANTHROPIC_BASE_URL` in the environment of this command.
+    pub anthropic_base_url: Option<String>,
+    /// Routing mode (`off`, `observe`, `enforce`).
+    pub routing_mode: String,
+    /// Compression mode.
+    pub compression_mode: String,
+}
+
+fn mode_text(mode: tokred_core::config::TrafficMode) -> String {
+    format!("{mode:?}").to_lowercase()
+}
+
+fn proxy_info(env: &Env, config: &Config) -> ProxyInfo {
+    let port = crate::daemon::port_of(&config.proxy.bind).unwrap_or(8787);
+    let port = super::proxy::files(env)
+        .read_pid()
+        .map_or(port, |(_, port)| port);
+    ProxyInfo {
+        running: crate::daemon::healthy(port, std::time::Duration::from_millis(300)),
+        url: crate::daemon::base_url(port),
+        anthropic_base_url: std::env::var("ANTHROPIC_BASE_URL")
+            .ok()
+            .filter(|v| !v.is_empty()),
+        routing_mode: mode_text(config.routing.mode),
+        compression_mode: mode_text(config.compression.mode),
+    }
+}
+
+fn proxy_lines(proxy: &ProxyInfo) -> String {
+    let mut out = String::new();
+    let state = if proxy.running {
+        "running"
+    } else {
+        "not running"
+    };
+    let _ = writeln!(out, "  proxy:       {state} ({})", proxy.url);
+    let _ = writeln!(
+        out,
+        "               routing {}, compression {}; the main loop's model is never changed",
+        proxy.routing_mode, proxy.compression_mode
+    );
+    match proxy.anthropic_base_url.as_deref() {
+        Some(url) if url.trim_end_matches('/') == proxy.url => {
+            let _ = writeln!(out, "               ANTHROPIC_BASE_URL points to the proxy");
+        }
+        Some(url) => {
+            let _ = writeln!(
+                out,
+                "               ANTHROPIC_BASE_URL is {url} (another gateway)"
+            );
+        }
+        None => {}
     }
     out
 }
@@ -324,6 +391,7 @@ mod tests {
             version: "9.9.9",
             schema_version: None,
             rtk_binary: false,
+            proxy: sample_proxy(),
             config_exists: false,
         };
 
@@ -370,8 +438,63 @@ mod tests {
             version: "1",
             schema_version: Some(1),
             rtk_binary: false,
+            proxy: sample_proxy(),
             config_exists: true,
         };
         assert!(render_human(&machine, &report).contains("rtk:         detected"));
+    }
+
+    fn sample_proxy() -> ProxyInfo {
+        ProxyInfo {
+            running: false,
+            url: "http://127.0.0.1:8787".to_owned(),
+            anthropic_base_url: None,
+            routing_mode: "observe".to_owned(),
+            compression_mode: "observe".to_owned(),
+        }
+    }
+
+    #[test]
+    fn the_proxy_section_shows_state_modes_and_where_claude_points() {
+        let off = proxy_lines(&sample_proxy());
+        assert!(
+            off.contains("proxy:       not running (http://127.0.0.1:8787)"),
+            "{off}"
+        );
+        assert!(off.contains("routing observe, compression observe"));
+        assert!(off.contains("main loop's model is never changed"));
+        assert!(!off.contains("ANTHROPIC_BASE_URL"));
+
+        let here = ProxyInfo {
+            running: true,
+            anthropic_base_url: Some("http://127.0.0.1:8787/".to_owned()),
+            ..sample_proxy()
+        };
+        let text = proxy_lines(&here);
+        assert!(
+            text.contains("running") && text.contains("points to the proxy"),
+            "{text}"
+        );
+
+        let other = ProxyInfo {
+            anthropic_base_url: Some("https://gateway.example".to_owned()),
+            ..sample_proxy()
+        };
+        assert!(proxy_lines(&other).contains("is https://gateway.example (another gateway)"));
+    }
+
+    #[test]
+    fn doctor_reports_the_proxy_in_text_and_json() {
+        let sb = Sandbox::new();
+        configure(&sb);
+        let (result, out) = run_doctor(&sb, false);
+        result.unwrap();
+        assert!(out.contains("proxy:       not running"), "{out}");
+        let (result, out) = run_doctor(&sb, true);
+        result.unwrap();
+        let value: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(value["proxy"]["running"], false);
+        assert_eq!(value["proxy"]["routing_mode"], "observe");
+        assert_eq!(value["proxy"]["compression_mode"], "observe");
     }
 }

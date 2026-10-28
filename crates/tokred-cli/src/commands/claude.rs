@@ -16,6 +16,9 @@ use crate::io::Io;
 /// How long to wait for a freshly started proxy.
 const START_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Runs `claude` with an optional extra environment variable and its arguments.
+pub type RunClaude<'a> = dyn Fn(Option<(&str, &str)>, &[OsString]) -> Result<i32> + 'a;
+
 /// What the launcher needs from the outside world.
 pub struct Launcher<'a> {
     /// The port the proxy listens on.
@@ -29,7 +32,7 @@ pub struct Launcher<'a> {
     /// Waits up to the given time for the proxy to become healthy.
     pub wait_healthy: &'a dyn Fn(u16, Duration) -> bool,
     /// Runs `claude` with the given extra environment and arguments; returns its exit code.
-    pub run_claude: &'a dyn Fn(Option<(&str, &str)>, &[OsString]) -> Result<i32>,
+    pub run_claude: &'a RunClaude<'a>,
 }
 
 /// Why `claude` runs without the proxy.

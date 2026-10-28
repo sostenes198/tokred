@@ -106,11 +106,14 @@ fn compose_and_run_hook(name: Option<&str>, start: Instant) {
         clock: &SystemClock,
         start,
     };
-    tokred_hooks::run_hook(
+    tokred_hooks::run_hook_with(
         name,
         &mut std::io::stdin().lock(),
         &mut std::io::stdout().lock(),
         &run,
+        store
+            .as_ref()
+            .map(|store| store as &dyn tokred_core::prompts::SuggestionRepo),
     );
 }
 

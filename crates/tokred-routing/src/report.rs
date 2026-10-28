@@ -94,11 +94,13 @@ pub fn render_status(status: &RoutingStatus) -> String {
 #[must_use]
 pub fn summarize_decisions(decisions: &[RoutingDecision]) -> String {
     let count = |outcome: &str| decisions.iter().filter(|d| d.outcome == outcome).count();
-    let saving: f64 = decisions
+    // `+ 0.0` turns the `-0.0` that an empty float sum yields into `0.0` (it would print `$-0.000000`).
+    let saving = decisions
         .iter()
         .filter(|d| matches!(d.outcome.as_str(), "applied" | "observed"))
         .map(|d| d.est_cost_from - d.est_cost_to)
-        .sum();
+        .sum::<f64>()
+        + 0.0;
     format!(
         "{} decisions: {} applied, {} observed, {} kept, {} fallback; estimated saving ${saving:.6}",
         decisions.len(),
@@ -202,5 +204,11 @@ mod tests {
             summary,
             "4 decisions: 1 applied, 1 observed, 1 kept, 1 fallback; estimated saving $0.018000"
         );
+    }
+
+    #[test]
+    fn nothing_saved_prints_a_plain_zero() {
+        let summary = summarize_decisions(&[decision("kept")]);
+        assert!(summary.ends_with("estimated saving $0.000000"), "{summary}");
     }
 }

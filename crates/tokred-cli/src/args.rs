@@ -162,6 +162,26 @@ pub enum RoutingCommand {
     },
 }
 
+/// Sub-commands of `tokred compression`.
+#[derive(Debug, Subcommand)]
+pub enum CompressionCommand {
+    /// Replace large tool results with a preview and let the model read the rest back
+    /// (registers the `tokred_retrieve` MCP server in Claude Code's user config).
+    On {
+        /// Folder selection.
+        #[command(flatten)]
+        dir: ClaudeDirArg,
+    },
+    /// Go back to measuring only and unregister the MCP server.
+    Off {
+        /// Folder selection.
+        #[command(flatten)]
+        dir: ClaudeDirArg,
+    },
+    /// Mode, whether the server is registered and whether the circuit breaker tripped.
+    Status,
+}
+
 /// Top-level commands.
 #[derive(Debug, Subcommand)]
 pub enum Command {
@@ -270,6 +290,12 @@ pub enum Command {
         /// What to do.
         #[command(subcommand)]
         command: RoutingCommand,
+    },
+    /// Reversible compression of large tool results (off by default: measures only).
+    Compression {
+        /// What to do.
+        #[command(subcommand)]
+        command: CompressionCommand,
     },
     /// Cheaper-model suggestions for the main loop, with the evidence.
     Suggest {
@@ -417,10 +443,10 @@ mod tests {
 
     #[test]
     fn claude_passes_every_argument_through() {
-        let Command::Claude { args } = parse(&["claude", "--model", "opus", "-p", "hi"]) else {
-            unreachable!("parsed as something else")
-        };
-        assert_eq!(args, ["--model", "opus", "-p", "hi"]);
+        assert!(matches!(
+            parse(&["claude", "--model", "opus", "-p", "hi"]),
+            Command::Claude { ref args } if args == &["--model", "opus", "-p", "hi"]
+        ));
         assert!(matches!(parse(&["claude"]), Command::Claude { ref args } if args.is_empty()));
     }
 
@@ -454,6 +480,28 @@ mod tests {
         ));
         assert!(matches!(parse(&["statusline"]), Command::Statusline));
         assert!(matches!(parse(&["mcp"]), Command::Mcp));
+    }
+
+    #[test]
+    fn the_compression_commands_parse() {
+        assert!(matches!(
+            parse(&["compression", "on"]),
+            Command::Compression {
+                command: CompressionCommand::On { .. }
+            }
+        ));
+        assert!(matches!(
+            parse(&["compression", "off", "--claude-dir", "/c"]),
+            Command::Compression {
+                command: CompressionCommand::Off { .. }
+            }
+        ));
+        assert!(matches!(
+            parse(&["compression", "status"]),
+            Command::Compression {
+                command: CompressionCommand::Status
+            }
+        ));
     }
 
     #[test]

@@ -110,7 +110,14 @@ async fn headers_pass_unchanged_except_hop_by_hop_ones() {
     assert_eq!(seen.method, "POST");
     assert_eq!(seen.uri, "/v1/messages");
     for (name, value) in &headers[..8] {
-        assert_eq!(seen.header(name), Some(*value), "{name}");
+        // Everything passes unchanged except `accept-encoding`, which becomes `identity` so the
+        // proxy can read the usage from an uncompressed response.
+        let expected = if *name == "accept-encoding" {
+            "identity"
+        } else {
+            *value
+        };
+        assert_eq!(seen.header(name), Some(expected), "{name}");
     }
     let multi: Vec<&str> = seen
         .headers

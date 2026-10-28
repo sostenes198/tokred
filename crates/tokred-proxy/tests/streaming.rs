@@ -219,7 +219,7 @@ async fn the_response_is_streamed_not_buffered() {
 }
 
 #[tokio::test]
-async fn compressed_responses_are_forwarded_but_not_read() {
+async fn a_response_compressed_despite_identity_is_forwarded_but_not_read() {
     let gzip_bytes = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 3, 1, 2, 3];
     let mut reply = Reply::stream(vec![gzip_bytes.clone()]);
     reply
@@ -235,7 +235,12 @@ async fn compressed_responses_are_forwarded_but_not_read() {
     .await;
     assert_eq!(&answer.body[..], &gzip_bytes[..]);
     assert_eq!(answer.header("content-encoding"), Some("gzip"));
-    assert_eq!(upstream.seen()[0].header("accept-encoding"), Some("gzip"));
+    // The proxy asks for an uncompressed response so it can read the usage; an upstream that
+    // compresses anyway still gets its bytes forwarded untouched.
+    assert_eq!(
+        upstream.seen()[0].header("accept-encoding"),
+        Some("identity")
+    );
     let record = &proxy.sink.wait_for(1).await[0];
     assert_eq!(record.usage.total(), 0);
     assert_eq!(record.status, 200);

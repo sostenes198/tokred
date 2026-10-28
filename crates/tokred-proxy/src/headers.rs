@@ -1,9 +1,13 @@
 //! Header handling. Only hop-by-hop headers are removed; everything else, including unknown
 //! `anthropic-*` and `x-claude-code-*` headers and credentials, passes unchanged (spec 6.1, the
 //! gateway guide's "forward as open lists"). Header values are never logged.
+//!
+//! The one header that is rewritten is `Accept-Encoding`: the real API compresses its responses
+//! when the client offers `gzip` (Claude Code does), and the proxy reads usage from the response,
+//! so it asks the upstream for an uncompressed one. Only loopback bytes are added.
 
 use hyper::HeaderMap;
-use hyper::header::{CONNECTION, CONTENT_LENGTH, HOST, HeaderName};
+use hyper::header::{ACCEPT_ENCODING, CONNECTION, CONTENT_LENGTH, HOST, HeaderName, HeaderValue};
 
 /// Hop-by-hop headers (RFC 9110 section 7.6.1, plus the legacy `keep-alive`/`proxy-connection`).
 const HOP_BY_HOP: [&str; 9] = [
@@ -47,10 +51,15 @@ fn without(headers: &HeaderMap, extra: &[HeaderName]) -> HeaderMap {
 
 /// Headers to send upstream: the client's, minus hop-by-hop ones, `Host` (the client sets the
 /// upstream's), `Content-Length` (recomputed from the body actually sent) and tokred's own
-/// admin secret, which must never leave the machine.
+/// admin secret, which must never leave the machine. `Accept-Encoding` becomes `identity` (see
+/// the module docs).
 pub(crate) fn upstream_request(headers: &HeaderMap) -> HeaderMap {
     let secret = HeaderName::from_static(crate::admin::SECRET_HEADER);
-    without(headers, &[HOST, CONTENT_LENGTH, secret])
+    let mut out = without(headers, &[HOST, CONTENT_LENGTH, secret]);
+    if out.contains_key(ACCEPT_ENCODING) {
+        out.insert(ACCEPT_ENCODING, HeaderValue::from_static("identity"));
+    }
+    out
 }
 
 /// Headers to return to the client: the upstream's, minus hop-by-hop ones. `Content-Length`
@@ -112,6 +121,9 @@ mod tests {
             ]
         );
         assert_eq!(out.get_all("x-multi").iter().count(), 2);
+        assert_eq!(out.get("accept-encoding").unwrap(), "identity");
+        // A client that sent none does not get one added.
+        assert!(!upstream_request(&map(&[("x-api-key", "k")])).contains_key("accept-encoding"));
     }
 
     #[test]

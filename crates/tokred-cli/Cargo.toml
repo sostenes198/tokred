@@ -24,14 +24,19 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 comfy-table = { workspace = true }
 directories = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 tokred-audit = { workspace = true }
 tokred-core = { workspace = true }
 tokred-hooks = { workspace = true }
+tokred-compress = { workspace = true }
 tokred-install = { workspace = true }
 tokred-metrics = { workspace = true }
 tokred-pricing = { workspace = true }
+tokred-proxy = { workspace = true }
+tokred-routing = { workspace = true }
 tokred-report = { workspace = true }
+tokred-suggest = { workspace = true }
 tokred-update = { workspace = true }
 tokred-store = { workspace = true }
 toml = { workspace = true }
@@ -42,6 +47,7 @@ tracing-subscriber = { workspace = true }
 which = { workspace = true }
 
 [dev-dependencies]
+rusqlite = { workspace = true }
 flate2 = { workspace = true }
 sha2 = { workspace = true }
 tar = { workspace = true }
