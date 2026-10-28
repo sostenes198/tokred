@@ -10,7 +10,10 @@
     "https://platform.claude.com/docs/en/build-with-claude/preserved-thinking"
   ],
   "notes": [
-    "A capability is listed only when the documentation confirms it; anything unconfirmed is left out, which means: do not route a request that needs it.",
+    "Confirmed on the pages in sources: adaptive_thinking, budget_thinking, thinking_disabled(_at_high), between_tools_at_high, default_thinking, effort levels, interleaved_thinking, context_management, compaction, context_1m and reads_thinking_from.",
+    "From the platform's API reference (not on the pages above): sampling, task_budget, system_messages, per_message_effort, thinking_display(_updates), structured_outputs, max_output.",
+    "forced_tool_choice is assumed where the documentation does not list it as removed (Opus 5, Sonnet 5, Sonnet 4.6, Haiku 4.5, Fable 5 and older); it is left out on Haiku 5.5, where that is not documented either way.",
+    "A capability that is left out means: do not route a request that needs it.",
     "reads_thinking_from lists the models whose thinking blocks this model can read on the Claude API (preserved thinking). An empty list means the documentation does not say.",
     "Tiers list the routing targets of each tier in order of preference. Retired models are never targets."
   ],
