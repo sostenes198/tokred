@@ -35,3 +35,6 @@ desktop.ini
 # Env
 .env
 .env.*
+
+# Agent worktrees
+/.claude/worktrees/
