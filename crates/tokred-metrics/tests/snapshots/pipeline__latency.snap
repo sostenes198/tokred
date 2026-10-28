@@ -1,0 +1,76 @@
+---
+source: crates/tokred-metrics/tests/pipeline.rs
+expression: latency
+---
+{
+  "range": {
+    "from": 1772323200,
+    "to": 1772409600
+  },
+  "estimate": true,
+  "spawn_overhead_us": 2000,
+  "runs": 7,
+  "total_ms": 24.1,
+  "hooks": [
+    {
+      "hook": "enforce",
+      "runs": 2,
+      "p50_ms": 2.7,
+      "p95_ms": 2.8,
+      "p99_ms": 2.8,
+      "max_ms": 2.8,
+      "total_ms": 5.5
+    },
+    {
+      "hook": "guard-read",
+      "runs": 2,
+      "p50_ms": 4.0,
+      "p95_ms": 5.0,
+      "p99_ms": 5.0,
+      "max_ms": 5.0,
+      "total_ms": 9.0
+    },
+    {
+      "hook": "guard-search",
+      "runs": 1,
+      "p50_ms": 3.5,
+      "p95_ms": 3.5,
+      "p99_ms": 3.5,
+      "max_ms": 3.5,
+      "total_ms": 3.5
+    },
+    {
+      "hook": "route",
+      "runs": 2,
+      "p50_ms": 2.9,
+      "p95_ms": 3.2,
+      "p99_ms": 3.2,
+      "max_ms": 3.2,
+      "total_ms": 6.1
+    }
+  ],
+  "per_session": [
+    {
+      "key": "sess1",
+      "runs": 7,
+      "total_ms": 24.1
+    }
+  ],
+  "per_day": [
+    {
+      "key": "2026-03-01",
+      "runs": 7,
+      "total_ms": 24.1
+    }
+  ],
+  "prompts": 2,
+  "avg_ms_per_prompt": 12.05,
+  "outcomes": {
+    "ok": 7,
+    "error": 0,
+    "panic": 0,
+    "timeout_guard": 0
+  },
+  "budget_ms": 50.0,
+  "budget_alerts": []
+}

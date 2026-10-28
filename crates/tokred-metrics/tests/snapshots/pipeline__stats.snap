@@ -1,0 +1,99 @@
+---
+source: crates/tokred-metrics/tests/pipeline.rs
+expression: stats
+---
+{
+  "range": {
+    "from": 1772323200,
+    "to": 1772409600
+  },
+  "group_by": "model",
+  "totals": {
+    "messages": 3,
+    "sessions": 1,
+    "tokens": {
+      "input": 1003000,
+      "output": 101500,
+      "cache_write": 2000,
+      "cache_read": 18000,
+      "total": 1124500
+    },
+    "cost_usd": 4.6284
+  },
+  "groups": [
+    {
+      "key": "claude-opus-4-1-20250805",
+      "messages": 1,
+      "tokens": {
+        "input": 1000,
+        "output": 500,
+        "cache_write": 2000,
+        "cache_read": 10000,
+        "total": 13500
+      },
+      "cost_usd": 0.105
+    },
+    {
+      "key": "claude-sonnet-4-20250514",
+      "messages": 2,
+      "tokens": {
+        "input": 1002000,
+        "output": 101000,
+        "cache_write": 0,
+        "cache_read": 8000,
+        "total": 1111000
+      },
+      "cost_usd": 4.5234
+    }
+  ],
+  "savings": {
+    "real_cost_usd": 4.6284,
+    "opus_cost_usd": 22.722,
+    "routing_saving_usd": 18.0936,
+    "guard": {
+      "estimate": true,
+      "blocks": 2,
+      "bytes_saved": 120000,
+      "tokens_avoided": 30000,
+      "saving_usd": 0.09
+    },
+    "total_saving_usd": 18.1836
+  },
+  "cache_rate": {
+    "overall": 0.017595,
+    "per_day": [
+      {
+        "day": "2026-03-01",
+        "rate": 0.017595
+      }
+    ]
+  },
+  "projection": {
+    "last_7d": {
+      "window_days": 7,
+      "days_of_data": 1,
+      "daily_avg_usd": 4.6284,
+      "projected_30d_usd": 138.852
+    },
+    "last_30d": {
+      "window_days": 30,
+      "days_of_data": 1,
+      "daily_avg_usd": 4.6284,
+      "projected_30d_usd": 138.852
+    }
+  },
+  "before_after": {
+    "first_configure": 1772323215,
+    "before": {
+      "sessions": 1,
+      "cost_usd": 4.6284,
+      "cost_per_session_usd": 4.6284
+    },
+    "after": {
+      "sessions": 0,
+      "cost_usd": 0.0,
+      "cost_per_session_usd": null
+    }
+  },
+  "unpriced_models": []
+}

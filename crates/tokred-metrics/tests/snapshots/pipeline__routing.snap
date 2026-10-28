@@ -1,0 +1,27 @@
+---
+source: crates/tokred-metrics/tests/pipeline.rs
+expression: "routing_summary(&events(), range())"
+---
+{
+  "range": {
+    "from": 1772323200,
+    "to": 1772409600
+  },
+  "classifications": [
+    {
+      "class": "architecture",
+      "count": 1
+    },
+    {
+      "class": "implementation",
+      "count": 1
+    }
+  ],
+  "total_classified": 2,
+  "delegations": {
+    "correct": 1,
+    "corrected": 1,
+    "mismatch_allowed": 0,
+    "total": 2
+  }
+}

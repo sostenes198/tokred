@@ -1,0 +1,10 @@
+---
+source: crates/tokred-metrics/tests/pipeline.rs
+expression: "tradeoff(&latency, &stats)"
+---
+{
+  "estimate": true,
+  "ms_added": 24.1,
+  "tokens_avoided": 30000,
+  "saving_usd": 0.45
+}
