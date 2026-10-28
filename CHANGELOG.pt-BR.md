@@ -12,6 +12,11 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ### Corrigido
 
+- Gravações de cache com duração de 1 hora são precificadas pela própria tarifa (2x o input) em vez da tarifa de 5 minutos (1,25x); antes o `stats` as subestimava. O uso já registrado é corrigido automaticamente na próxima execução do `stats`.
+- O "modelo mais recente de uma família" (usado na comparação tudo-no-opus e para modelos desconhecidos) agora é ordenado pela versão antes da data, então ids atuais sem data como `claude-opus-5-5` não perdem mais para ids 4.x datados.
+- Fable e Mythos são reconhecidas como famílias de modelo (fallback de preço, cores no relatório).
+- A ingestão de transcripts no Windows lia tamanhos de arquivo defasados enquanto o Claude Code ainda mantinha o transcript aberto.
+
 - Comandos de hook são reconhecidos para qualquer executável cujo nome comece com `tokred` (binários renomeados ou com versão não geram mais entradas duplicadas).
 
 ### Adicionado

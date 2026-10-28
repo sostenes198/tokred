@@ -87,6 +87,10 @@ pub enum ModelFamily {
     Sonnet,
     /// Haiku models.
     Haiku,
+    /// Fable models.
+    Fable,
+    /// Mythos models.
+    Mythos,
     /// Anything else.
     #[default]
     Other,

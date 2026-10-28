@@ -16,11 +16,21 @@ pub enum Family {
     Sonnet,
     /// Search and summaries.
     Haiku,
+    /// The Fable models.
+    Fable,
+    /// The Mythos models.
+    Mythos,
 }
 
 impl Family {
     /// Every family.
-    pub const ALL: [Self; 3] = [Self::Opus, Self::Sonnet, Self::Haiku];
+    pub const ALL: [Self; 5] = [
+        Self::Opus,
+        Self::Sonnet,
+        Self::Haiku,
+        Self::Fable,
+        Self::Mythos,
+    ];
 
     /// Detects the family from a model id (`claude-opus-4-1-20250805`, `claude-3-haiku`, ...).
     #[must_use]
@@ -38,6 +48,8 @@ impl Family {
             Self::Opus => "opus",
             Self::Sonnet => "sonnet",
             Self::Haiku => "haiku",
+            Self::Fable => "fable",
+            Self::Mythos => "mythos",
         }
     }
 }
@@ -49,8 +61,10 @@ pub struct ModelPrice {
     pub input: f64,
     /// Output.
     pub output: f64,
-    /// Prompt-cache writes.
+    /// Prompt-cache writes with the default 5-minute lifetime.
     pub cache_write: f64,
+    /// Prompt-cache writes with the 1-hour lifetime.
+    pub cache_write_1h: f64,
     /// Prompt-cache reads.
     pub cache_read: f64,
 }
@@ -75,8 +89,10 @@ pub struct Usage {
     pub input: u64,
     /// Output tokens.
     pub output: u64,
-    /// Tokens written to the prompt cache.
+    /// Tokens written to the prompt cache (both lifetimes).
     pub cache_write: u64,
+    /// The part of `cache_write` written with the 1-hour lifetime (priced higher).
+    pub cache_write_1h: u64,
     /// Tokens read from the prompt cache.
     pub cache_read: u64,
 }
@@ -93,6 +109,7 @@ impl Usage {
         self.input += other.input;
         self.output += other.output;
         self.cache_write += other.cache_write;
+        self.cache_write_1h += other.cache_write_1h;
         self.cache_read += other.cache_read;
     }
 }
@@ -140,15 +157,17 @@ impl PriceTable {
         self.entries.iter().find(|entry| entry.model == model)
     }
 
-    /// The "latest" row of a family: the one with the most recent date in its id
-    /// (`claude-opus-4-1-20250805` -> `20250805`); ids without a date rank below dated ones and
-    /// ties are broken by the id itself.
+    /// The "latest" row of a family: the highest version in its id (`claude-opus-5-5` is 5.5,
+    /// `claude-opus-4-1-20250805` is 4.1), then the most recent date, then the id itself. Current
+    /// ids carry no date, so the version must rank first or `claude-opus-4-7-20260416` would beat
+    /// `claude-opus-5-5`.
     #[must_use]
     pub fn latest_of(&self, family: Family) -> Option<&PriceEntry> {
+        let rank = |model: &str| (id_version(model), id_date(model));
         self.entries
             .iter()
             .filter(|entry| Family::from_model(&entry.model) == Some(family))
-            .max_by(|a, b| (id_date(&a.model), &a.model).cmp(&(id_date(&b.model), &b.model)))
+            .max_by(|a, b| (rank(&a.model), &a.model).cmp(&(rank(&b.model), &b.model)))
     }
 
     /// Price for `model`: exact, else the latest of its family, else `None`
@@ -178,14 +197,28 @@ fn id_date(model: &str) -> Option<u32> {
         .and_then(|part| part.parse().ok())
 }
 
+/// The version numbers in a model id, ignoring the date: `claude-opus-4-1-20250805` -> `[4, 1]`,
+/// `claude-3-5-haiku` -> `[3, 5]`, `claude-mythos-preview` -> `[]`.
+fn id_version(model: &str) -> Vec<u32> {
+    model
+        .split('-')
+        .filter(|part| {
+            !part.is_empty() && part.len() < 8 && part.bytes().all(|b| b.is_ascii_digit())
+        })
+        .filter_map(|part| part.parse().ok())
+        .collect()
+}
+
 /// Cost in USD of `usage` at `price`.
 #[must_use]
 pub fn cost(usage: &Usage, price: &ModelPrice) -> f64 {
     #[allow(clippy::cast_precision_loss)]
     let per_million = |tokens: u64, usd: f64| tokens as f64 * usd / 1_000_000.0;
+    let write_1h = usage.cache_write_1h.min(usage.cache_write);
     per_million(usage.input, price.input)
         + per_million(usage.output, price.output)
-        + per_million(usage.cache_write, price.cache_write)
+        + per_million(usage.cache_write - write_1h, price.cache_write)
+        + per_million(write_1h, price.cache_write_1h)
         + per_million(usage.cache_read, price.cache_read)
 }
 
@@ -225,6 +258,7 @@ mod tests {
                 input,
                 output: input * 5.0,
                 cache_write: input * 1.25,
+                cache_write_1h: input * 2.0,
                 cache_read: input * 0.1,
             },
             source: "test".to_owned(),
@@ -243,6 +277,11 @@ mod tests {
             Some(Family::Haiku)
         );
         assert_eq!(Family::from_model("Claude-Sonnet-4"), Some(Family::Sonnet));
+        assert_eq!(Family::from_model("claude-fable-5-1"), Some(Family::Fable));
+        assert_eq!(
+            Family::from_model("claude-mythos-preview"),
+            Some(Family::Mythos)
+        );
         assert_eq!(Family::from_model("<synthetic>"), None);
         assert_eq!(Family::Opus.name(), "opus");
     }
@@ -253,17 +292,35 @@ mod tests {
             input: 3.0,
             output: 15.0,
             cache_write: 3.75,
+            cache_write_1h: 6.0,
             cache_read: 0.3,
         };
         let usage = Usage {
             input: 1_000_000,
             output: 2_000_000,
             cache_write: 1_000_000,
+            cache_write_1h: 0,
             cache_read: 10_000_000,
         };
         let got = cost(&usage, &price);
         assert!((got - (3.0 + 30.0 + 3.75 + 3.0)).abs() < 1e-9, "{got}");
         assert!(cost(&Usage::default(), &price).abs() < f64::EPSILON);
+
+        // 1-hour writes are a part of the cache writes, priced at their own rate.
+        let mixed = Usage {
+            cache_write: 1_000_000,
+            cache_write_1h: 400_000,
+            ..Usage::default()
+        };
+        let got = cost(&mixed, &price);
+        assert!((got - (0.6 * 3.75 + 0.4 * 6.0)).abs() < 1e-9, "{got}");
+        // A 1-hour count larger than the total is clamped, never negative.
+        let odd = Usage {
+            cache_write: 100,
+            cache_write_1h: 500,
+            ..Usage::default()
+        };
+        assert!((cost(&odd, &price) - 100.0 * 6.0 / 1e6).abs() < 1e-12);
     }
 
     #[test]
@@ -272,12 +329,14 @@ mod tests {
             input: 1,
             output: 2,
             cache_write: 3,
+            cache_write_1h: 1,
             cache_read: 4,
         };
         a.add(&Usage {
             input: 10,
             output: 20,
             cache_write: 30,
+            cache_write_1h: 5,
             cache_read: 40,
         });
         assert_eq!(
@@ -286,6 +345,7 @@ mod tests {
                 input: 11,
                 output: 22,
                 cache_write: 33,
+                cache_write_1h: 6,
                 cache_read: 44
             }
         );
@@ -311,16 +371,31 @@ mod tests {
         );
         assert!(
             (fallback.price.input - 16.0).abs() < f64::EPSILON,
-            "most recent date wins"
+            "the higher version (4.1 over 4) wins"
         );
 
-        // Undated ids rank below dated ones.
-        let mixed = PriceTable::new(vec![
-            entry("claude-sonnet-5", 9.0),
+        // Current ids carry no date: the version decides, so 5.5 beats a dated 4.7.
+        let current = PriceTable::new(vec![
+            entry("claude-opus-4-7-20260416", 5.0),
+            entry("claude-opus-5", 5.5),
+            entry("claude-opus-5-5", 4.0),
+            entry("claude-sonnet-5", 2.0),
             entry("claude-sonnet-4-20250514", 3.0),
         ]);
-        let got = mixed.resolve("claude-sonnet-x").unwrap();
-        assert!((got.price.input - 3.0).abs() < f64::EPSILON);
+        let opus = current.latest_of(Family::Opus).unwrap();
+        assert_eq!(opus.model, "claude-opus-5-5");
+        let got = current.resolve("claude-sonnet-x").unwrap();
+        assert!((got.price.input - 2.0).abs() < f64::EPSILON, "5 beats 4");
+        // Same version: the date breaks the tie; ids without numbers rank lowest.
+        let dated = PriceTable::new(vec![
+            entry("claude-opus-4-1-20250805", 16.0),
+            entry("claude-opus-4-1-20250901", 17.0),
+            entry("claude-opus-preview", 99.0),
+        ]);
+        assert_eq!(
+            dated.latest_of(Family::Opus).unwrap().model,
+            "claude-opus-4-1-20250901"
+        );
 
         assert!(table.resolve("<synthetic>").is_none());
         assert!(PriceTable::default().resolve("claude-opus-4").is_none());

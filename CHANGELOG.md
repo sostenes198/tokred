@@ -12,6 +12,11 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- Cache writes with the 1-hour lifetime are priced at their own rate (2x input) instead of the 5-minute rate (1.25x); `stats` previously under-reported them. Existing usage is backfilled automatically on the next `stats` run.
+- The "latest model of a family" (used for the all-on-opus comparison and for unknown models) now ranks by version before date, so current undated ids such as `claude-opus-5-5` are no longer outranked by dated 4.x ids.
+- Fable and Mythos are recognized as model families (price fallback, report colors).
+- Transcript ingestion on Windows read stale file sizes while Claude Code still had the transcript open.
+
 - Hook commands are recognized for any executable whose name starts with `tokred` (renamed or versioned binaries no longer cause duplicate entries).
 
 ### Added

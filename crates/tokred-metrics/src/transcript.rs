@@ -53,6 +53,15 @@ struct RawUsage {
     cache_write: Option<u64>,
     #[serde(rename = "cache_read_input_tokens")]
     cache_read: Option<u64>,
+    /// Split of the cache writes by lifetime (`ephemeral_5m_input_tokens`,
+    /// `ephemeral_1h_input_tokens`), present on current transcripts.
+    cache_creation: Option<CacheCreation>,
+}
+
+#[derive(Deserialize)]
+struct CacheCreation {
+    #[serde(rename = "ephemeral_1h_input_tokens")]
+    one_hour: Option<u64>,
 }
 
 /// Model id Claude Code gives to messages it fabricates locally (no tokens were spent).
@@ -83,6 +92,10 @@ pub fn parse_line(line: &str, context: &LineContext<'_>) -> Option<UsageRecord> 
             input: raw.input.unwrap_or(0),
             output: raw.output.unwrap_or(0),
             cache_write: raw.cache_write.unwrap_or(0),
+            cache_write_1h: raw
+                .cache_creation
+                .and_then(|split| split.one_hour)
+                .unwrap_or(0),
             cache_read: raw.cache_read.unwrap_or(0),
         },
         is_subagent: context.is_subagent_file || parsed.is_sidechain.unwrap_or(false),
@@ -119,10 +132,28 @@ mod tests {
                 input: 10,
                 output: 20,
                 cache_write: 30,
+                cache_write_1h: 0,
                 cache_read: 40
             }
         );
         assert!(!record.is_subagent);
+    }
+
+    #[test]
+    fn the_one_hour_part_of_cache_writes_is_read() {
+        let line = assistant("").replace(
+            r#""service_tier":"standard""#,
+            r#""cache_creation":{"ephemeral_5m_input_tokens":10,"ephemeral_1h_input_tokens":20},"service_tier":"standard""#,
+        );
+        let record = parse_line(&line, &CTX).unwrap();
+        assert_eq!(record.usage.cache_write, 30);
+        assert_eq!(record.usage.cache_write_1h, 20);
+        // An empty split object counts as no 1-hour writes.
+        let empty = assistant("").replace(
+            r#""service_tier":"standard""#,
+            r#""cache_creation":{},"service_tier":"standard""#,
+        );
+        assert_eq!(parse_line(&empty, &CTX).unwrap().usage.cache_write_1h, 0);
     }
 
     #[test]

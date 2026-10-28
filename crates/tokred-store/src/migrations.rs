@@ -44,6 +44,14 @@ const MIGRATIONS: &[&str] = &[
     ",
     // v2: key/value state that has no table of its own.
     "CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+    // v3: 1-hour cache writes (priced at 2x input instead of 1.25x). Clearing the ingestion
+    // offsets makes the next `stats` re-read the transcripts; `insert_new` then backfills the
+    // 1-hour split of rows that already exist without duplicating them.
+    "
+    ALTER TABLE usage ADD COLUMN cache_write_1h INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE pricing ADD COLUMN cache_write_1h REAL;
+    DELETE FROM ingest_state;
+    ",
 ];
 
 /// Highest schema version this build understands.

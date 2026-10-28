@@ -56,6 +56,8 @@ fn model_family(model: &str) -> ModelFamily {
         Some(Family::Opus) => ModelFamily::Opus,
         Some(Family::Sonnet) => ModelFamily::Sonnet,
         Some(Family::Haiku) => ModelFamily::Haiku,
+        Some(Family::Fable) => ModelFamily::Fable,
+        Some(Family::Mythos) => ModelFamily::Mythos,
         None => ModelFamily::Other,
     }
 }
@@ -325,6 +327,8 @@ mod tests {
     #[test]
     fn the_helpers_classify_models_and_guard_reasons() {
         assert_eq!(model_family("claude-haiku-4"), ModelFamily::Haiku);
+        assert_eq!(model_family("claude-fable-5-1"), ModelFamily::Fable);
+        assert_eq!(model_family("claude-mythos-5"), ModelFamily::Mythos);
         assert_eq!(model_family("mystery"), ModelFamily::Other);
         assert!(guard_reason("generated_file").is_some() && guard_reason("large_file").is_some());
         assert!(guard_reason("nope").is_none());

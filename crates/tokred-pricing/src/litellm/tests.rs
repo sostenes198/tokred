@@ -48,6 +48,7 @@ fn converts_per_token_to_per_million_with_explicit_cache_prices() {
             input: 3.0,
             output: 15.0,
             cache_write: 3.75,
+            cache_write_1h: 6.0,
             cache_read: 0.3
         }
     );
@@ -61,7 +62,25 @@ fn derives_missing_cache_prices_from_the_input_price() {
     )]);
     let price = entries[0].price;
     assert_eq!(price.cache_write, 18.75);
+    assert_eq!(price.cache_write_1h, 30.0);
     assert_eq!(price.cache_read, 1.5);
+}
+
+#[test]
+fn reads_the_one_hour_cache_write_price_when_present() {
+    let entries = parse(&[(
+        "claude-sonnet-5-5",
+        row(
+            "anthropic",
+            0.000_002,
+            0.000_01,
+            r#","cache_creation_input_token_cost":0.0000025,"cache_creation_input_token_cost_above_1hr":0.000004,"cache_read_input_token_cost":0.0000001"#,
+        ),
+    )]);
+    let price = entries[0].price;
+    assert_eq!(price.cache_write, 2.5);
+    assert_eq!(price.cache_write_1h, 4.0);
+    assert_eq!(price.cache_read, 0.1);
 }
 
 #[test]

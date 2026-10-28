@@ -30,7 +30,9 @@ fn describe(root: &Path, entry: &DirEntry) -> Option<TranscriptFile> {
     if !entry.file_type().is_file() || entry.path().extension()? != "jsonl" {
         return None;
     }
-    let meta = entry.metadata().ok()?;
+    // Not `entry.metadata()`: on Windows the walk serves sizes from the directory listing, and
+    // those lag behind while another process (Claude Code) still has the file open for writing.
+    let meta = std::fs::metadata(entry.path()).ok()?;
     let relative = entry.path().strip_prefix(root).ok()?;
     let path = relative
         .components()
@@ -100,6 +102,29 @@ mod tests {
         assert_eq!(files[0].size, 4);
         assert_eq!(files[1].size, 5);
         assert!(files[0].mtime > 1_600_000_000);
+    }
+
+    /// Regression test for the Windows CI failure: the size must follow a file that another
+    /// handle still holds open for appending, as Claude Code does with a live transcript.
+    #[test]
+    fn sizes_follow_a_file_that_is_still_open_for_writing() {
+        use std::io::Write as _;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("live.jsonl");
+        let mut writer = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .unwrap();
+        let fs = StdTranscriptFs::new(dir.path());
+
+        writer.write_all(b"first\n").unwrap();
+        writer.flush().unwrap();
+        assert_eq!(fs.list().unwrap()[0].size, 6);
+
+        writer.write_all(b"second\n").unwrap();
+        writer.flush().unwrap();
+        assert_eq!(fs.list().unwrap()[0].size, 13, "the writer is still open");
     }
 
     #[test]

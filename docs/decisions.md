@@ -172,3 +172,12 @@ Interactive `claude` (2.1.312, Opus 5.5, API-key login) through the probe, two s
 - **The auxiliary request is recognizable by its shape.** Besides the main-loop turns (16 tools, adaptive thinking), one request had **no tools, no thinking and exactly one message** (1,167 input and 21 output tokens, most likely the session title). It ran on the main model (Opus 5.5) and read and wrote **no** prompt cache, so moving it to a cheaper model loses nothing.
 - **Startup checks:** twelve requests with `max_tokens: 1`, no tools and no system prompt returned `429` and were retried by Claude Code; the proxy must (and did) pass `429` through unchanged.
 - **Decision:** a request is treated as auxiliary only when it has no `agent-id`, no tools, no `thinking` and exactly one message (or when a future Claude Code sends `x-claude-code-request-class: auxiliary`). The main loop always carries tools, so it can never match. Everything else without an `agent-id` is the main loop and is never rewritten.
+
+
+## 2026-10-28 — F6 stabilization
+
+- **1-hour cache writes.** Current transcripts split `cache_creation_input_tokens` into `cache_creation.ephemeral_5m_input_tokens` and `ephemeral_1h_input_tokens`, and on this machine every write was 1-hour. LiteLLM publishes the price as `cache_creation_input_token_cost_above_1hr`. `Usage` gained `cache_write_1h` (a part of `cache_write`) and `ModelPrice` gained `cache_write_1h`; when the price list lacks it the documented rate of 2x input is used. Migration v3 adds the columns and clears the ingestion offsets so existing rows are backfilled without duplicates.
+- **Family ranking.** Versions now rank before dates (`claude-opus-5-5` > `claude-opus-4-7-20260416`). The previous rule, which ranked undated ids below dated ones, made the counterfactual price everything at Opus 4.7.
+- **Fable and Mythos** are families. The `Family` type stays a closed enum (unknown families still resolve to "unpriced") rather than the open type the spec suggested: it keeps exhaustive matching, and an unknown family is already handled.
+- **Windows.** The walk's cached metadata was replaced by a fresh `std::fs::metadata` read, and CI runs `cargo test --no-fail-fast` so every failing test binary shows up, not only the first.
+- **Not done:** exercising the release pipeline with a test tag. Pushing a tag is outward-facing (it can publish to Homebrew, Scoop, winget and crates.io once the secrets exist) and needs the author's explicit go-ahead.

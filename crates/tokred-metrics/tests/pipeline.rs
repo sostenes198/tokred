@@ -79,6 +79,7 @@ fn prices() -> PriceTable {
             input,
             output,
             cache_write,
+            cache_write_1h: input * 2.0,
             cache_read,
         },
         source: "fixture".to_owned(),

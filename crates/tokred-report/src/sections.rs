@@ -25,6 +25,8 @@ const OPUS: usize = 0;
 const SONNET: usize = 1;
 const HAIKU: usize = 2;
 const OTHER: usize = 3;
+const FABLE: usize = 4;
+const MYTHOS: usize = 5;
 const ACCENT: usize = 4;
 
 /// The badge that marks a figure as an estimate.
@@ -204,6 +206,8 @@ const fn family(family: ModelFamily) -> (&'static str, usize) {
         ModelFamily::Opus => ("Opus", OPUS),
         ModelFamily::Sonnet => ("Sonnet", SONNET),
         ModelFamily::Haiku => ("Haiku", HAIKU),
+        ModelFamily::Fable => ("Fable", FABLE),
+        ModelFamily::Mythos => ("Mythos", MYTHOS),
         ModelFamily::Other => ("Other", OTHER),
     }
 }
@@ -225,6 +229,8 @@ fn models_content(models: &[ModelUsage]) -> String {
         ModelFamily::Opus,
         ModelFamily::Sonnet,
         ModelFamily::Haiku,
+        ModelFamily::Fable,
+        ModelFamily::Mythos,
         ModelFamily::Other,
     ];
     let total_tokens: u64 = models.iter().map(|m| m.tokens).sum();

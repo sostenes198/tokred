@@ -14,6 +14,7 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<PriceEntry> {
             input: row.get(1)?,
             output: row.get(2)?,
             cache_write: row.get(3)?,
+            cache_write_1h: row.get(7)?,
             cache_read: row.get(4)?,
         },
         source: row.get(5)?,
@@ -34,11 +35,11 @@ impl PriceRepo for Store {
             let mut insert = tx
                 .prepare(
                     "INSERT INTO pricing(model, input, output, cache_write, cache_read, source, \
-                     updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+                     updated_at, cache_write_1h) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
                      ON CONFLICT(model) DO UPDATE SET input = excluded.input, \
                      output = excluded.output, cache_write = excluded.cache_write, \
                      cache_read = excluded.cache_read, source = excluded.source, \
-                     updated_at = excluded.updated_at",
+                     updated_at = excluded.updated_at, cache_write_1h = excluded.cache_write_1h",
                 )
                 .map_err(StoreError::backend)?;
             for entry in entries {
@@ -50,7 +51,8 @@ impl PriceRepo for Store {
                         entry.price.cache_write,
                         entry.price.cache_read,
                         entry.source,
-                        entry.updated_at.0
+                        entry.updated_at.0,
+                        entry.price.cache_write_1h
                     ])
                     .map_err(StoreError::backend)?;
             }
@@ -62,8 +64,8 @@ impl PriceRepo for Store {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT model, input, output, cache_write, cache_read, source, updated_at \
-                 FROM pricing ORDER BY model",
+                "SELECT model, input, output, cache_write, cache_read, source, updated_at, \
+                 COALESCE(cache_write_1h, input * 2.0) FROM pricing ORDER BY model",
             )
             .map_err(StoreError::backend)?;
         stmt.query_map([], row_to_entry)

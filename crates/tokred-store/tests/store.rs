@@ -21,7 +21,10 @@ fn open_creates_the_full_schema_and_is_reopenable() {
     let db = dir.path().join("tokred.db");
 
     let store = Store::open(&db).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 2);
+    assert_eq!(
+        store.schema_version().unwrap(),
+        Store::latest_schema_version()
+    );
     let tables = store.table_names().unwrap();
     for expected in [
         "cache_entries",
@@ -42,7 +45,10 @@ fn open_creates_the_full_schema_and_is_reopenable() {
     drop(store);
 
     let reopened = Store::open(&db).unwrap();
-    assert_eq!(reopened.schema_version().unwrap(), 2);
+    assert_eq!(
+        reopened.schema_version().unwrap(),
+        Store::latest_schema_version()
+    );
 }
 
 #[test]
@@ -83,7 +89,10 @@ fn newer_schema_is_rejected() {
 #[test]
 fn in_memory_store_has_the_schema() {
     let store = Store::open_in_memory().unwrap();
-    assert_eq!(store.schema_version().unwrap(), 2);
+    assert_eq!(
+        store.schema_version().unwrap(),
+        Store::latest_schema_version()
+    );
     assert_eq!(store.table_names().unwrap().len(), 10);
 }
 

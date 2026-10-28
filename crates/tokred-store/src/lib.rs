@@ -60,6 +60,12 @@ impl Store {
         Ok(Self { conn })
     }
 
+    /// The schema version this build migrates databases to.
+    #[must_use]
+    pub fn latest_schema_version() -> u32 {
+        migrations::latest()
+    }
+
     /// Current schema version (`PRAGMA user_version`).
     pub fn schema_version(&self) -> Result<u32, rusqlite::Error> {
         self.conn

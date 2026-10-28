@@ -8,7 +8,7 @@ use tokred_core::{StoreError, Timestamp};
 use crate::Store;
 
 const SELECT_USAGE: &str = "SELECT message_key, session_id, project, ts, model, input, output, \
-                            cache_write, cache_read, is_subagent FROM usage";
+                            cache_write, cache_read, is_subagent, cache_write_1h FROM usage";
 
 /// SQLite integers are signed: counters beyond `i64::MAX` saturate (unreachable in practice).
 fn to_db(value: u64) -> i64 {
@@ -31,6 +31,7 @@ fn row_to_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<UsageRecord> {
             input: from_db(row.get(5)?),
             output: from_db(row.get(6)?),
             cache_write: from_db(row.get(7)?),
+            cache_write_1h: from_db(row.get(10)?),
             cache_read: from_db(row.get(8)?),
         },
         is_subagent: row.get::<_, i64>(9)? != 0,
@@ -49,8 +50,15 @@ impl UsageRepo for Store {
             let mut stmt = tx
                 .prepare_cached(
                     "INSERT OR IGNORE INTO usage(message_key, session_id, project, ts, model, \
-                     input, output, cache_write, cache_read, is_subagent) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                     input, output, cache_write, cache_read, is_subagent, cache_write_1h) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                )
+                .map_err(StoreError::backend)?;
+            // Rows stored before the 1-hour split existed get it filled in on re-ingestion.
+            let mut backfill = tx
+                .prepare_cached(
+                    "UPDATE usage SET cache_write_1h = ?2 \
+                     WHERE message_key = ?1 AND cache_write_1h = 0 AND ?2 > 0",
                 )
                 .map_err(StoreError::backend)?;
             for record in records {
@@ -66,6 +74,13 @@ impl UsageRepo for Store {
                         to_db(record.usage.cache_write),
                         to_db(record.usage.cache_read),
                         i64::from(record.is_subagent),
+                        to_db(record.usage.cache_write_1h),
+                    ])
+                    .map_err(StoreError::backend)?;
+                backfill
+                    .execute(params![
+                        record.message_key,
+                        to_db(record.usage.cache_write_1h)
                     ])
                     .map_err(StoreError::backend)?;
             }

@@ -17,6 +17,7 @@ fn record(key: &str, ts: i64, subagent: bool) -> UsageRecord {
             input: 1,
             output: 2,
             cache_write: 3,
+            cache_write_1h: 0,
             cache_read: 4,
         },
         is_subagent: subagent,

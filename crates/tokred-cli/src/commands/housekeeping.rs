@@ -136,6 +136,7 @@ mod tests {
                     input: 15.0,
                     output: 75.0,
                     cache_write: 18.75,
+                    cache_write_1h: 30.0,
                     cache_read: 1.5,
                 },
                 source: "fake".to_owned(),

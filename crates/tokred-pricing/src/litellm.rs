@@ -19,6 +19,9 @@ const SNAPSHOT: &str = include_str!("../data/claude-prices.json");
 const DERIVED_CACHE_WRITE: f64 = 1.25;
 /// Cache reads cost this multiple of the input price when the file has no explicit price.
 const DERIVED_CACHE_READ: f64 = 0.1;
+/// 1-hour cache writes cost this multiple of the input price when the file has no explicit price
+/// (the documented rate for the 1-hour lifetime).
+const DERIVED_CACHE_WRITE_1H: f64 = 2.0;
 
 /// Provider prefixes of keys that are accepted, with their rank. When several keys normalise to
 /// the same model id, the lowest rank wins (bare Anthropic keys have rank 0).
@@ -102,6 +105,10 @@ pub fn render_snapshot(entries: &[PriceEntry], generated: &str) -> String {
             ("input_cost_per_token", entry.price.input),
             ("output_cost_per_token", entry.price.output),
             ("cache_creation_input_token_cost", entry.price.cache_write),
+            (
+                "cache_creation_input_token_cost_above_1hr",
+                entry.price.cache_write_1h,
+            ),
             ("cache_read_input_token_cost", entry.price.cache_read),
         ];
         for (name, per_million) in fields {
@@ -174,6 +181,8 @@ fn row_price(row: &Map<String, Value>) -> Option<ModelPrice> {
         output,
         cache_write: per_million("cache_creation_input_token_cost")
             .unwrap_or_else(|| round(input * DERIVED_CACHE_WRITE)),
+        cache_write_1h: per_million("cache_creation_input_token_cost_above_1hr")
+            .unwrap_or_else(|| round(input * DERIVED_CACHE_WRITE_1H)),
         cache_read: per_million("cache_read_input_token_cost")
             .unwrap_or_else(|| round(input * DERIVED_CACHE_READ)),
     })

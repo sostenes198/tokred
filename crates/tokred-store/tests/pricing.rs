@@ -12,6 +12,7 @@ fn entry(model: &str, input: f64, source: &str, at: i64) -> PriceEntry {
             input,
             output: input * 5.0,
             cache_write: input * 1.25,
+            cache_write_1h: input * 2.0,
             cache_read: input * 0.1,
         },
         source: source.to_owned(),
