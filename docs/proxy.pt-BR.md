@@ -56,6 +56,7 @@ Os logins por chave de API e por assinatura claude.ai funcionam (verificado no s
 - O proxy conecta direto à API e confia nas raízes de certificado embutidas. Ele não lê `HTTPS_PROXY` nem um bundle de CA próprio, então não funciona atrás de um proxy corporativo que inspeciona TLS. Nesse caso use o Claude Code sem ele.
 - Ele só lê o uso de uma resposta não comprimida. Pede uma ao servidor (`Accept-Encoding: identity`); se a resposta vier comprimida mesmo assim, ela é repassada sem alteração, só não é medida.
 - Uma requisição de compactação não traz cabeçalho que a distinga, então pode ser tomada por um prompt simples. O roteamento nunca troca o modelo do loop principal, então isso só afeta os conselhos.
+- No Windows, o `tokred proxy start` executado com a saída capturada por um pipe (por exemplo `out=$(tokred proxy start)`, ou uma etapa de CI que grava a saída) não retorna até o proxy parar: o Windows deixa o processo em segundo plano herdar o pipe. Rode-o num terminal, mande a saída para um arquivo ou `NUL`, ou use `tokred proxy service install`. O mesmo vale para o `tokred claude` quando ele precisa subir o proxy com a saída em pipe; suba o proxy antes nesse caso.
 - Os registros por requisição ainda não incluem o motivo de parada, os nomes das ferramentas nem a duração de cache usada.
 
 ## Configuração

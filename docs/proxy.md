@@ -56,6 +56,7 @@ Both API-key and claude.ai subscription logins work (verified in the F7 spike). 
 - The proxy connects to the API directly and trusts the built-in certificate roots. It does not read `HTTPS_PROXY` or a custom CA bundle, so it does not work behind a corporate proxy that inspects TLS. In that case use Claude Code without it.
 - It reads response usage only from an uncompressed response. It asks the API for one (`Accept-Encoding: identity`); if a response comes back compressed anyway it is still forwarded unchanged, just not measured.
 - A compaction request carries no header that tells it apart, so it can be taken for a simple prompt. Routing never changes the main loop's model, so this only affects the advice.
+- On Windows, `tokred proxy start` run with its output captured by a pipe (for example `out=$(tokred proxy start)`, or a CI step that records output) does not return until the proxy stops: Windows lets the background process inherit the pipe. Run it in a terminal, send its output to a file or `NUL`, or use `tokred proxy service install`. The same applies to `tokred claude` when it has to start the proxy with its output piped; start the proxy first in that case.
 - Per-request records do not yet include the stop reason, the tool names or the cache lifetime used.
 
 ## Configuration

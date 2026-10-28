@@ -64,6 +64,32 @@ impl Sandbox {
     }
 }
 
+impl Sandbox {
+    /// Starts the background proxy and waits until it answers.
+    ///
+    /// The output is not captured: on Windows the detached proxy would inherit the pipes a
+    /// capturing harness gives its child and keep them open, so the harness would wait for the
+    /// proxy to exit.
+    fn start_proxy(&self) {
+        let command = self.tokred();
+        let mut plain = std::process::Command::new(command.get_program());
+        for (name, value) in command.get_envs() {
+            match value {
+                Some(value) => plain.env(name, value),
+                None => plain.env_remove(name),
+            };
+        }
+        let status = plain
+            .args(["proxy", "start"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success(), "`proxy start` failed: {status}");
+    }
+}
+
 fn free_port() -> u16 {
     TcpListener::bind("127.0.0.1:0")
         .unwrap()
@@ -156,11 +182,7 @@ fn the_real_proxy_forwards_streams_records_and_stops() {
     let port = free_port();
     let sb = Sandbox::new(&upstream, port);
 
-    sb.tokred()
-        .args(["proxy", "start"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("The tokred proxy is running"));
+    sb.start_proxy();
     sb.tokred()
         .args(["proxy", "status"])
         .assert()
@@ -274,7 +296,7 @@ fn a_request_to_a_non_loopback_host_name_is_refused() {
     let (upstream, _) = fake_upstream();
     let port = free_port();
     let sb = Sandbox::new(&upstream, port);
-    sb.tokred().args(["proxy", "start"]).assert().success();
+    sb.start_proxy();
     let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
     stream
         .write_all(b"POST /v1/messages HTTP/1.1\r\nHost: evil.example\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}")
