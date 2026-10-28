@@ -12,4 +12,11 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
+opener = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
 tokred-core = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
