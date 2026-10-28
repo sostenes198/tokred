@@ -1,11 +1,24 @@
-//! Fixed-context audit for tokred.
+//! Fixed-context audit behind `tokred audit`.
 //!
-//! Placeholder: this use-case crate is implemented in a later phase (see `docs/spec.md`).
+//! The audit weighs what Claude Code loads before the first prompt (user and project `CLAUDE.md`
+//! files with their `@path` imports, rules, skills and agents) and compares the configured MCP
+//! servers with the calls found in the transcripts. Token counts are estimates (characters / 4).
+//!
+//! The logic is pure over ports: [`tokred_core::FileSystem`] for reads, plus [`DirLister`] and
+//! [`McpUsageSource`] defined here. The [`fs`] module holds the `std` adapters.
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn crate_builds() {
-        assert_eq!(env!("CARGO_PKG_NAME"), "tokred-audit");
-    }
-}
+mod audit;
+mod frontmatter;
+mod mcp;
+mod memory;
+
+pub mod fs;
+pub mod ports;
+pub mod report;
+
+pub use audit::{AuditRequest, DEFAULT_WINDOW_DAYS, Ports, audit, global_config_candidates};
+pub use ports::{DirEntry, DirLister, McpUsage, McpUsageSource, UsageError, UsageScan};
+pub use report::{
+    AuditItem, AuditReport, ItemKind, KindTotal, McpScope, McpServerReport, Scope, Summary,
+    UnconfiguredUsage,
+};

@@ -1593,7 +1593,14 @@ dependencies = [
 name = "tokred-audit"
 version = "0.1.0"
 dependencies = [
+ "insta",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "time",
  "tokred-core",
+ "walkdir",
 ]
 
 [[package]]

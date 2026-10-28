@@ -1,0 +1,137 @@
+---
+source: crates/tokred-audit/tests/snapshot.rs
+expression: json
+---
+{
+  "token_estimate": "estimate: characters / 4, rounded up (not a real tokenizer count)",
+  "window_days": 30,
+  "items": [
+    {
+      "kind": "claude_md",
+      "scope": "project",
+      "name": "CLAUDE.md",
+      "path": "/h/proj/CLAUDE.md",
+      "imported_by": null,
+      "estimated_tokens": 263,
+      "startup_tokens": 263,
+      "action": "over 200 lines: trim, or move topic-specific parts to path-scoped .claude/rules/ or a skill (@import does not reduce context cost)"
+    },
+    {
+      "kind": "agent",
+      "scope": "user",
+      "name": "reviewer",
+      "path": "/h/.claude/agents/reviewer.md",
+      "imported_by": null,
+      "estimated_tokens": 20,
+      "startup_tokens": null,
+      "action": null
+    },
+    {
+      "kind": "skill",
+      "scope": "user",
+      "name": "deploy",
+      "path": "/h/.claude/skills/deploy/SKILL.md",
+      "imported_by": null,
+      "estimated_tokens": 17,
+      "startup_tokens": 4,
+      "action": null
+    },
+    {
+      "kind": "claude_md",
+      "scope": "user",
+      "name": "CLAUDE.md",
+      "path": "/h/.claude/CLAUDE.md",
+      "imported_by": null,
+      "estimated_tokens": 9,
+      "startup_tokens": 9,
+      "action": null
+    },
+    {
+      "kind": "claude_md",
+      "scope": "user",
+      "name": "rules/style.md",
+      "path": "/h/.claude/rules/style.md",
+      "imported_by": "/h/.claude/CLAUDE.md",
+      "estimated_tokens": 3,
+      "startup_tokens": 3,
+      "action": null
+    }
+  ],
+  "mcp_servers": [
+    {
+      "name": "db",
+      "scope": "local",
+      "also_in": [],
+      "source": "/h/.claude.json",
+      "transport": "stdio",
+      "disabled": false,
+      "calls": 0,
+      "last_seen_unix": null,
+      "unused": true,
+      "action": "no calls in the last 30 days: consider removing"
+    },
+    {
+      "name": "old",
+      "scope": "project",
+      "also_in": [
+        "user"
+      ],
+      "source": "/h/proj/.mcp.json",
+      "transport": "stdio",
+      "disabled": true,
+      "calls": 0,
+      "last_seen_unix": null,
+      "unused": true,
+      "action": "disabled and no calls in the last 30 days: remove it from the config"
+    },
+    {
+      "name": "github",
+      "scope": "user",
+      "also_in": [],
+      "source": "/h/.claude.json",
+      "transport": "http",
+      "disabled": false,
+      "calls": 12,
+      "last_seen_unix": 1799996400,
+      "unused": false,
+      "action": null
+    }
+  ],
+  "mcp_usage_without_local_config": [
+    {
+      "server": "plugin_x_y",
+      "calls": 2,
+      "last_seen_unix": 1799999940
+    }
+  ],
+  "summary": {
+    "by_kind": {
+      "claude_md": {
+        "count": 3,
+        "estimated_tokens": 275
+      },
+      "rule": {
+        "count": 0,
+        "estimated_tokens": 0
+      },
+      "skill": {
+        "count": 1,
+        "estimated_tokens": 17
+      },
+      "agent": {
+        "count": 1,
+        "estimated_tokens": 20
+      }
+    },
+    "total_estimated_tokens": 312,
+    "total_startup_tokens": 279,
+    "mcp_servers": 3,
+    "mcp_servers_unused": 2
+  },
+  "notes": [
+    "The weight of MCP tool schemas cannot be computed locally; MCP servers are compared by usage only.",
+    "MCP servers provided by plugins, claude.ai connectors or managed settings are not defined in local config files; their usage is listed separately when seen in transcripts.",
+    "Skills and agents are weighed by their whole file; only a skill's listing entry is in context before it is invoked (see startup_tokens)."
+  ],
+  "warnings": []
+}
