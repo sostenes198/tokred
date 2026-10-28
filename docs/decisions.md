@@ -18,8 +18,8 @@ Format: date, context, decision, consequences. Where the spec diverges from the 
 ## 2026-10-28 — tokred hook commands are recognized structurally, not by the substring `tokred hook `
 
 - **Context:** spec section 5.1 says a tokred entry's `command` "contains the marker `tokred hook `", but its own example is `"/opt/homebrew/bin/tokred" hook guard-read`: the closing quote sits between `tokred` and `hook`, so that substring never occurs in the entries tokred itself writes. A literal implementation would never find (and so never replace or remove) its own entries.
-- **Decision:** a command is tokred's when it runs an executable named `tokred` or `tokred.exe` (optionally quoted, preceded by a path separator, quote, space or start of string) followed by ` hook <name>`.
-- **Consequences:** idempotency and unconfigure work for quoted paths, Windows paths with spaces and bare `tokred hook x`. A wrapper such as `bash -c 'tokred hook x'` is deliberately not recognized.
+- **Decision:** a command is tokred's when it runs an executable whose file name starts with `tokred` (`tokred`, `tokred.exe`, or a versioned/renamed copy such as `tokred-0.4.0`), optionally quoted, followed by ` hook <name>`. Found by a unit test: under `cargo test` the binary is called `tokred-<hash>`, and an exact-name rule made `configure` add duplicates and `unconfigure` remove nothing.
+- **Consequences:** idempotency and unconfigure work for quoted paths, Windows paths with spaces, renamed binaries and bare `tokred hook x`. A wrapper such as `bash -c 'tokred hook x'` is deliberately not recognized.
 
 ## 2026-10-28 — Return-format labels are in English
 
@@ -68,4 +68,6 @@ Format: date, context, decision, consequences. Where the spec diverges from the 
 - `--purge` refuses to delete a folder that has neither `tokred.db` nor `tokred.toml`.
 - The database is created only after the plan is confirmed.
 - `tokred.toml` is rewritten (without comments) only when keys were missing; otherwise it is left byte for byte.
+- `unconfigure` is lenient: it removes tokred's handlers and leaves anything it does not understand (a non-object `hooks`, an event that is not an array) exactly as it is. Only `configure`, which has to write into those places, reports a bad shape, and only for the events it writes to.
+- Terminal I/O goes through a small `Io` seam (interactive flag, input, output), and command output is rendered by pure functions into `String`s. This is what lets the prompts, the plan text and every `doctor` state be unit-tested without a TTY, and what keeps line coverage at 100%.
 - `doctor --bench`, price sync and `tokred metrics` are not part of F0 and are omitted from the quick start until their phases.

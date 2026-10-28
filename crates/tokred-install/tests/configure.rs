@@ -110,11 +110,7 @@ fn configure_configure_unconfigure_returns_the_original_semantically() {
         unconfigure(&StdFileSystem, Some(&env.store), &env.claude).unwrap();
         // Old tokred entries in the original are replaced, never restored; everything else
         // (including the pre-existing empty `Notification` event) must come back untouched.
-        assert_eq!(
-            env.settings_json(),
-            remove_tokred(original).unwrap(),
-            "{name}"
-        );
+        assert_eq!(env.settings_json(), remove_tokred(original), "{name}");
     }
 }
 
@@ -320,4 +316,268 @@ fn std_file_system_round_trip() {
     assert!(!StdFileSystem.remove_file(&path).unwrap());
     let leftovers: Vec<_> = std::fs::read_dir(tmp.path()).unwrap().collect();
     assert!(leftovers.is_empty(), "temporary files must not leak");
+}
+
+#[test]
+fn unmergeable_settings_are_reported_and_nothing_is_written() {
+    let env = Env::new(Some(r#"{"hooks": 1}"#));
+    let err = env.configure(&env.input()).unwrap_err();
+    assert!(matches!(err, InstallError::Merge { .. }), "{err}");
+    assert!(err.to_string().contains("nothing was changed"));
+    assert!(!env.claude.join("agents").exists());
+
+    // A malformed event that tokred does not write to does not stop it from removing its own
+    // entries: unconfigure leaves what it does not understand alone.
+    let mixed = r#"{"hooks": {"Stop": [{"hooks": [{"type": "command",
+        "command": "\"/x/tokred\" hook session-check"}]}], "Bad": 1}}"#;
+    let env = Env::new(Some(mixed));
+    let report = unconfigure(&StdFileSystem, Some(&env.store), &env.claude).unwrap();
+    assert_eq!(report.hooks_removed, 1);
+    assert_eq!(
+        env.settings_json(),
+        serde_json::json!({"hooks": {"Bad": 1}})
+    );
+}
+
+#[test]
+fn identical_agents_with_a_lost_manifest_are_recorded_again() {
+    let env = Env::new(Some("{}"));
+    env.configure(&env.input()).unwrap();
+    for entry in env.store.list().unwrap() {
+        env.store.remove(&entry.path).unwrap();
+    }
+    assert!(env.store.list().unwrap().is_empty());
+
+    let report = env.configure(&env.input()).unwrap();
+    assert!(
+        report
+            .agents
+            .iter()
+            .all(|(_, action)| *action == tokred_install::agents::AgentAction::Unchanged)
+    );
+    assert_eq!(env.store.list().unwrap().len(), TEMPLATES.len());
+}
+
+#[test]
+fn unconfigure_removes_retired_agents_listed_in_the_manifest_and_stale_new_files() {
+    let env = Env::new(Some("{}"));
+    env.configure(&env.input()).unwrap();
+
+    // An agent that an older tokred installed and this one no longer ships.
+    let retired = env.claude.join("agents/tokred-retired.md");
+    std::fs::write(&retired, "old agent").unwrap();
+    env.store
+        .upsert(&tokred_core::ManifestEntry {
+            path: retired.clone(),
+            hash: blake3::hash(b"old agent").to_hex().to_string(),
+            version: "0.0.1".into(),
+            installed_at: Timestamp(1),
+        })
+        .unwrap();
+    // A manifest row for something outside agents/ must be ignored.
+    env.store
+        .upsert(&tokred_core::ManifestEntry {
+            path: env.claude.join("elsewhere/tokred-x.md"),
+            hash: "h".into(),
+            version: "0.0.1".into(),
+            installed_at: Timestamp(1),
+        })
+        .unwrap();
+    // A conflict file left by an earlier configure.
+    let edited = env.claude.join("agents/tokred-dev.md");
+    std::fs::write(&edited, "mine").unwrap();
+    env.configure(&ConfigureInput {
+        version: "0.2.0",
+        ..env.input()
+    })
+    .unwrap();
+    assert!(conflict_path(&edited).exists());
+
+    let report = unconfigure(&StdFileSystem, Some(&env.store), &env.claude).unwrap();
+    assert!(report.agents_removed.contains(&retired));
+    assert!(!retired.exists());
+    assert_eq!(report.conflict_files_removed, vec![conflict_path(&edited)]);
+    assert_eq!(report.agents_kept, vec![edited]);
+}
+
+#[test]
+fn unconfigure_without_a_database_keeps_every_agent() {
+    let env = Env::new(Some("{}"));
+    env.configure(&env.input()).unwrap();
+    let report = unconfigure(&StdFileSystem, None, &env.claude).unwrap();
+    assert!(report.agents_removed.is_empty());
+    assert_eq!(report.agents_kept.len(), TEMPLATES.len());
+}
+
+#[test]
+fn unconfigure_on_a_missing_settings_file_does_nothing() {
+    let env = Env::new(None);
+    let report = unconfigure(&StdFileSystem, Some(&env.store), &env.claude).unwrap();
+    assert_eq!(report.hooks_removed, 0);
+    assert!(!env.settings_path().exists());
+}
+
+// ---- doctor ----
+
+use tokred_install::doctor::{AgentState, HookState};
+
+#[test]
+fn doctor_on_a_fresh_folder_reports_everything_missing() {
+    let env = Env::new(None);
+    let report = doctor(&StdFileSystem, None, &env.claude, BINARY, VERSION).unwrap();
+    assert!(!report.settings_exists && report.settings_valid);
+    assert!(
+        report
+            .hooks
+            .iter()
+            .all(|h| h.state == HookState::Missing && !h.binary_missing)
+    );
+    assert!(
+        report
+            .agents
+            .iter()
+            .all(|a| a.state == AgentState::Missing && !a.pending_new)
+    );
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|i| i.contains("hook `guard-read` is not installed"))
+    );
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|i| i.contains("agent `tokred-dev.md` is not installed"))
+    );
+    assert!(report.notes.iter().any(|n| n.contains("tokred configure")));
+    assert!(!report.rtk_hooks_detected);
+}
+
+#[test]
+fn doctor_survives_invalid_json_but_not_unreadable_settings() {
+    let env = Env::new(Some("{ nope"));
+    let report = doctor(
+        &StdFileSystem,
+        Some(&env.store),
+        &env.claude,
+        BINARY,
+        VERSION,
+    )
+    .unwrap();
+    assert!(report.settings_exists && !report.settings_valid);
+    assert!(report.issues.iter().any(|i| i.contains("not valid JSON")));
+
+    // settings.json is a directory: a real I/O problem, reported as an error.
+    let env = Env::new(None);
+    std::fs::create_dir_all(env.settings_path()).unwrap();
+    let err = doctor(&StdFileSystem, None, &env.claude, BINARY, VERSION).unwrap_err();
+    assert!(matches!(err, InstallError::Fs(_)), "{err}");
+}
+
+#[test]
+fn doctor_detects_outdated_hooks_and_agents() {
+    let env = Env::new(Some("{}"));
+    env.configure(&ConfigureInput {
+        binary: "/old/tokred",
+        ..env.input()
+    })
+    .unwrap();
+    let report = doctor(
+        &StdFileSystem,
+        Some(&env.store),
+        &env.claude,
+        BINARY,
+        "0.2.0",
+    )
+    .unwrap();
+    assert!(report.hooks.iter().all(|h| h.state == HookState::Outdated));
+    assert!(
+        report
+            .agents
+            .iter()
+            .all(|a| a.state == AgentState::Outdated)
+    );
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|i| i.contains("hook `route` is outdated"))
+    );
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|i| i.contains("agent `tokred-planner.md` is outdated"))
+    );
+}
+
+#[test]
+fn doctor_handles_unquoted_commands_and_overlaps() {
+    let settings = r#"{"hooks": {"PreToolUse": [
+        {"matcher": "Read", "hooks": [{"type": "command", "command": "python3 audit.py"}]},
+        {"matcher": "Read", "hooks": [{"type": "command", "command": "tokred hook guard-read"}]},
+        {"matcher": "Bash|Read", "hooks": [{"type": "command", "command": "\"/x/tokred\" hook enforce"}]}
+    ]}}"#;
+    let env = Env::new(Some(settings));
+    let report = doctor(
+        &StdFileSystem,
+        Some(&env.store),
+        &env.claude,
+        BINARY,
+        VERSION,
+    )
+    .unwrap();
+
+    let read = report
+        .hooks
+        .iter()
+        .find(|h| h.hook == "guard-read")
+        .unwrap();
+    assert!(
+        read.binary_missing,
+        "a bare `tokred` is not an existing file path"
+    );
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|i| i.contains("`enforce` matches Bash"))
+    );
+    assert!(
+        report
+            .notes
+            .iter()
+            .any(|n| n.contains("shares the `Read` matcher of `guard-read`"))
+    );
+}
+
+// ---- file system adapter ----
+
+#[test]
+fn std_file_system_reports_real_io_errors() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("a dir");
+    std::fs::create_dir(&dir).unwrap();
+    let file = tmp.path().join("a file");
+    std::fs::write(&file, "x").unwrap();
+
+    // Reading, deleting or writing through the wrong kind of path fails with the path in the error.
+    let err = StdFileSystem.read_to_string(&dir).unwrap_err();
+    assert!(err.to_string().contains("a dir"));
+    assert!(StdFileSystem.remove_file(&dir).is_err());
+    assert!(StdFileSystem.remove_dir_all(&file).is_err());
+    assert!(StdFileSystem.create_dir_all(&file.join("sub")).is_err());
+    let missing_parent = tmp.path().join("nope").join("x.txt");
+    assert!(StdFileSystem.write_atomic(&missing_parent, b"x").is_err());
+
+    // Missing things are not errors for removal.
+    assert!(
+        !StdFileSystem
+            .remove_dir_all(&tmp.path().join("ghost"))
+            .unwrap()
+    );
+    assert!(StdFileSystem.remove_dir_all(&dir).unwrap());
+    assert!(!StdFileSystem.exists(&dir));
+    assert!(StdFileSystem.is_dir(tmp.path()));
 }

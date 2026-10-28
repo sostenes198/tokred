@@ -26,7 +26,7 @@ Each tokred hook goes in a **group of its own**, never mixed with rtk's or yours
   "hooks": [{ "type": "command", "command": "\"/opt/homebrew/bin/tokred\" hook guard-read", "timeout": 5 }] }
 ```
 
-tokred recognizes its own entries by the command: an executable named `tokred` (optionally quoted, `tokred.exe` on Windows) followed by `hook <name>`. Only those entries are ever added, replaced or removed.
+tokred recognizes its own entries by the command: an executable whose file name starts with `tokred` (optionally quoted; `tokred.exe` on Windows; a versioned copy like `tokred-0.4.0` also counts) followed by `hook <name>`. Only those entries are ever added, replaced or removed.
 
 ## Modes
 

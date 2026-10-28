@@ -37,14 +37,9 @@ pub fn unconfigure(
     let settings = settings_path(claude_dir);
     let (current, original) = read_settings(fs, &settings)?;
     let removed = tokred_entries(&current).len();
-    if removed > 0 {
-        let stripped = remove_tokred(current).map_err(|source| InstallError::Merge {
-            path: settings.clone(),
-            source,
-        })?;
-        if let Some(original) = original {
-            fs.write_atomic(&backup_path(claude_dir), original.as_bytes())?;
-        }
+    if let Some(original) = original.filter(|_| removed > 0) {
+        let stripped = remove_tokred(current);
+        fs.write_atomic(&backup_path(claude_dir), original.as_bytes())?;
         fs.write_atomic(&settings, serialize_settings(&stripped)?.as_bytes())?;
         report.hooks_removed = removed;
     }

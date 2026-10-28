@@ -6,6 +6,14 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+### Alterado
+
+- O `unconfigure` deixa intocado o que não entende nas configurações, em vez de falhar.
+
+### Corrigido
+
+- Comandos de hook são reconhecidos para qualquer executável cujo nome comece com `tokred` (binários renomeados ou com versão não geram mais entradas duplicadas).
+
 ### Adicionado
 
 - Fase F0: bootstrap do workspace (dez crates, CI, cargo-deny, docs bilíngues).

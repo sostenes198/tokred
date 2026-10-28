@@ -42,7 +42,8 @@ const HOOK_WORD: &str = " hook ";
 
 /// Recognizes a tokred hook command and returns its `<name>`.
 ///
-/// A command is tokred's when it runs an executable named `tokred` (or `tokred.exe`), optionally
+/// A command is tokred's when it runs an executable whose file name starts with `tokred`
+/// (`tokred`, `tokred.exe`, a versioned or renamed copy such as `tokred-0.4.0`), optionally
 /// quoted, followed by `hook <name>`. The spec describes this as "contains `tokred hook `", but
 /// its own example (`"/path/tokred" hook guard-read`) has a closing quote in between, so a plain
 /// substring match would never find the entries tokred itself writes.
@@ -52,16 +53,8 @@ pub fn parse_tokred_command(command: &str) -> Option<&str> {
     while let Some(offset) = command[from..].find(HOOK_WORD) {
         let at = from + offset;
         let executable = command[..at].trim_end_matches('"');
-        let lower = executable.to_ascii_lowercase();
-        let stem = lower
-            .strip_suffix("tokred.exe")
-            .or_else(|| lower.strip_suffix("tokred"));
-        let boundary_ok = stem.is_some_and(|stem| {
-            stem.chars()
-                .next_back()
-                .is_none_or(|c| matches!(c, '/' | '\\' | '"' | ' '))
-        });
-        if boundary_ok {
+        let file_name = executable.rsplit(['/', '\\']).next().unwrap_or(executable);
+        if file_name.to_ascii_lowercase().starts_with("tokred") {
             return command[at + HOOK_WORD.len()..].split_whitespace().next();
         }
         from = at + 1;
@@ -98,59 +91,48 @@ fn is_tokred_command(handler: &Value) -> bool {
         .is_some_and(|c| hook_arg(c).is_some())
 }
 
-fn hooks_object_mut(root: &mut Value) -> Result<Option<&mut Map<String, Value>>, MergeError> {
-    let object = root.as_object_mut().ok_or(MergeError::RootNotObject)?;
-    match object.get_mut("hooks") {
-        None => Ok(None),
-        Some(hooks) => hooks
-            .as_object_mut()
-            .map(Some)
-            .ok_or(MergeError::HooksNotObject),
-    }
-}
-
 /// Removes every tokred handler. Groups, events and the `hooks` key are dropped only when this
 /// removal is what emptied them. Returns how many handlers were removed.
-fn strip(root: &mut Value) -> Result<usize, MergeError> {
+///
+/// Anything it does not understand (a non-object `hooks`, an event that is not an array, a group
+/// without a `hooks` array) is left exactly as it is: only `merge_settings` has to write into
+/// those places, so only it reports bad shapes.
+fn strip(root: &mut Value) -> usize {
+    let Some(hooks) = root.get_mut("hooks").and_then(Value::as_object_mut) else {
+        return 0;
+    };
     let mut removed_total = 0;
     let mut emptied_events: Vec<String> = Vec::new();
-    let hooks_now_empty;
-    {
-        let Some(hooks) = hooks_object_mut(root)? else {
-            return Ok(0);
+    for (event, groups) in hooks.iter_mut() {
+        let Some(groups) = groups.as_array_mut() else {
+            continue;
         };
-        for (event, groups) in hooks.iter_mut() {
-            let groups = groups
-                .as_array_mut()
-                .ok_or_else(|| MergeError::EventNotArray(event.clone()))?;
-            let mut removed_in_event = 0;
-            let mut kept = Vec::with_capacity(groups.len());
-            for mut group in std::mem::take(groups) {
-                let removed = strip_group(&mut group);
-                removed_in_event += removed;
-                let emptied = removed > 0 && group_handlers_empty(&group);
-                if !emptied {
-                    kept.push(group);
-                }
+        let mut removed_in_event = 0;
+        let mut kept = Vec::with_capacity(groups.len());
+        for mut group in std::mem::take(groups) {
+            let removed = strip_group(&mut group);
+            removed_in_event += removed;
+            if removed == 0 || !group_handlers_empty(&group) {
+                kept.push(group);
             }
-            *groups = kept;
-            if removed_in_event > 0 && groups.is_empty() {
-                emptied_events.push(event.clone());
-            }
-            removed_total += removed_in_event;
         }
-        for event in &emptied_events {
-            hooks.shift_remove(event);
+        *groups = kept;
+        if removed_in_event > 0 && groups.is_empty() {
+            emptied_events.push(event.clone());
         }
-        hooks_now_empty = hooks.is_empty();
+        removed_total += removed_in_event;
     }
+    for event in &emptied_events {
+        hooks.shift_remove(event);
+    }
+    let hooks_now_empty = hooks.is_empty();
     if let Some(object) = root
         .as_object_mut()
         .filter(|_| removed_total > 0 && hooks_now_empty)
     {
         object.shift_remove("hooks");
     }
-    Ok(removed_total)
+    removed_total
 }
 
 fn strip_group(group: &mut Value) -> usize {
@@ -169,10 +151,11 @@ fn group_handlers_empty(group: &Value) -> bool {
         .is_some_and(Vec::is_empty)
 }
 
-/// Removes tokred's handlers (the `unconfigure` algorithm).
-pub fn remove_tokred(mut current: Value) -> Result<Value, MergeError> {
-    strip(&mut current)?;
-    Ok(current)
+/// Removes tokred's handlers (the `unconfigure` algorithm). Never fails.
+#[must_use]
+pub fn remove_tokred(mut current: Value) -> Value {
+    strip(&mut current);
+    current
 }
 
 /// Installs `entries`, replacing any previous tokred handlers (the `configure` algorithm).
@@ -181,7 +164,7 @@ pub fn remove_tokred(mut current: Value) -> Result<Value, MergeError> {
 /// a group with the user's or rtk's hooks. Running it twice gives the same result as running it
 /// once.
 pub fn merge_settings(mut current: Value, entries: &[HookEntry]) -> Result<Value, MergeError> {
-    strip(&mut current)?;
+    strip(&mut current);
     let object = current.as_object_mut().ok_or(MergeError::RootNotObject)?;
     if entries.is_empty() {
         return Ok(current);
@@ -349,6 +332,11 @@ mod tests {
                 "\"C:\\Program Files\\tokred\\tokred.exe\" hook stop",
                 Some("stop"),
             ),
+            ("\"/x/tokred-0.4.0\" hook route", Some("route")),
+            (
+                "\"/x/tokred-fc4770c87a81be04\" hook enforce",
+                Some("enforce"),
+            ),
             ("rtk hook claude", None),
             ("my-tokred hook x", None),
             ("echo tokred", None),
@@ -391,7 +379,7 @@ mod tests {
     fn remove_restores_original_and_drops_emptied_containers() {
         let original = json!({ "model": "opus", "env": { "A": "1" } });
         let merged = merge_settings(original.clone(), &entries()).unwrap();
-        assert_eq!(remove_tokred(merged).unwrap(), original);
+        assert_eq!(remove_tokred(merged), original);
     }
 
     #[test]
@@ -400,13 +388,13 @@ mod tests {
             { "hooks": [{ "type": "command", "command": "echo done" }] }
         ]}});
         let merged = merge_settings(original.clone(), &entries()).unwrap();
-        assert_eq!(remove_tokred(merged).unwrap(), original);
+        assert_eq!(remove_tokred(merged), original);
     }
 
     #[test]
     fn remove_does_not_touch_containers_that_were_already_empty() {
         let original = json!({ "hooks": { "Notification": [] } });
-        assert_eq!(remove_tokred(original.clone()).unwrap(), original);
+        assert_eq!(remove_tokred(original.clone()), original);
     }
 
     #[test]
@@ -431,11 +419,29 @@ mod tests {
             { "type": "command", "command": "echo hi" },
             { "type": "command", "command": "\"/x/tokred\" hook session-check" }
         ]}]}});
-        let stripped = remove_tokred(current).unwrap();
+        let stripped = remove_tokred(current);
         assert_eq!(
             stripped,
             json!({ "hooks": { "Stop": [{ "hooks": [{ "type": "command", "command": "echo hi" }]}]}})
         );
+    }
+
+    #[test]
+    fn removal_leaves_shapes_it_does_not_understand_alone() {
+        for odd in [
+            json!([]),
+            json!({ "hooks": 1 }),
+            json!({ "hooks": { "Stop": {} } }),
+            json!({ "hooks": { "Stop": [1, "x", { "hooks": "nope" }] } }),
+        ] {
+            assert_eq!(remove_tokred(odd.clone()), odd);
+        }
+        // ... while still removing tokred's handlers next to them.
+        let mixed = json!({ "hooks": {
+            "Bad": 1,
+            "Stop": [{ "hooks": [{ "type": "command", "command": "\"/x/tokred\" hook session-check" }] }]
+        }});
+        assert_eq!(remove_tokred(mixed), json!({ "hooks": { "Bad": 1 } }));
     }
 
     #[test]
@@ -451,6 +457,37 @@ mod tests {
         assert_eq!(
             merge_settings(json!({"hooks": {"Stop": {}}}), &entries()),
             Err(MergeError::EventNotArray("Stop".to_owned()))
+        );
+    }
+
+    #[test]
+    fn groups_without_a_hooks_array_are_left_alone() {
+        let current = json!({ "hooks": { "Stop": [{ "matcher": "x" }] } });
+        assert_eq!(remove_tokred(current.clone()), current);
+    }
+
+    #[test]
+    fn merging_no_entries_only_strips_tokred() {
+        let current = json!({ "a": 1 });
+        assert_eq!(merge_settings(current.clone(), &[]).unwrap(), current);
+    }
+
+    #[test]
+    fn handlers_without_a_command_are_ignored() {
+        let current = json!({ "hooks": { "Stop": [{ "hooks": [{ "type": "prompt" }] }] } });
+        assert!(tokred_entries(&current).is_empty());
+        assert!(foreign_entries(&current).is_empty());
+    }
+
+    #[test]
+    fn plan_reports_retired_tokred_hooks_as_removed() {
+        let current = json!({ "hooks": { "Stop": [{ "hooks": [
+            { "type": "command", "command": "\"/x/tokred\" hook retired" }
+        ]}]}});
+        let plan = plan_hook_changes(&current, &entries());
+        assert!(
+            plan.iter()
+                .any(|c| c.hook == "retired" && c.kind == ChangeKind::Removed)
         );
     }
 

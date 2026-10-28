@@ -100,7 +100,7 @@ proptest! {
     fn configure_then_unconfigure_is_the_identity(input in settings(&FOREIGN)) {
         let entries = hook_entries("/opt/bin/tokred");
         let merged = merge_settings(input.clone(), &entries).unwrap();
-        prop_assert_eq!(remove_tokred(merged).unwrap(), input);
+        prop_assert_eq!(remove_tokred(merged), input);
     }
 
     /// Foreign handlers are never lost or reordered by configure.

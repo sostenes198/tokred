@@ -18,8 +18,8 @@ Formato: data, contexto, decisão, consequências. Onde a spec diverge da docume
 ## 2026-10-28 — Comandos de hook do tokred são reconhecidos estruturalmente, não pela substring `tokred hook `
 
 - **Contexto:** a seção 5.1 da spec diz que o `command` de uma entrada do tokred "contém o marcador `tokred hook `", mas o próprio exemplo é `"/opt/homebrew/bin/tokred" hook guard-read`: a aspa de fechamento fica entre `tokred` e `hook`, então essa substring nunca aparece nas entradas que o próprio tokred grava. Uma implementação literal jamais encontraria (e portanto jamais substituiria ou removeria) as próprias entradas.
-- **Decisão:** um comando é do tokred quando executa um executável chamado `tokred` ou `tokred.exe` (opcionalmente entre aspas, precedido por separador de path, aspa, espaço ou início da string) seguido de ` hook <nome>`.
-- **Consequências:** idempotência e unconfigure funcionam com paths entre aspas, paths do Windows com espaço e `tokred hook x` solto. Um wrapper como `bash -c 'tokred hook x'` deliberadamente não é reconhecido.
+- **Decisão:** um comando é do tokred quando executa um executável cujo nome de arquivo começa com `tokred` (`tokred`, `tokred.exe`, ou uma cópia com versão/renomeada como `tokred-0.4.0`), opcionalmente entre aspas, seguido de ` hook <nome>`. Descoberto por um teste unitário: sob `cargo test` o binário se chama `tokred-<hash>`, e uma regra de nome exato fazia o `configure` duplicar entradas e o `unconfigure` não remover nada.
+- **Consequências:** idempotência e unconfigure funcionam com paths entre aspas, paths do Windows com espaço, binários renomeados e `tokred hook x` solto. Um wrapper como `bash -c 'tokred hook x'` deliberadamente não é reconhecido.
 
 ## 2026-10-28 — Os rótulos do formato de retorno ficam em inglês
 
@@ -68,4 +68,6 @@ Formato: data, contexto, decisão, consequências. Onde a spec diverge da docume
 - `--purge` se recusa a apagar uma pasta que não tenha `tokred.db` nem `tokred.toml`.
 - O banco só é criado depois que o plano é confirmado.
 - O `tokred.toml` só é regravado (sem comentários) quando faltavam chaves; caso contrário fica byte a byte igual.
+- O `unconfigure` é tolerante: remove os handlers do tokred e deixa exatamente como está tudo que não entende (um `hooks` que não é objeto, um evento que não é array). Só o `configure`, que precisa escrever nesses lugares, reporta formato inválido, e apenas para os eventos em que escreve.
+- O I/O de terminal passa por uma pequena abstração `Io` (flag interativa, entrada, saída), e a saída dos comandos é montada por funções puras em `String`. Isso permite testar prompts, o texto do plano e todos os estados do `doctor` sem TTY, e mantém a cobertura de linhas em 100%.
 - `doctor --bench`, sincronização de preços e `tokred metrics` não fazem parte da F0 e ficam fora do início rápido até suas fases.

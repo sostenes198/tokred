@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Changed
+
+- `unconfigure` leaves settings it does not understand untouched instead of failing.
+
+### Fixed
+
+- Hook commands are recognized for any executable whose name starts with `tokred` (renamed or versioned binaries no longer cause duplicate entries).
+
 ### Added
 
 - Phase F0: workspace bootstrap (ten crates, CI, cargo-deny, bilingual docs).

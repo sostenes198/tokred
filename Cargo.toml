@@ -57,6 +57,7 @@ panic = "deny"
 todo = "deny"
 dbg_macro = "deny"
 module_name_repetitions = "allow"
+assert_is_empty = "allow"
 missing_errors_doc = "allow"
 
 [profile.release]

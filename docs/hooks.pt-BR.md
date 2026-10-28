@@ -26,7 +26,7 @@ Cada hook do tokred fica em um **grupo próprio**, nunca misturado com os do rtk
   "hooks": [{ "type": "command", "command": "\"/opt/homebrew/bin/tokred\" hook guard-read", "timeout": 5 }] }
 ```
 
-O tokred reconhece as próprias entradas pelo comando: um executável chamado `tokred` (opcionalmente entre aspas, `tokred.exe` no Windows) seguido de `hook <nome>`. Só essas entradas são adicionadas, substituídas ou removidas.
+O tokred reconhece as próprias entradas pelo comando: um executável cujo nome de arquivo começa com `tokred` (opcionalmente entre aspas; `tokred.exe` no Windows; uma cópia com versão como `tokred-0.4.0` também vale) seguido de `hook <nome>`. Só essas entradas são adicionadas, substituídas ou removidas.
 
 ## Modos
 
