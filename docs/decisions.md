@@ -162,3 +162,13 @@ Same throwaway probe and Claude Code 2.1.312 as the API-key run, now on a claude
 - **Rewriting a subagent's model works on a subscription.** With the main loop on Sonnet, rewriting only the subagent's three requests to Haiku was accepted (status 200 each time) and the final answer was correct. The main loop's two requests were never touched.
 - **Not covered, so still open:** Anthropic's usage terms for subscription traffic through a proxy (not verifiable by testing; it must be read and recorded before the proxy is recommended for subscriptions); per-model plan limits (this test only moved Sonnet to Haiku, a cheaper model); interactive mode, `auxiliary` requests and compaction; very long sessions.
 - **Consequence:** the F7 go/no-go is **go** for both login types from a technical point of view. The proxy stays opt-in, and the subscription recommendation depends on the terms-of-use check.
+
+
+## 2026-10-28 — F7 spike, interactive mode: how to recognize auxiliary requests
+
+Interactive `claude` (2.1.312, Opus 5.5, API-key login) through the probe, two short prompts.
+
+- **`x-claude-code-request-class` is not sent in interactive mode either.** Only `x-claude-code-session-id` arrived (and `x-claude-code-agent-id` for subagents in the earlier runs). The documented request-class, agent-type and prompt-id headers cannot be relied on in this version.
+- **The auxiliary request is recognizable by its shape.** Besides the main-loop turns (16 tools, adaptive thinking), one request had **no tools, no thinking and exactly one message** (1,167 input and 21 output tokens, most likely the session title). It ran on the main model (Opus 5.5) and read and wrote **no** prompt cache, so moving it to a cheaper model loses nothing.
+- **Startup checks:** twelve requests with `max_tokens: 1`, no tools and no system prompt returned `429` and were retried by Claude Code; the proxy must (and did) pass `429` through unchanged.
+- **Decision:** a request is treated as auxiliary only when it has no `agent-id`, no tools, no `thinking` and exactly one message (or when a future Claude Code sends `x-claude-code-request-class: auxiliary`). The main loop always carries tools, so it can never match. Everything else without an `agent-id` is the main loop and is never rewritten.

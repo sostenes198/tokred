@@ -162,3 +162,13 @@ Mesma sonda descartável e Claude Code 2.1.312 da rodada com chave de API, agora
 - **Reescrever o modelo de um subagente funciona com assinatura.** Com o loop principal no Sonnet, reescrever só as três requisições do subagente para Haiku foi aceito (status 200 em todas) e a resposta final estava correta. As duas requisições do loop principal nunca foram tocadas.
 - **Não coberto, portanto ainda em aberto:** os termos de uso da Anthropic para tráfego de assinatura por proxy (não se verifica testando; precisa ser lido e registrado antes de recomendar o proxy para assinaturas); limites do plano por modelo (este teste só moveu Sonnet para Haiku, um modelo mais barato); modo interativo, requisições `auxiliary` e compactação; sessões muito longas.
 - **Consequência:** o go/no-go da F7 é **go** para os dois tipos de login do ponto de vista técnico. O proxy continua opt-in, e a recomendação para assinaturas depende da verificação dos termos de uso.
+
+
+## 2026-10-28 — Spike F7, modo interativo: como reconhecer requisições auxiliares
+
+`claude` interativo (2.1.312, Opus 5.5, login por chave de API) passando pela sonda, dois prompts curtos.
+
+- **O `x-claude-code-request-class` também não é enviado no modo interativo.** Só chegou o `x-claude-code-session-id` (e o `x-claude-code-agent-id` nos subagentes, nas rodadas anteriores). Não dá para depender dos cabeçalhos documentados de classe, tipo de agente e id de prompt nesta versão.
+- **A requisição auxiliar é reconhecível pelo formato.** Além das voltas do loop principal (16 ferramentas, thinking adaptativo), uma requisição tinha **nenhuma ferramenta, nenhum thinking e exatamente uma mensagem** (1.167 tokens de entrada e 21 de saída, muito provavelmente o título da sessão). Ela rodou no modelo principal (Opus 5.5) e **não** leu nem gravou cache de prompt, então movê-la para um modelo mais barato não perde nada.
+- **Verificações de inicialização:** doze requisições com `max_tokens: 1`, sem ferramentas e sem system prompt devolveram `429` e foram repetidas pelo Claude Code; o proxy precisa repassar (e repassou) o `429` sem alteração.
+- **Decisão:** uma requisição só é tratada como auxiliar quando não tem `agent-id`, não tem ferramentas, não tem `thinking` e tem exatamente uma mensagem (ou quando um Claude Code futuro enviar `x-claude-code-request-class: auxiliary`). O loop principal sempre leva ferramentas, então nunca se encaixa. Todo o resto sem `agent-id` é loop principal e nunca é reescrito.
