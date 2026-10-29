@@ -64,131 +64,143 @@ fn mode_name(mode: TrafficMode) -> &'static str {
 }
 
 pub fn routing(env: &Env, io: &mut Io, command: &RoutingCommand) -> Result<()> {
-    let config = housekeeping::load_config(env);
     match command {
         RoutingCommand::On | RoutingCommand::Off => {
-            let (mode, note) = if matches!(command, RoutingCommand::On) {
-                (
-                    "enforce",
-                    "Routing now changes the model of eligible subagent and auxiliary requests. The main loop is never changed.",
-                )
-            } else {
-                (
-                    "observe",
-                    "Routing keeps recording what it would do and changes nothing.",
-                )
-            };
-            let path = env.data.config_path();
-            let existing = std::fs::read_to_string(&path).unwrap_or_default();
-            std::fs::write(&path, set_mode(&existing, "routing", mode)?)
-                .with_context(|| format!("could not write {}", path.display()))?;
-            write!(io.out(), "[routing] mode = \"{mode}\"\n{note}\n")?;
-            Ok(())
+            routing_set_mode(env, io, matches!(command, RoutingCommand::On))
         }
-        RoutingCommand::Status { since, json } => {
-            let store = existing_store(env)?
-                .ok_or_else(|| anyhow!("no database yet; run `tokred configure` first"))?;
-            let now = SystemClock.now();
-            let range = range_from_span(now, since)
-                .map_err(|err| anyhow!("invalid --since `{since}`: {err}"))?;
-            let label = format!("last {}", span_label(since));
-            let days =
-                f64::from(i32::try_from(range.to.0 - range.from.0).unwrap_or(i32::MAX)) / 86_400.0;
-            let period = store.decisions_between(range.from, range.to)?;
-            let summary = summarize_period(&period);
-            let mode = mode_name(config.routing.mode);
-            let verdict = verdict(&summary, mode, &label, days);
-            let recent = store.recent_decisions(RECENT_DECISIONS)?;
-            if *json {
-                let by_task: Vec<_> = summary
+        RoutingCommand::Status { since, json } => routing_status(env, io, since, *json),
+        RoutingCommand::Explain { id } => routing_explain(env, io, id),
+    }
+}
+
+/// `routing on` / `routing off`: writes `[routing] mode` to `tokred.toml`.
+fn routing_set_mode(env: &Env, io: &mut Io, on: bool) -> Result<()> {
+    let (mode, note) = if on {
+        (
+            "enforce",
+            "Routing now changes the model of eligible subagent and auxiliary requests. The main loop is never changed.",
+        )
+    } else {
+        (
+            "observe",
+            "Routing keeps recording what it would do and changes nothing.",
+        )
+    };
+    let path = env.data.config_path();
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    std::fs::write(&path, set_mode(&existing, "routing", mode)?)
+        .with_context(|| format!("could not write {}", path.display()))?;
+    write!(io.out(), "[routing] mode = \"{mode}\"\n{note}\n")?;
+    Ok(())
+}
+
+/// `routing status`: the mode, what routing did over `since`, and the recent decisions.
+fn routing_status(env: &Env, io: &mut Io, since: &str, json: bool) -> Result<()> {
+    let config = housekeeping::load_config(env);
+    let store = existing_store(env)?
+        .ok_or_else(|| anyhow!("no database yet; run `tokred configure` first"))?;
+    let now = SystemClock.now();
+    let range =
+        range_from_span(now, since).map_err(|err| anyhow!("invalid --since `{since}`: {err}"))?;
+    let label = format!("last {}", span_label(since));
+    let days = f64::from(i32::try_from(range.to.0 - range.from.0).unwrap_or(i32::MAX)) / 86_400.0;
+    let period = store.decisions_between(range.from, range.to)?;
+    let summary = summarize_period(&period);
+    let mode = mode_name(config.routing.mode);
+    let verdict = verdict(&summary, mode, &label, days);
+    let recent = store.recent_decisions(RECENT_DECISIONS)?;
+    if json {
+        let by_task: Vec<_> = summary
                     .by_task
                     .iter()
                     .map(|(task, requests, saving)| {
                         json!({ "task": task, "requests": requests, "saving_usd": saving })
                     })
                     .collect();
-                let value = json!({
-                    "mode": config.routing.mode,
-                    "period": span_label(since),
-                    "decisions": summary.decisions,
-                    "applied": summary.applied,
-                    "observed": summary.observed,
-                    "kept": summary.kept,
-                    "fallback": summary.fallback,
-                    "saving_usd": summary.saving_usd,
-                    "by_task": by_task,
-                    "verdict": verdict,
-                    "recent": recent,
-                });
-                writeln!(io.out(), "{}", serde_json::to_string_pretty(&value)?)?;
-                return Ok(());
-            }
-            let term = Term::new(io.color());
-            let mut out = title(term, "tokred Model Routing");
-            out.push('\n');
-            out.push_str(&key_values(&[
-                ("Mode", mode.to_owned()),
-                ("Main loop", term.heat(1.0, "never changed")),
-                ("Summary", summarize_decisions(&period)),
-            ]));
-            let _ = write!(out, "\n{verdict}\n");
-            if recent.is_empty() {
-                out.push_str("\nNo routing decisions recorded yet. Use `tokred claude` and run some subagents.\n");
-            } else {
-                let rows: Vec<Vec<String>> = recent
-                    .iter()
-                    .map(|d| {
-                        vec![
-                            truncate(&d.id, 12),
-                            d.task_class.clone(),
-                            format!(
-                                "{} -> {}",
-                                truncate(&d.model_from, 22),
-                                truncate(&d.model_to, 22)
-                            ),
-                            d.outcome.clone(),
-                            usd(d.est_cost_from - d.est_cost_to),
-                        ]
-                    })
-                    .collect();
-                let columns = [
-                    Column {
-                        title: "Id",
-                        align: Align::Left,
-                    },
-                    Column {
-                        title: "Task",
-                        align: Align::Left,
-                    },
-                    Column {
-                        title: "Model",
-                        align: Align::Left,
-                    },
-                    Column {
-                        title: "Outcome",
-                        align: Align::Left,
-                    },
-                    Column {
-                        title: "Est. saving",
-                        align: Align::Right,
-                    },
-                ];
-                out.push('\n');
-                out.push_str(&table(term, &columns, &rows));
-            }
-            write!(io.out(), "{out}")?;
-            Ok(())
-        }
-        RoutingCommand::Explain { id } => {
-            let store = existing_store(env)?
-                .ok_or_else(|| anyhow!("no database yet; run `tokred configure` first"))?;
-            let Some(decision) = store.decision(id)? else {
-                bail!("no routing decision with id `{id}`");
-            };
-            write!(io.out(), "{}", explain(&decision))?;
-            Ok(())
-        }
+        let value = json!({
+            "mode": config.routing.mode,
+            "period": span_label(since),
+            "decisions": summary.decisions,
+            "applied": summary.applied,
+            "observed": summary.observed,
+            "kept": summary.kept,
+            "fallback": summary.fallback,
+            "saving_usd": summary.saving_usd,
+            "by_task": by_task,
+            "verdict": verdict,
+            "recent": recent,
+        });
+        writeln!(io.out(), "{}", serde_json::to_string_pretty(&value)?)?;
+        return Ok(());
     }
+    let term = Term::new(io.color());
+    let mut out = title(term, "tokred Model Routing");
+    out.push('\n');
+    out.push_str(&key_values(&[
+        ("Mode", mode.to_owned()),
+        ("Main loop", term.heat(1.0, "never changed")),
+        ("Summary", summarize_decisions(&period)),
+    ]));
+    let _ = write!(out, "\n{verdict}\n");
+    if recent.is_empty() {
+        out.push_str(
+            "\nNo routing decisions recorded yet. Use `tokred claude` and run some subagents.\n",
+        );
+    } else {
+        let rows: Vec<Vec<String>> = recent
+            .iter()
+            .map(|d| {
+                vec![
+                    truncate(&d.id, 12),
+                    d.task_class.clone(),
+                    format!(
+                        "{} -> {}",
+                        truncate(&d.model_from, 22),
+                        truncate(&d.model_to, 22)
+                    ),
+                    d.outcome.clone(),
+                    usd(d.est_cost_from - d.est_cost_to),
+                ]
+            })
+            .collect();
+        let columns = [
+            Column {
+                title: "Id",
+                align: Align::Left,
+            },
+            Column {
+                title: "Task",
+                align: Align::Left,
+            },
+            Column {
+                title: "Model",
+                align: Align::Left,
+            },
+            Column {
+                title: "Outcome",
+                align: Align::Left,
+            },
+            Column {
+                title: "Est. saving",
+                align: Align::Right,
+            },
+        ];
+        out.push('\n');
+        out.push_str(&table(term, &columns, &rows));
+    }
+    write!(io.out(), "{out}")?;
+    Ok(())
+}
+
+/// `routing explain`: why one decision was taken.
+fn routing_explain(env: &Env, io: &mut Io, id: &str) -> Result<()> {
+    let store = existing_store(env)?
+        .ok_or_else(|| anyhow!("no database yet; run `tokred configure` first"))?;
+    let Some(decision) = store.decision(id)? else {
+        bail!("no routing decision with id `{id}`");
+    };
+    write!(io.out(), "{}", explain(&decision))?;
+    Ok(())
 }
 
 pub fn suggest(env: &Env, io: &mut Io, since: &str, json: bool) -> Result<()> {
@@ -561,7 +573,16 @@ mod tests {
             verdict.contains("would have changed 1 of 2 requests"),
             "{verdict}"
         );
+    }
 
+    #[test]
+    fn routing_status_says_it_in_text_and_refuses_a_period_that_is_not_a_span() {
+        let sb = configured();
+        let store = sb.store();
+        store
+            .insert_decision(&decision("rd-1", "observed"))
+            .unwrap();
+        store.insert_decision(&decision("rd-2", "kept")).unwrap();
         // The text says it too, and a period that is not a span is refused.
         let (mut io, out) = scripted(false, "");
         routing(

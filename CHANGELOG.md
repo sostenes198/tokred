@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- `tokred proxy restart` stops the proxy and starts it again, so that a setting it reads at start applies (a proxy that was not running is just started).
+- `tokred routing status` now answers whether routing is worth turning on: over a period (`--since`, default `7d`) it says how many requests routing changed or would have changed, the estimated saving and a monthly projection.
+- A page that lists every switch (hooks and agents, the proxy, routing, compression, suggestions, updates, the `claude` wrapper), what each one changes and when it takes effect.
+
+### Changed
+
+- `tokred routing on` and `tokred routing off` restart a running proxy to apply the mode instead of asking you to.
+- The dashboard sign-in lasts: the browser keeps the session for 30 days and it survives a proxy restart, so the link from `tokred dashboard` is needed once per browser. To sign every browser out, stop the proxy, delete `proxy/secret` in the data folder and start it again.
+
 ## [1.0.1] - 2026-10-29
 
 ### Fixed

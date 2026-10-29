@@ -6,6 +6,17 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+### Adicionado
+
+- O `tokred proxy restart` para o proxy e o inicia de novo, para que uma configuração que ele lê ao iniciar passe a valer (um proxy que não estava rodando apenas é iniciado).
+- O `tokred routing status` agora responde se vale a pena ligar o roteamento: num período (`--since`, padrão `7d`) ele diz quantas requisições o roteamento alterou ou teria alterado, a economia estimada e uma projeção mensal.
+- Uma página que lista todas as chaves (hooks e agentes, o proxy, roteamento, compressão, sugestões, atualizações, o wrapper do `claude`), o que cada uma muda e quando passa a valer.
+
+### Alterado
+
+- O `tokred routing on` e o `tokred routing off` reiniciam um proxy em execução para aplicar o modo, em vez de pedir que você o faça.
+- O login do dashboard dura: o navegador guarda a sessão por 30 dias e ela sobrevive ao reinício do proxy, então o link do `tokred dashboard` só é necessário uma vez por navegador. Para desconectar todos os navegadores, pare o proxy, apague o `proxy/secret` na pasta de dados e inicie-o de novo.
+
 ## [1.0.1] - 2026-10-29
 
 ### Corrigido
