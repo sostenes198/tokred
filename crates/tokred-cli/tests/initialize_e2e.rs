@@ -10,8 +10,11 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
+#[cfg(unix)]
 use std::process::Stdio;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
 use assert_cmd::Command;
 use assert_cmd::cargo::cargo_bin_cmd;
