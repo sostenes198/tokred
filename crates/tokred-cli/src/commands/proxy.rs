@@ -361,22 +361,17 @@ fn restart(io: &mut Io, ctx: &ProxyCtx<'_>) -> Result<()> {
 /// Restarts the proxy when it is running, for the commands that change a setting it reads when it
 /// starts; otherwise says when the setting will apply.
 pub fn restart_if_running(io: &mut Io, ctx: &ProxyCtx<'_>) -> Result<()> {
-    if !ctx.config.proxy.enabled {
-        writeln!(
-            io.out(),
+    let enabled = ctx.config.proxy.enabled;
+    let running = enabled && running_proxy(ctx).is_some();
+    let text = match (enabled, running) {
+        (false, _) => {
             "The proxy features are off: the setting applies once `tokred proxy enable` has started the proxy."
-        )?;
-        return Ok(());
-    }
-    if running_proxy(ctx).is_none() {
-        writeln!(
-            io.out(),
-            "The proxy is not running: the setting applies when it starts."
-        )?;
-        return Ok(());
-    }
-    writeln!(io.out(), "Restarting the proxy to apply the setting ...")?;
-    restart(io, ctx)
+        }
+        (true, false) => "The proxy is not running: the setting applies when it starts.",
+        (true, true) => "Restarting the proxy to apply the setting ...",
+    };
+    writeln!(io.out(), "{text}")?;
+    if running { restart(io, ctx) } else { Ok(()) }
 }
 
 fn stop(io: &mut Io, ctx: &ProxyCtx<'_>) -> Result<()> {
@@ -800,11 +795,8 @@ mod tests {
         // Features off: nothing to restart.
         let (mut io, out) = scripted(false, "");
         restart_if_running(&mut io, &ctx(&sb, &Config::default(), &no_serve)).unwrap();
-        assert!(
-            out.text().contains("proxy features are off"),
-            "{}",
-            out.text()
-        );
+        let text = out.text();
+        assert!(text.contains("proxy features are off"), "{text}");
 
         // On but not running: it applies at the next start.
         let closed = TcpListener::bind("127.0.0.1:0")
@@ -824,11 +816,8 @@ mod tests {
         let err = restart_if_running(&mut io, &ctx(&sb, &config_on(port), &no_serve)).unwrap_err();
         assert!(format!("{err:#}").contains("could not start"), "{err:#}");
         assert!(stopped.load(Ordering::SeqCst));
-        assert!(
-            out.text().contains("Restarting the proxy"),
-            "{}",
-            out.text()
-        );
+        let text = out.text();
+        assert!(text.contains("Restarting the proxy"), "{text}");
     }
 
     #[test]

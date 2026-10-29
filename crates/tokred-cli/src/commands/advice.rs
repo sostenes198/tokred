@@ -594,10 +594,10 @@ mod tests {
             },
         )
         .unwrap();
+        let text = out.text();
         assert!(
-            out.text().contains("Turning routing on would have changed"),
-            "{}",
-            out.text()
+            text.contains("Turning routing on would have changed"),
+            "{text}"
         );
         let (mut io, _) = scripted(false, "");
         let err = routing(
