@@ -734,18 +734,20 @@ mod tests {
         let kind = ServiceKind::for_os(std::env::consts::OS).unwrap();
         let home = sb.env.home_dir.clone().unwrap();
         // Where the service has a file (not on Windows), put one in place.
-        if let Some((path, content)) = install_plan(kind, Path::new("tokred"), &home).file {
-            write_service_file(&path, &content).unwrap();
-            let (mut io, out) = scripted(false, "");
-            run(
-                &mut io,
-                &ctx(&sb, &config, &no_serve),
-                &ProxyCommand::Disable,
-            )
-            .unwrap();
-            let text = out.text();
-            assert!(text.contains("tokred proxy service uninstall"), "{text}");
-        }
+        let plan = install_plan(kind, Path::new("tokred"), &home);
+        plan.file.iter().for_each(|(path, content)| {
+            write_service_file(path, content).unwrap();
+        });
+        let (mut io, out) = scripted(false, "");
+        let disable = ProxyCommand::Disable;
+        run(&mut io, &ctx(&sb, &config, &no_serve), &disable).unwrap();
+        let text = out.text();
+        // Where the service has a file (not on Windows), it is pointed out.
+        assert_eq!(
+            text.contains("tokred proxy service uninstall"),
+            plan.file.is_some(),
+            "{text}"
+        );
     }
 
     #[test]
