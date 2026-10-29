@@ -12,10 +12,12 @@ use hyper_util::rt::TokioIo;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 use tokio::task::JoinSet;
+use tokred_core::dashboard::DashboardSource;
 use tokred_core::proxy::{ProxyHook, RecordSink};
 
 use crate::config::ServerConfig;
 use crate::connector::UpstreamClient;
+use crate::dashboard::{Dashboard, DecisionTap, upkeep};
 use crate::error::ProxyError;
 use crate::exchange::{self, Shared, SharedParts};
 use crate::host::check_bind;
@@ -75,6 +77,22 @@ pub struct Proxy {
     upstream: Upstream,
     client: UpstreamClient,
     config: ServerConfig,
+    dashboard: Option<DashboardSetup>,
+}
+
+/// What [`Proxy::with_dashboard`] was given.
+struct DashboardSetup {
+    source: Arc<dyn DashboardSource>,
+    capture: bool,
+    decisions: Option<Arc<DecisionTap>>,
+}
+
+impl std::fmt::Debug for DashboardSetup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DashboardSetup")
+            .field("capture", &self.capture)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Proxy {
@@ -96,7 +114,32 @@ impl Proxy {
             upstream,
             client,
             config,
+            dashboard: None,
         })
+    }
+
+    /// Turns the dashboard on: `/metrics`, `/dashboard` and the token endpoint
+    /// `POST /__tokred/dashboard-token` are answered from `source` and the live state of the
+    /// proxy. With `capture` the contents of requests and responses are kept (`[proxy]
+    /// log_bodies`); without it only metadata is.
+    #[must_use]
+    pub fn with_dashboard(mut self, source: Arc<dyn DashboardSource>, capture: bool) -> Self {
+        self.dashboard = Some(DashboardSetup {
+            source,
+            capture,
+            decisions: None,
+        });
+        self
+    }
+
+    /// Lets the dashboard show the routing decision of a turn while it runs: `tap` must be the
+    /// sink the routing hook records its decisions into. Needs [`Proxy::with_dashboard`].
+    #[must_use]
+    pub fn with_decisions(mut self, tap: Arc<DecisionTap>) -> Self {
+        if let Some(setup) = self.dashboard.as_mut() {
+            setup.decisions = Some(tap);
+        }
+        self
     }
 
     /// The address actually bound.
@@ -114,12 +157,24 @@ impl Proxy {
         shutdown: Shutdown,
     ) -> Result<(), ProxyError> {
         let listener = TcpListener::from_std(self.listener)?;
+        let dashboard = self.dashboard.map(|setup| {
+            Arc::new(Dashboard::new(
+                setup.source,
+                setup.capture,
+                setup.decisions,
+                shutdown.clone(),
+            ))
+        });
+        let keeper = dashboard
+            .clone()
+            .map(|dashboard| tokio::spawn(upkeep(dashboard, self.config.clock.clone())));
         let shared = Arc::new(Shared::new(SharedParts {
             addr: self.local_addr,
             upstream: self.upstream,
             client: self.client,
             hooks,
             sink,
+            dashboard,
             clock: self.config.clock,
             secret: self.config.admin_secret,
             session_cap: self.config.session_cap,
@@ -146,6 +201,9 @@ impl Proxy {
         .await;
         if drained.is_err() {
             tracing::warn!("stopping with responses still in flight after the drain timeout");
+        }
+        if let Some(keeper) = keeper {
+            keeper.abort();
         }
         tracing::info!("proxy stopped");
         Ok(())

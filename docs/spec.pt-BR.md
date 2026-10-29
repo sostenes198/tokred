@@ -295,7 +295,7 @@ Objetivo: o modelo não paga, a cada turno, por um `tool_result` enorme que já 
 ### 6.8 Administração e segurança
 
 - Endpoints `/__tokred/*` (health, status, parar) exigem um **segredo local** (cabeçalho com um valor aleatório gravado em `<dados>/proxy/secret`, permissão 0600) para impedir que páginas web ou outros processos controlem o daemon.
-- `log_bodies = false` sempre; se ativado para depuração, avisa e nunca grava credenciais.
+- `log_bodies = false` por padrão. Desligado, nada do conteúdo das mensagens é lido, mantido ou guardado. Quando o usuário o liga, o proxy captura só os deltas de cada turno (as mensagens novas desde a requisição anterior e a resposta remontada), truncados, para o painel (`docs/dashboard.pt-BR.md`); nunca captura cabeçalhos nem credenciais. O compromisso está registrado em `docs/decisions.pt-BR.md` (2026-10-29).
 - O `doctor` mostra: proxy rodando, porta, serviço instalado, valor atual de `ANTHROPIC_BASE_URL`, modos de cada recurso, estado do disjuntor, versão do Claude Code vista nos cabeçalhos.
 
 ### 6.9 Compatibilidade

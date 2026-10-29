@@ -332,6 +332,12 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Open the proxy's live dashboard (sessions, what was sent and answered) in the browser.
+    Dashboard {
+        /// Print the address instead of opening the browser.
+        #[arg(long)]
+        no_open: bool,
+    },
     /// Start Claude Code through the local proxy, for this run only.
     Claude {
         /// Arguments passed to `claude` unchanged.
@@ -520,6 +526,18 @@ mod tests {
             Command::Cache {
                 command: CacheCommand::Stats { json: false }
             }
+        ));
+    }
+
+    #[test]
+    fn the_dashboard_command_parses() {
+        assert!(matches!(
+            parse(&["dashboard"]),
+            Command::Dashboard { no_open: false }
+        ));
+        assert!(matches!(
+            parse(&["dashboard", "--no-open"]),
+            Command::Dashboard { no_open: true }
         ));
     }
 

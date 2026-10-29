@@ -77,8 +77,8 @@ l3_hits = 10
 enabled = true                         # the proxy switch (set by `tokred configure` on a new install)
 bind = "127.0.0.1:1029"                # address the proxy listens on
 upstream = "https://api.anthropic.com" # the only host requests are forwarded to
-retention_days = 90                    # proxy data older than this is deleted (0 keeps everything)
-log_bodies = false                     # reserved: not read yet
+retention_days = 90                    # days of proxy records and captured dashboard turns kept
+log_bodies = false                     # keep message contents for the dashboard (off: metadata only)
 # ca_bundle = "/etc/ssl/corp-ca.pem"   # optional (not written by default): extra CA certificates (PEM) to trust
 
 [routing]

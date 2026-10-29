@@ -48,6 +48,30 @@ impl Sandbox {
         self.root.path().join("tokred data")
     }
 
+    /// Sets a key of the `[proxy]` section in `tokred.toml`.
+    fn set_proxy_key(&self, key: &str, value: &str) {
+        let path = self.data().join("tokred.toml");
+        let text = std::fs::read_to_string(&path).unwrap();
+        let line = format!("{key} = {value}");
+        let mut found = false;
+        let mut lines: Vec<String> = text
+            .lines()
+            .map(|l| {
+                if l.trim_start().starts_with(&format!("{key} =")) {
+                    found = true;
+                    line.clone()
+                } else {
+                    l.to_owned()
+                }
+            })
+            .collect();
+        if !found {
+            let at = lines.iter().position(|l| l.trim() == "[proxy]").unwrap();
+            lines.insert(at + 1, line);
+        }
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+    }
+
     fn tokred(&self) -> Command {
         let home = self.root.path().join("home");
         let mut cmd = cargo_bin_cmd!("tokred");
@@ -619,4 +643,276 @@ fn the_proxy_prunes_records_older_than_retention_days_when_it_starts() {
     }
     assert_eq!(ids, ["new"], "the old record was pruned at start");
     sb.tokred().args(["proxy", "stop"]).assert().success();
+}
+
+/// `GET path` with an optional cookie, answered with `connection: close`.
+fn http_get(port: u16, path: &str, cookie: Option<&str>) -> String {
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let cookie = cookie.map_or_else(String::new, |c| format!("cookie: {c}\r\n"));
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{cookie}connection: close\r\n\r\n"
+    );
+    stream.write_all(request.as_bytes()).unwrap();
+    let mut bytes = Vec::new();
+    stream.read_to_end(&mut bytes).unwrap();
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// The JSON body of a response.
+fn json_body(response: &str) -> serde_json::Value {
+    serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap()
+}
+
+/// What `tokred dashboard --no-open` prints: the address with the one-time token.
+fn dashboard_url(sb: &Sandbox) -> String {
+    let output = sb
+        .tokred()
+        .args(["dashboard", "--no-open"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(output).unwrap();
+    assert!(text.contains("works once"), "{text}");
+    text.lines()
+        .find(|l| l.contains("/dashboard?token="))
+        .unwrap()
+        .trim()
+        .to_owned()
+}
+
+/// Opens the dashboard the way the browser does: redeems the token and keeps the cookie.
+fn sign_in(port: u16, url: &str) -> String {
+    let path = url.split_once(&format!("127.0.0.1:{port}")).unwrap().1;
+    let answer = http_get(port, path, None);
+    assert!(answer.starts_with("HTTP/1.1 303"), "{answer}");
+    let cookie = answer
+        .lines()
+        .find_map(|l| l.strip_prefix("set-cookie: "))
+        .unwrap();
+    cookie.split(';').next().unwrap().to_owned()
+}
+
+fn wait_for_exit(pid: u32) {
+    #[cfg(unix)]
+    {
+        let mut gone = false;
+        for _ in 0..50 {
+            let alive = std::process::Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .status()
+                .unwrap()
+                .success();
+            if !alive {
+                gone = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        assert!(gone, "the proxy process {pid} is still running");
+    }
+    #[cfg(not(unix))]
+    let _ = pid;
+}
+
+fn read_pid(sb: &Sandbox) -> u32 {
+    std::fs::read_to_string(sb.data().join("proxy/pid"))
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap()
+}
+
+const MAIN_BODY: &str = r#"{"model":"claude-sonnet-5-5","stream":true,"thinking":{"type":"adaptive"},"system":"Be brief.","tools":[{"name":"Read"}],"messages":[{"role":"user","content":"hello there"}]}"#;
+const SESSION_HEADERS: &str = "x-api-key: sk-test-secret\r\nx-claude-code-session-id: dash-1\r\n";
+
+/// The detail of the session `dash-1` once its turn has ended.
+fn finished_detail(port: u16, cookie: &str) -> serde_json::Value {
+    let mut detail = serde_json::Value::Null;
+    for _ in 0..50 {
+        let answer = http_get(port, "/dashboard/api/sessions/dash-1", Some(cookie));
+        if answer.starts_with("HTTP/1.1 200") {
+            detail = json_body(&answer);
+            if detail["turns"][0]["in_flight"] == false {
+                break;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    detail
+}
+
+#[test]
+fn a_request_shows_up_in_the_dashboard_with_its_content_when_bodies_are_logged() {
+    let (upstream, _) = fake_upstream();
+    let port = free_port();
+    let sb = Sandbox::new(&upstream, port);
+    sb.set_proxy_key("log_bodies", "true");
+    sb.start_proxy();
+
+    // Nothing opens without signing in; the token in the address works once.
+    assert!(http_get(port, "/dashboard/api/sessions", None).starts_with("HTTP/1.1 401"));
+    let url = dashboard_url(&sb);
+    let cookie = sign_in(port, &url);
+    let path = url.split_once(&format!("127.0.0.1:{port}")).unwrap().1;
+    assert!(
+        http_get(port, path, None).starts_with("HTTP/1.1 401"),
+        "single use"
+    );
+
+    let reply = post(port, SESSION_HEADERS, MAIN_BODY);
+    assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+
+    let detail = finished_detail(port, &cookie);
+    let turn = &detail["turns"][0];
+    assert_eq!(turn["in_flight"], false, "{detail}");
+    assert_eq!(turn["origin"], "main");
+    assert_eq!(turn["status"], 200);
+    assert_eq!(turn["usage"]["output"], 25);
+    assert_eq!(turn["stop_reason"], "end_turn");
+    let sent = turn["sent"].as_array().unwrap();
+    assert_eq!(sent[0]["role"], "system");
+    assert_eq!(sent[0]["text"], "Be brief.");
+    assert_eq!(sent[1]["text"], "hello there");
+    assert!(turn["response"]["tool_uses"].is_array());
+    assert_eq!(detail["session"]["id"], "dash-1");
+    assert_eq!(detail["session"]["content_recorded"], true);
+
+    let list = json_body(&http_get(port, "/dashboard/api/sessions", Some(&cookie)));
+    assert_eq!(list["active"][0]["id"], "dash-1");
+
+    let page = http_get(port, "/dashboard", Some(&cookie));
+    assert!(
+        page.starts_with("HTTP/1.1 200") && page.contains("/dashboard/app.js"),
+        "{page}"
+    );
+    let report = http_get(port, "/metrics", Some(&cookie));
+    assert!(
+        report.starts_with("HTTP/1.1 200") && report.contains("<html"),
+        "{report:.300}"
+    );
+    assert!(report.to_lowercase().contains("content-security-policy"));
+
+    let pid = read_pid(&sb);
+    sb.tokred().args(["proxy", "stop"]).assert().success();
+    wait_for_exit(pid);
+
+    // What was captured is in the database, and credentials are not.
+    let db = rusqlite::Connection::open(sb.data().join("tokred.db")).unwrap();
+    let (sent, response, tools): (Option<String>, Option<String>, String) = db
+        .query_row(
+            "SELECT sent_json, response_json, tools_json FROM captured_turns",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert!(sent.unwrap().contains("hello there"));
+    assert!(response.is_some());
+    assert_eq!(tools, "[]");
+    let dump: String = db
+        .query_row(
+            "SELECT group_concat(coalesce(sent_json, '') || coalesce(response_json, ''), '') FROM captured_turns",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(!dump.contains("sk-test-secret"));
+}
+
+#[test]
+fn without_log_bodies_the_dashboard_shows_metadata_only() {
+    let (upstream, _) = fake_upstream();
+    let port = free_port();
+    let sb = Sandbox::new(&upstream, port);
+    sb.set_proxy_key("log_bodies", "false");
+    sb.start_proxy();
+    let cookie = sign_in(port, &dashboard_url(&sb));
+    assert!(post(port, SESSION_HEADERS, MAIN_BODY).starts_with("HTTP/1.1 200"));
+
+    let detail = finished_detail(port, &cookie);
+    let turn = &detail["turns"][0];
+    assert_eq!(turn["in_flight"], false, "{detail}");
+    assert_eq!(turn["sent"], serde_json::Value::Null);
+    assert_eq!(turn["response"], serde_json::Value::Null);
+    assert_eq!(turn["usage"]["output"], 25, "metadata is still shown");
+    assert_eq!(detail["session"]["content_recorded"], false);
+
+    let pid = read_pid(&sb);
+    sb.tokred().args(["proxy", "stop"]).assert().success();
+    wait_for_exit(pid);
+    let db = rusqlite::Connection::open(sb.data().join("tokred.db")).unwrap();
+    let content: i64 = db
+        .query_row(
+            "SELECT count(*) FROM captured_turns WHERE sent_json IS NOT NULL OR response_json IS NOT NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(content, 0, "no content was stored");
+    let rows: i64 = db
+        .query_row("SELECT count(*) FROM captured_turns", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(rows, 1, "the metadata row is there");
+}
+
+#[test]
+fn the_dashboard_needs_a_running_proxy() {
+    let (upstream, _) = fake_upstream();
+    let sb = Sandbox::new(&upstream, free_port());
+    sb.tokred()
+        .args(["dashboard", "--no-open"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not running"));
+}
+
+#[test]
+fn an_open_event_stream_does_not_keep_the_proxy_from_stopping() {
+    let (upstream, _) = fake_upstream();
+    let port = free_port();
+    let sb = Sandbox::new(&upstream, port);
+    sb.start_proxy();
+    let cookie = sign_in(port, &dashboard_url(&sb));
+
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+        .unwrap();
+    let request = format!(
+        "GET /dashboard/events HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\ncookie: {cookie}\r\n\r\n"
+    );
+    stream.write_all(request.as_bytes()).unwrap();
+    let mut seen = String::new();
+    let mut buffer = [0_u8; 1024];
+    while !seen.contains("retry:") {
+        let read = stream.read(&mut buffer).unwrap();
+        assert!(read > 0, "the stream ended early: {seen}");
+        seen.push_str(&String::from_utf8_lossy(&buffer[..read]));
+    }
+    assert!(seen.starts_with("HTTP/1.1 200"), "{seen}");
+    assert!(seen.to_lowercase().contains("text/event-stream"));
+
+    // A request while the stream is open produces events.
+    assert!(post(port, SESSION_HEADERS, MAIN_BODY).starts_with("HTTP/1.1 200"));
+    while !seen.contains("event: turn_end") {
+        let read = stream.read(&mut buffer).unwrap();
+        assert!(read > 0, "the stream ended early: {seen}");
+        seen.push_str(&String::from_utf8_lossy(&buffer[..read]));
+    }
+    assert!(seen.contains("event: turn_start"));
+
+    let pid = read_pid(&sb);
+    sb.tokred().args(["proxy", "stop"]).assert().success();
+    // The server ends the stream: the read reaches the end of the connection.
+    loop {
+        match stream.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(error) => panic!("the stream was not closed by the proxy: {error}"),
+        }
+    }
+    wait_for_exit(pid);
 }

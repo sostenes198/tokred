@@ -23,7 +23,7 @@ tokred (cli) ──► use cases (install, hooks, metrics, pricing, audit, updat
 | `tokred-audit` | Fixed-context audit: `CLAUDE.md` with imports, rules, skills, agents, MCP usage |
 | `tokred-report` | The offline HTML report: model, SVG charts, template, atomic write |
 | `tokred-store` | Adapter: SQLite (`rusqlite`), versioned migrations, repository implementations |
-| `tokred-proxy` | Adapter: the optional local proxy (`hyper`, `tokio`, `rustls`): listens on loopback, forwards with streaming, measures usage and latency, and runs the proxy hook pipeline defined in `tokred-core`. The **only** crate that depends on `hyper` and `tokio` |
+| `tokred-proxy` | Adapter: the optional local proxy (`hyper`, `tokio`, `rustls`): listens on loopback, forwards with streaming, measures usage and latency, and runs the proxy hook pipeline defined in `tokred-core`. The **only** crate that depends on `hyper` and `tokio`. It also serves the live [dashboard](dashboard.md): an in-memory view of the sessions, an event bus (server-sent events) and the sign-in, reading history through the `DashboardSource` port of `tokred-core`, which the binary implements over `tokred-store` and `tokred-report` |
 | `tokred-routing` | Model routing policy: classifies subagent and auxiliary requests and picks a cheaper model when it is safe. Pure; the main loop's model is never changed |
 | `tokred-suggest` | Summaries of the main loop's prompts and suggestions of a cheaper model. Pure; it only advises |
 | `tokred-compress` | Reversible compression of large tool results and the `tokred_retrieve` MCP server logic. Depends only on `tokred-core` |

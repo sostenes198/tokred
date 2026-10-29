@@ -175,6 +175,11 @@ pub fn gather(
 /// Ingests the transcripts and reads the data of the period `since`.
 pub fn load(env: &Env, io: &mut Io, dir_flag: Option<PathBuf>, since: &str) -> Result<Loaded> {
     let claude_dir = select_claude_dir(&StdFileSystem, env, io, dir_flag, false)?;
+    load_from(env, claude_dir, since)
+}
+
+/// [`load`] for a Claude Code folder that is already known.
+pub fn load_from(env: &Env, claude_dir: PathBuf, since: &str) -> Result<Loaded> {
     let store = existing_store(env)?
         .ok_or_else(|| anyhow!("no database yet; run `tokred configure` first"))?;
     let now = tokred_core::Clock::now(&SystemClock);

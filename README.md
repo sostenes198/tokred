@@ -22,6 +22,7 @@ Everything runs on your machine, with its own SQLite database and no external se
 - **Hooks that never get in the way:** fail-open, `off | warn | enforce` modes; they route work to the right model and block useless reads → [hooks](docs/hooks.md)
 - **Numbers in your terminal:** `tokred stats` shows tokens, cost, savings, projection and the latency tokred adds, as a colored dashboard; `tokred metrics` also writes an offline HTML report → [metrics](docs/metrics.md)
 - **Optional local proxy:** sits between Claude Code and the API to measure every request exactly, route subagent and auxiliary requests to a cheaper model, advise you about the main loop and keep large tool results out of the context without losing them. Off until you run `tokred claude`; the main loop's model is never changed → [proxy](docs/proxy.md), [routing](docs/routing.md)
+- **Live dashboard:** `tokred dashboard` opens, in your browser, the sessions running right now and the last 10, with what was sent to Claude, what came back and the subagents running, in real time → [dashboard](docs/dashboard.md)
 - **Audit:** how heavy your fixed context is and which MCP servers you never use → [commands](docs/commands.md)
 - **Local store:** SQLite with versioned migrations and a tiered cache → [cache](docs/cache.md)
 
@@ -59,6 +60,7 @@ tokred metrics      # the same, plus the HTML report
 | `tokred stats [--since 7d] [--by model\|day\|project]` | Dashboard of tokens, cost, savings and projection |
 | `tokred stats latency` | Time the hooks added to Claude Code |
 | `tokred metrics [--since 30d] [--no-open]` | The dashboard plus an HTML report |
+| `tokred dashboard [--no-open]` | Open the proxy's live dashboard in the browser |
 | `tokred audit [--project <path>]` | Weight of the fixed context and unused MCP servers |
 | `tokred update` | Update itself when it was installed by the script; otherwise say to reinstall |
 | `tokred pricing sync\|show`, `tokred cache stats\|prune` | Price table and cache |
@@ -79,7 +81,7 @@ A single `tokred.toml` in the data folder, merged (never replaced) on update. Se
 
 ## Privacy
 
-Everything stays on your machine. The only network calls (the daily price sync and version check, and `update`) are made from CLI commands, never from hooks, and can be turned off: `[pricing] auto_sync = false`, `[update] mode = "off"`, `TOKRED_NO_UPDATE_CHECK=1`, or `TOKRED_OFFLINE=1` for all of them. The optional proxy listens on `127.0.0.1` only, never logs credentials or message contents, and forwards requests only to the Anthropic API.
+Everything stays on your machine. The only network calls (the daily price sync and version check, and `update`) are made from CLI commands, never from hooks, and can be turned off: `[pricing] auto_sync = false`, `[update] mode = "off"`, `TOKRED_NO_UPDATE_CHECK=1`, or `TOKRED_OFFLINE=1` for all of them. The optional proxy listens on `127.0.0.1` only, never logs credentials, does not read or store message contents unless you turn on `[proxy] log_bodies` for the [dashboard](docs/dashboard.md) (off by default; [decision](docs/decisions.md)), and forwards requests only to the Anthropic API.
 
 ## Uninstall
 

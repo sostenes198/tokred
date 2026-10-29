@@ -68,7 +68,11 @@ With `enabled = false`, `tokred claude` runs `claude` directly and says so on st
 - **Fail-open.** If any step fails, the original request is forwarded unchanged. A rewritten request that the API rejects before anything reached Claude Code is sent again in its original form. The proxy never makes Claude Code stop working because of a tokred bug.
 - **Loopback only.** It listens on `127.0.0.1`, checks the `Host` header, and its admin endpoints need a secret stored in `<data>/proxy/secret` (owner-only permissions).
 - **Forwards everything it does not understand.** Headers (`anthropic-beta`, `x-claude-code-*`, credentials) and fields are passed through unchanged, so new Claude Code features keep working.
-- **Private.** Credentials and message contents are never logged or stored; only counts, hashes and the structure of requests.
+- **Private.** Credentials are never logged or stored. Message contents are not read, kept or stored unless you turn on `[proxy] log_bodies` (off by default), which feeds the [dashboard](dashboard.md); without it only counts, hashes and the structure of requests are recorded. See the [decision](decisions.md).
+
+## Dashboard and report
+
+The proxy also answers `GET /dashboard` (live sessions, what was sent and answered, subagents; server-sent events) and `GET /metrics` (the HTML report of `tokred metrics`) on its own port. They are never forwarded upstream, need a sign-in (`tokred dashboard` opens it) and carry no CORS headers. See [dashboard](dashboard.md).
 
 ## Logins
 

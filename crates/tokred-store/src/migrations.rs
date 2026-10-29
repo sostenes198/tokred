@@ -108,9 +108,19 @@ const MIGRATIONS: &[&str] = &[
         rules_version TEXT NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY(session_id, original_hash)
     );
     ",
-    // v5: reserved for the `captured_turns` table (dashboard workstream, W2). Kept as a no-op
-    // here so that v6 below has its final number; the merge replaces this entry with W2's.
-    "SELECT 1;",
+    // v5: what the dashboard shows of a turn besides its request row. `stop_reason` and the
+    // tools called are not message content and are kept for every turn; `sent_json` and
+    // `response_json` hold content and stay NULL unless `[proxy] log_bodies` is on (and are
+    // emptied again when the turn leaves the retention window).
+    "
+    CREATE TABLE captured_turns(
+        request_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, agent_id TEXT, ts INTEGER NOT NULL,
+        stop_reason TEXT, tools_json TEXT NOT NULL DEFAULT '[]', sent_json TEXT,
+        response_json TEXT
+    );
+    CREATE INDEX captured_turns_session ON captured_turns(session_id, ts);
+    CREATE INDEX captured_turns_ts ON captured_turns(ts);
+",
     // v6: richer per-request records. Existing rows stay valid (no stop reason, no tools, no
     // cache lifetime, unknown routing mode).
     "

@@ -10,23 +10,29 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use tokred_compress::{CompressionHook, ResponseCacheShadow};
 use tokred_core::compression::CompressedBlock;
+use tokred_core::dashboard::RECENT_SESSIONS;
 use tokred_core::meta::MetaRepo;
+use tokred_core::pricing::PriceTable;
 use tokred_core::prompts::{PromptRepo, SuggestionRepo};
 use tokred_core::routing::RoutingRepo;
 use tokred_core::{Clock, Config, Timestamp};
 use tokred_pricing::load_table;
-use tokred_proxy::{ApplyRecord, NetworkSettings, ServerConfig, Shutdown, spawn_writer};
+use tokred_proxy::{
+    ApplyRecord, DecisionTap, NetworkSettings, ServerConfig, Shutdown, spawn_writer,
+};
 use tokred_routing::RoutingHook;
 use tokred_store::Store;
 use tokred_suggest::{PromptTracker, TrackerSettings};
 
 use super::SystemClock;
+use super::dashboard_source::StoreSource;
 use super::proxy::files;
 use crate::env::Env;
 
 /// How often prompts that went quiet are closed and emitted.
 const FLUSH_EVERY: Duration = Duration::from_secs(30);
-/// How often data older than `[proxy] retention_days` is deleted (and once at start-up).
+/// How often data older than `[proxy] retention_days` is deleted and the captured turns of the
+/// dashboard are trimmed (and once at start-up).
 const PRUNE_EVERY: Duration = Duration::from_secs(3600);
 /// Days of compressed blocks re-read at start-up, so a restart keeps replacing the same bytes.
 const SEED_DAYS: i64 = 7;
@@ -56,6 +62,7 @@ pub fn apply_record(store: &Store, record: &tokred_core::proxy::ProxyRecord) -> 
             .map(|_| ()),
         R::Stored(stored) => store.put_stored_result(stored),
         R::Compressed(block) => store.insert_compressed_block(block).map(|_| ()),
+        R::Captured(turn) => store.insert_captured_turn(turn),
     }
     .map_err(failed)
 }
@@ -72,6 +79,10 @@ pub struct Assembly {
     pub compression: Arc<CompressionHook>,
     /// The record sink, and the writer thread that stores what it receives.
     pub sink: Arc<tokred_proxy::ChannelSink>,
+    /// Remembers routing decisions for the dashboard (the routing hook records through it).
+    pub decisions: Arc<DecisionTap>,
+    /// The price table the hooks use (the dashboard prices turns with it too).
+    pub prices: PriceTable,
     /// Ends with the writer's report.
     pub writer: std::thread::JoinHandle<tokred_proxy::WriterReport>,
 }
@@ -118,6 +129,7 @@ pub fn assemble(
         sink.clone(),
     ));
     let compression = Arc::new(compression);
+    let decisions = DecisionTap::new(sink.clone());
     let hooks: Vec<Arc<dyn tokred_core::proxy::ProxyHook>> = vec![
         Arc::new(ResponseCacheShadow::new(
             config.shadow.response_cache,
@@ -125,8 +137,8 @@ pub fn assemble(
         )),
         Arc::new(RoutingHook::new(
             config.routing.clone(),
-            prices,
-            sink.clone(),
+            prices.clone(),
+            decisions.clone(),
         )),
         compression.clone(),
         tracker.clone(),
@@ -137,6 +149,8 @@ pub fn assemble(
         tracker,
         compression,
         sink,
+        decisions,
+        prices,
         writer,
     })
 }
@@ -179,10 +193,15 @@ pub fn run(env: &Env, config: &Config, claude_dir: Option<&Path>, bind: &str) ->
         tracker,
         compression,
         sink,
+        decisions,
+        prices,
         writer,
     } = assemble(&config, &env.data.db_path(), &secret, registered, now)?;
 
-    let proxy = tokred_proxy::Proxy::bind(server)?;
+    let source = StoreSource::new(env.clone(), claude_dir.map(Path::to_path_buf), prices);
+    let proxy = tokred_proxy::Proxy::bind(server)?
+        .with_dashboard(Arc::new(source), config.proxy.log_bodies)
+        .with_decisions(decisions);
     let port = proxy.local_addr().port();
     proxy_files.write_pid(std::process::id(), port)?;
     tracing::info!(port, registered, "tokred proxy started");
@@ -261,25 +280,32 @@ fn spawn_pruner(
     })
 }
 
-/// Deletes the proxy's data older than `retention_days` (0 keeps everything). Never fails the
-/// proxy: a database that cannot be opened or pruned is logged and tried again next time.
+/// Deletes the proxy's data older than `retention_days` (0 keeps everything) and trims the
+/// dashboard's captured turns: their content survives only for active sessions and the most
+/// recent ones. Never fails the proxy: a database that cannot be opened or pruned is logged and
+/// tried again next time.
 pub fn prune_old_data(db: &Path, retention_days: u32) {
-    if retention_days == 0 {
-        return;
-    }
     let pruned = Store::open(db)
         .map_err(|err| err.to_string())
         .and_then(|store| {
-            store
-                .prune_proxy_data(SystemClock.now(), retention_days)
-                .map_err(|err| err.to_string())
+            let now = SystemClock.now();
+            let aged = if retention_days == 0 {
+                0
+            } else {
+                store
+                    .prune_proxy_data(now, retention_days)
+                    .map_err(|err| err.to_string())?
+                    .total()
+            };
+            let captured = store
+                .prune_captured_turns(now, retention_days, RECENT_SESSIONS)
+                .map_err(|err| err.to_string())?;
+            Ok((aged, captured))
         });
     match pruned {
-        Ok(report) => tracing::info!(
-            rows = report.total(),
-            retention_days,
-            "pruned old proxy data"
-        ),
+        Ok((rows, captured)) => {
+            tracing::info!(rows, captured, retention_days, "pruned old proxy data")
+        }
         Err(error) => tracing::warn!(%error, "could not prune old proxy data"),
     }
 }
@@ -394,6 +420,13 @@ mod tests {
                 ts: now,
                 ..CompressedBlock::default()
             })),
+            ProxyRecord::Captured(Box::new(tokred_core::dashboard::CapturedTurn {
+                request_id: "r1".into(),
+                session_id: "x".into(),
+                ts: now,
+                tools_json: "[]".into(),
+                ..tokred_core::dashboard::CapturedTurn::default()
+            })),
         ];
         for record in &records {
             apply_record(&store, record).unwrap();
@@ -422,6 +455,12 @@ mod tests {
         );
         assert!(store.stored_result("st1", now).unwrap().is_some());
         assert_eq!(store.compressed_blocks("x").unwrap().len(), 1);
+        assert_eq!(store.session_turns("x", 5).unwrap().0.len(), 0);
+        assert!(
+            store
+                .prune_captured_turns(Timestamp(now.0 + 1), 90, 10)
+                .is_ok()
+        );
         assert_eq!(
             store
                 .shadow_savings(now, Timestamp(now.0 + 1))
@@ -490,10 +529,11 @@ mod tests {
             tracker,
             compression,
             sink,
+            decisions,
             writer,
             ..
         } = assembly;
-        drop((hooks, tracker, compression, sink));
+        drop((hooks, tracker, compression, sink, decisions));
         let report = writer.join().unwrap();
         assert_eq!(report.written, 0);
     }
@@ -548,6 +588,8 @@ mod tests {
 
 #[cfg(test)]
 mod retention_tests {
+    use tokred_core::dashboard::CapturedTurn;
+
     use super::super::testing::Sandbox;
     use super::*;
 
@@ -620,6 +662,42 @@ mod retention_tests {
         shutdown.trigger();
         pruner.join().unwrap();
         assert!(ids(&sb.store()).is_empty());
+    }
+
+    fn captured(id: &str, ts: i64) -> CapturedTurn {
+        CapturedTurn {
+            request_id: id.to_owned(),
+            session_id: "s".to_owned(),
+            ts: Timestamp(ts),
+            tools_json: "[]".to_owned(),
+            ..CapturedTurn::default()
+        }
+    }
+
+    fn rows(db: &Path) -> i64 {
+        rusqlite::Connection::open(db)
+            .unwrap()
+            .query_row("SELECT count(*) FROM captured_turns", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn captured_turns_follow_the_retention_days_and_zero_keeps_them() {
+        let sb = Sandbox::new();
+        sb.configure();
+        let db = sb.env.data.db_path();
+        let now = SystemClock.now().0;
+        let store = sb.store();
+        store
+            .insert_captured_turn(&captured("old", now - 200 * 86_400))
+            .unwrap();
+        store.insert_captured_turn(&captured("new", now)).unwrap();
+        prune_old_data(&db, 0);
+        assert_eq!(rows(&db), 2, "0 keeps every turn");
+        prune_old_data(&db, 90);
+        assert_eq!(rows(&db), 1, "the old turn is gone, the new one stays");
+        prune_old_data(&db, 90);
+        assert_eq!(rows(&db), 1);
     }
 }
 

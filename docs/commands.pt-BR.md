@@ -21,6 +21,7 @@ Todo comando que imprime um relatório aceita `--json` para saída legível por 
 | `tokred proxy enable` / `disable` | Liga ou desliga os recursos do proxy (`[proxy] enabled`) e aplica na hora |
 | `tokred proxy service install` / `uninstall` | Inicia o proxy no login, como serviço de usuário |
 | `tokred initialize` | Faz as configurações do Claude Code concordarem com `[proxy] enabled`; executado pelo wrapper de shell do `claude` antes de toda abertura |
+| `tokred dashboard [--no-open]` | Abre o [painel ao vivo](dashboard.pt-BR.md) do proxy no navegador |
 | `tokred claude [args...]` | Executa o Claude Code pelo proxy, só nesta execução |
 | `tokred routing status` / `on` / `off` / `explain` | [Roteamento de modelo](routing.pt-BR.md) de requisições de subagentes e auxiliares |
 | `tokred compression on` / `off` / `status` | Compressão reversível de resultados grandes de ferramentas |
@@ -115,6 +116,10 @@ Reconcilia o `settings.json` do Claude Code com `[proxy] enabled`; o wrapper de 
 ## `tokred proxy service install` / `uninstall`
 
 Instala o proxy como serviço de usuário que inicia no login (uma unit de usuário do systemd no Linux, um agente do launchd no macOS, uma tarefa de logon no Windows), ou o remove. Nada é instalado a menos que você execute isto. O `install` se recusa enquanto `[proxy] enabled = false`.
+
+## `tokred dashboard [--no-open]`
+
+Abre o [painel ao vivo](dashboard.pt-BR.md) do proxy em execução no navegador. Não inicia nada: se o proxy não estiver rodando, avisa (inicie com `tokred proxy start` ou `tokred claude`). Pede ao proxy um token de uso único e abre `http://127.0.0.1:<porta>/dashboard?token=...`; com `--no-open` imprime esse endereço. **O token do endereço funciona uma vez e expira em 60 segundos**; rode o comando de novo para obter outro.
 
 ## `tokred claude [args...]`
 

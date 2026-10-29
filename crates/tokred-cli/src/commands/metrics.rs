@@ -6,7 +6,7 @@ use anyhow::Result;
 use tokred_install::StdFileSystem;
 use tokred_report::{Opener, write_report};
 
-use super::data::{Repos, load};
+use super::data::{Repos, load, load_from};
 use super::report_data::{model_stats, report_html};
 use super::{audit, show};
 use crate::env::Env;
@@ -45,6 +45,16 @@ pub fn run(
         writeln!(io.err(), "could not open the report in a browser: {err}")?;
     }
     Ok(())
+}
+
+/// The HTML report of the last `since` for the Claude Code folder `claude_dir`, without the
+/// project audit (the proxy has no project of its own), for the proxy's `/metrics`. It is the
+/// same function that writes the `tokred metrics` file, so the page and the file cannot drift.
+pub fn html_report(env: &Env, claude_dir: PathBuf, since: &str) -> Result<String> {
+    let loaded = load_from(env, claude_dir, since)?;
+    let repos = Repos::of(&loaded.store);
+    let prices = loaded.data.prices.clone();
+    report_html(&repos, prices, loaded.data.now, since, None)
 }
 
 #[cfg(test)]

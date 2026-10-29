@@ -295,7 +295,7 @@ Goal: the model does not pay, on every turn, for a huge `tool_result` it has alr
 ### 6.8 Administration and security
 
 - `/__tokred/*` endpoints (health, status, stop) require a **local secret** (a header with a random value written to `<data>/proxy/secret`, permission 0600) to prevent web pages or other processes from controlling the daemon.
-- `log_bodies = false` always; if enabled for debugging, it warns and never writes credentials.
+- `log_bodies = false` by default. When it is off nothing about message contents is read, held or stored. When a user turns it on, the proxy captures only per-turn deltas (the messages new since the previous request, and the reassembled response), truncated, for the dashboard (`docs/dashboard.md`); it never captures headers or credentials. The trade-off is recorded in `docs/decisions.md` (2026-10-29).
 - `doctor` shows: proxy running, port, service installed, current value of `ANTHROPIC_BASE_URL`, modes of each feature, circuit breaker state, Claude Code version seen in the headers.
 
 ### 6.9 Compatibility

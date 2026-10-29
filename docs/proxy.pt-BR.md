@@ -68,7 +68,11 @@ Com `enabled = false`, o `tokred claude` executa o `claude` direto e avisa no st
 - **Fail-open.** Se qualquer etapa falhar, a requisição original é repassada sem alteração. Uma requisição reescrita que a API rejeita antes de algo chegar ao Claude Code é reenviada na forma original. O proxy nunca faz o Claude Code parar por um bug do tokred.
 - **Só loopback.** Escuta em `127.0.0.1`, confere o cabeçalho `Host`, e seus endpoints de administração exigem um segredo guardado em `<dados>/proxy/secret` (permissão só do dono).
 - **Repassa tudo o que não entende.** Cabeçalhos (`anthropic-beta`, `x-claude-code-*`, credenciais) e campos passam sem alteração, então recursos novos do Claude Code continuam funcionando.
-- **Privado.** Credenciais e conteúdo das mensagens nunca são registrados nem guardados; só contagens, hashes e a estrutura das requisições.
+- **Privado.** Credenciais nunca são registradas nem guardadas. O conteúdo das mensagens não é lido, mantido nem guardado, a menos que você ligue `[proxy] log_bodies` (desligado por padrão), que alimenta o [painel](dashboard.pt-BR.md); sem isso só contagens, hashes e a estrutura das requisições são registrados. Veja a [decisão](decisions.pt-BR.md).
+
+## Painel e relatório
+
+O proxy também responde `GET /dashboard` (sessões ao vivo, o que foi enviado e respondido, subagentes; server-sent events) e `GET /metrics` (o relatório HTML do `tokred metrics`) na própria porta. Nunca são repassados ao upstream, exigem login (o `tokred dashboard` abre) e não levam cabeçalhos CORS. Veja [painel](dashboard.pt-BR.md).
 
 ## Logins
 

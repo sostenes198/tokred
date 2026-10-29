@@ -6,6 +6,8 @@ mod bench;
 mod cache;
 mod claude;
 mod configure;
+mod dashboard;
+mod dashboard_source;
 mod data;
 mod doctor;
 mod housekeeping;
@@ -268,6 +270,13 @@ fn dispatch(
             &SystemOpener::new(),
         ),
         Command::Cache { command } => cache::run(env, io, &command),
+        Command::Dashboard { no_open } => dashboard::run(
+            env,
+            io,
+            &housekeeping::load_config(env),
+            no_open,
+            &SystemOpener::new(),
+        ),
         Command::Proxy { command } => run_proxy(env, io, exe, &command),
         Command::Claude { args } => run_claude(env, io, exe, &args),
         Command::Initialize { verbose, json, .. } => initialize::run(env, io, verbose, json),

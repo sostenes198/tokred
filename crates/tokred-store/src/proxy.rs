@@ -20,7 +20,9 @@ const INSERT: &str = "INSERT OR IGNORE INTO proxy_requests(id, ts, session_id, a
     ?20, ?21, ?22, json_object('decision_id', ?23, 'model_rewritten', ?24, \
     'blocks_compressed', ?25), ?26, ?27, ?28, ?29, ?30, ?31, ?32)";
 
-const SELECT: &str = "SELECT id, ts, session_id, agent_id, agent_type, prompt_id, origin, \
+/// The columns [`row_to_record`] reads, in order (unqualified: queries that join other tables
+/// rename the columns of those).
+pub(crate) const COLUMNS: &str = "id, ts, session_id, agent_id, agent_type, prompt_id, origin, \
     model_requested, model_effective, input, output, cache_write, cache_write_1h, cache_read, \
     thinking, message_key, bytes_in, bytes_out, upstream_ttfb_ms, total_ms, proxy_overhead_us, \
     status, json_extract(notes, '$.decision_id'), json_extract(notes, '$.model_rewritten'), \
@@ -37,7 +39,7 @@ fn from_db(value: i64) -> u64 {
     u64::try_from(value).unwrap_or(0)
 }
 
-fn row_to_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProxyRequestRecord> {
+pub(crate) fn row_to_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProxyRequestRecord> {
     Ok(ProxyRequestRecord {
         id: row.get(0)?,
         ts: Timestamp(row.get(1)?),
@@ -134,7 +136,7 @@ impl Store {
         let mut stmt = self
             .conn
             .prepare(&format!(
-                "{SELECT} WHERE ts >= ?1 AND ts < ?2 ORDER BY ts, id"
+                "SELECT {COLUMNS} FROM proxy_requests WHERE ts >= ?1 AND ts < ?2 ORDER BY ts, id"
             ))
             .map_err(StoreError::backend)?;
         stmt.query_map(params![from.0, to.0], row_to_record)

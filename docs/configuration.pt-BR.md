@@ -77,8 +77,8 @@ l3_hits = 10
 enabled = true                         # a chave do proxy (definida pelo `tokred configure` em uma instalação nova)
 bind = "127.0.0.1:1029"                # endereço em que o proxy escuta
 upstream = "https://api.anthropic.com" # único host para onde as requisições são encaminhadas
-retention_days = 90                    # dados do proxy mais antigos que isso são apagados (0 guarda tudo)
-log_bodies = false                     # reservado: ainda não é lido
+retention_days = 90                    # dias de registros do proxy e de turnos do painel guardados
+log_bodies = false                     # guarda o conteúdo das mensagens para o painel (desligado: só metadados)
 # ca_bundle = "/etc/ssl/corp-ca.pem"   # opcional (não é gravado por padrão): certificados de CA extras (PEM) em que confiar
 
 [routing]

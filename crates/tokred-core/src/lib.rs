@@ -10,6 +10,7 @@
 pub mod cache;
 pub mod compression;
 pub mod config;
+pub mod dashboard;
 pub mod error;
 pub mod hook;
 pub mod hook_event;
