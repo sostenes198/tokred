@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.0.1-rc.1] - 2026-10-29
+
 ### Fixed
 
 - The cache-miss report no longer counts the switches between the conversation and Claude Code's side queries as misses. A session can interleave requests of several models and system prompts that the proxy sees as the main loop, each with a cache of its own, and the proxy compared each with the last one of another kind (most of the "compaction" and "model_changed" misses were that). A request is now compared with the previous one of its own series (same model and system prompt); the first request of a series is still a miss, with its cause.
