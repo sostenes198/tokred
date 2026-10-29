@@ -531,8 +531,8 @@ mod tests {
 
     #[test]
     fn traffic_modes_have_their_toml_names() {
-        let names = [TrafficMode::Off, TrafficMode::Observe, TrafficMode::Enforce]
-            .map(TrafficMode::as_str);
+        let names =
+            [TrafficMode::Off, TrafficMode::Observe, TrafficMode::Enforce].map(TrafficMode::as_str);
         assert_eq!(names, ["off", "observe", "enforce"]);
     }
 

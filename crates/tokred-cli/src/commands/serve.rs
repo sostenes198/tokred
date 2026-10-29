@@ -26,6 +26,8 @@ use crate::env::Env;
 
 /// How often prompts that went quiet are closed and emitted.
 const FLUSH_EVERY: Duration = Duration::from_secs(30);
+/// How often data older than `[proxy] retention_days` is deleted (and once at start-up).
+const PRUNE_EVERY: Duration = Duration::from_secs(3600);
 /// Days of compressed blocks re-read at start-up, so a restart keeps replacing the same bytes.
 const SEED_DAYS: i64 = 7;
 
@@ -193,11 +195,19 @@ pub fn run(env: &Env, config: &Config, claude_dir: Option<&Path>, bind: &str) ->
         FLUSH_EVERY,
     );
 
+    let pruner = spawn_pruner(
+        shutdown.clone(),
+        env.data.db_path(),
+        config.proxy.retention_days,
+        PRUNE_EVERY,
+    );
+
     let record_sink: Arc<dyn tokred_core::proxy::RecordSink> = sink.clone();
     let result = proxy.serve_blocking(hooks, record_sink, shutdown.clone());
 
     shutdown.trigger();
     let _ = flusher.join();
+    let _ = pruner.join();
     persist_breaker(&compression, &env.data.db_path());
     tracker.flush_all(SystemClock.now());
     // Every holder of the sink must be dropped before the writer can finish: the hooks (moved
@@ -236,6 +246,55 @@ fn spawn_flusher(
             persist_breaker(&compression, &db);
         });
     })
+}
+
+/// Runs [`prune_loop`] on a thread of its own, applying `[proxy] retention_days`.
+fn spawn_pruner(
+    shutdown: Shutdown,
+    db: PathBuf,
+    retention_days: u32,
+    every: Duration,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        prune_loop(&shutdown, every, &|| prune_old_data(&db, retention_days));
+    })
+}
+
+/// Deletes the proxy's data older than `retention_days` (0 keeps everything). Never fails the
+/// proxy: a database that cannot be opened or pruned is logged and tried again next time.
+pub fn prune_old_data(db: &Path, retention_days: u32) {
+    if retention_days == 0 {
+        return;
+    }
+    let pruned = Store::open(db)
+        .map_err(|err| err.to_string())
+        .and_then(|store| {
+            store
+                .prune_proxy_data(SystemClock.now(), retention_days)
+                .map_err(|err| err.to_string())
+        });
+    match pruned {
+        Ok(report) => tracing::info!(
+            rows = report.total(),
+            retention_days,
+            "pruned old proxy data"
+        ),
+        Err(error) => tracing::warn!(%error, "could not prune old proxy data"),
+    }
+}
+
+/// Calls `tick` at once and then every `every` until `shutdown` is triggered.
+pub fn prune_loop(shutdown: &Shutdown, every: Duration, tick: &dyn Fn()) {
+    let step = Duration::from_millis(200).min(every);
+    let mut waited = every;
+    while !shutdown.is_triggered() {
+        if waited >= every {
+            waited = Duration::ZERO;
+            tick();
+        }
+        std::thread::sleep(step);
+        waited += step;
+    }
 }
 
 /// Records in the database, once, that the compression circuit breaker tripped.
@@ -483,6 +542,90 @@ mod tests {
         drop(tracker);
         let _ = writer.join();
         assert!(shutdown.is_triggered());
+    }
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::super::testing::Sandbox;
+    use super::*;
+
+    fn request(id: &str, ts: i64) -> tokred_core::proxy::ProxyRequestRecord {
+        tokred_core::proxy::ProxyRequestRecord {
+            id: id.to_owned(),
+            ts: Timestamp(ts),
+            ..tokred_core::proxy::ProxyRequestRecord::default()
+        }
+    }
+
+    fn ids(store: &Store) -> Vec<String> {
+        store
+            .proxy_requests_between(Timestamp(0), Timestamp(i64::MAX))
+            .unwrap()
+            .into_iter()
+            .map(|r| r.id)
+            .collect()
+    }
+
+    #[test]
+    fn old_data_is_deleted_unless_retention_is_zero_or_the_database_is_unusable() {
+        let sb = Sandbox::new();
+        sb.configure();
+        let now = SystemClock.now().0;
+        let store = sb.store();
+        store
+            .insert_proxy_request(&request("old", now - 100 * 86_400))
+            .unwrap();
+        store.insert_proxy_request(&request("new", now)).unwrap();
+
+        prune_old_data(&sb.env.data.db_path(), 0);
+        assert_eq!(ids(&store), ["old", "new"], "0 keeps everything");
+        prune_old_data(&sb.env.data.db_path(), 90);
+        assert_eq!(ids(&store), ["new"]);
+        prune_old_data(&sb.path("no/such/dir/t.db"), 90);
+    }
+
+    #[test]
+    fn the_prune_loop_ticks_at_once_and_then_on_a_schedule_until_shutdown() {
+        let shutdown = Shutdown::new();
+        let stopper = shutdown.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(250));
+            stopper.trigger();
+        });
+        let ticks = std::cell::Cell::new(0_u32);
+        prune_loop(&shutdown, Duration::from_millis(80), &|| {
+            ticks.set(ticks.get() + 1);
+        });
+        assert!(ticks.get() >= 2, "{} ticks", ticks.get());
+
+        // Already stopped: not even the first tick runs.
+        let none = std::cell::Cell::new(0_u32);
+        prune_loop(&shutdown, Duration::from_millis(80), &|| {
+            none.set(none.get() + 1);
+        });
+        assert_eq!(none.get(), 0);
+    }
+
+    #[test]
+    fn the_pruner_thread_prunes_at_start_and_ends_with_the_shutdown() {
+        let sb = Sandbox::new();
+        sb.configure();
+        let now = SystemClock.now().0;
+        sb.store()
+            .insert_proxy_request(&request("old", now - 100 * 86_400))
+            .unwrap();
+        let shutdown = Shutdown::new();
+        let pruner = spawn_pruner(
+            shutdown.clone(),
+            sb.env.data.db_path(),
+            90,
+            Duration::from_secs(3600),
+        );
+        std::thread::sleep(Duration::from_millis(400));
+        shutdown.trigger();
+        pruner.join().unwrap();
+        assert!(ids(&sb.store()).is_empty());
     }
 }
 
