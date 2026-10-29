@@ -1,165 +1,132 @@
 **English** | [Português](release.pt-BR.md)
 
-# Running locally and publishing a release
+# Releasing tokred
 
-Two parts: [run tokred on your machine](#1-run-it-locally), then [ship a binary people install with one command](#2-publish-a-release). Contributor checks (tests, coverage, lints) are in [development](development.md).
+For maintainers: how a release is cut, tested and published. Users install from the published release ([installation](installation.md)); contributors build and test from the source tree ([development](development.md)).
 
-## 1. Run it locally
+## The flow
 
-### Build and run from the source tree
+A release goes through a release candidate (RC), is tested as published, and only then becomes the final version.
 
-```sh
-cargo build                       # debug build
-cargo run -q -- doctor            # run any command: cargo run -q -- <command>
-cargo build --release             # optimised binary at target/release/tokred
+```
+scripts/release.sh rc 0.2.0-rc.1 ──► tag v0.2.0-rc.1 ──► Release workflow ──► Release smoke
+                                                                                    │ green
+scripts/release.sh promote 0.2.0-rc.1 ──► tag v0.2.0 ──► Release workflow ──► Release smoke
 ```
 
-Requirements: Rust stable (MSRV 1.89; `rust-toolchain.toml` installs `rustfmt` and `clippy`). A binary built this way works from wherever it is, but `tokred update` will say to reinstall with the script (only a binary in the install folder updates itself).
+1. **Cut the RC.** `scripts/release.sh rc 0.2.0-rc.1` bumps the version, moves the changelog entries under it, commits, tags `v0.2.0-rc.1` and pushes.
+2. **Build.** The tag starts the `Release` workflow, which builds the archives and publishes a GitHub **pre-release**.
+3. **Test the published release.** When `Release` succeeds, `Release smoke` installs tokred from it on real systems ([below](#release-smoke-test)).
+4. **Promote.** When the smoke test is green, `scripts/release.sh promote 0.2.0-rc.1` sets the final version `0.2.0` on the same commit, commits, tags `v0.2.0` and pushes. The same two workflows run again for the final release.
 
-### Try it without touching your real setup
+Do not announce a release (a message, a link in the README) while any job of `Release smoke` for its tag is red.
 
-Use a throwaway sandbox so nothing is written to your real `~/.claude` or data folder:
+## Cutting a release
 
-```sh
-export TOKRED_DATA_DIR=$(mktemp -d) CLAUDE_CONFIG_DIR=$(mktemp -d) TOKRED_OFFLINE=1
-mkdir "$CLAUDE_CONFIG_DIR/projects"
-cargo run -q -- configure --yes   # hooks, agents and the database go to the sandbox
-cargo run -q -- doctor            # check the result
-cargo run -q -- uninstall
-```
-
-`TOKRED_OFFLINE=1` turns off the version check and the price sync.
-
-### Try the install scripts without a release
-
-The scripts download from `TOKRED_RELEASE_BASE_URL`, which accepts a `file://` folder. Build the archive the way `dist` lays it out and install from it into a throwaway home:
+Either run the script on `main` in a clean checkout, or use **Actions, Cut a release, Run workflow** with the action (`rc` or `promote`), the RC version and, optionally, `dry_run`.
 
 ```sh
-cargo build
-sh tests/installer/install_test.sh      # does exactly that, in a sandbox, and checks the result
+scripts/release.sh rc 0.2.0-rc.1
 ```
-
-By hand: put `tokred-<target>/tokred` in `tokred-<target>.tar.gz`, write `<sha256>  tokred-<target>.tar.gz` to `tokred-<target>.tar.gz.sha256`, then
 
 ```sh
-HOME=$(mktemp -d) TOKRED_HOME=$(mktemp -d) TOKRED_DATA_DIR=$(mktemp -d) CLAUDE_CONFIG_DIR=$(mktemp -d) \
-  TOKRED_RELEASE_BASE_URL=file:///path/to/folder sh install/install.sh --yes --port 23456
+scripts/release.sh promote 0.2.0-rc.1
 ```
 
-On Windows, `tests\installer\install_test.ps1` does the same (it edits your user PATH and PowerShell profile and restores them; it asks for `-AllowRealProfile` outside CI).
+The script needs `git`, `python3` and a logged-in `gh`. Both actions need a clean working tree and `main` equal to `origin/main`, and refuse otherwise.
 
-### Run the proxy
+| Action | Checks first | Then |
+|---|---|---|
+| `rc <X.Y.Z-rc.N>` | CI passed (a `push` run) on the commit; the tag does not exist; both changelogs have entries under `Unreleased` / `Não lançado` | Sets the workspace version and refreshes `Cargo.lock`, moves the changelog entries under `[X.Y.Z-rc.N] - <date>` in `CHANGELOG.md` and `CHANGELOG.pt-BR.md`, commits `chore: release X.Y.Z-rc.N`, tags, pushes `main` and the tag |
+| `promote <X.Y.Z-rc.N>` | `main` is still at the RC's commit; the RC is published as a pre-release; CI passed on that commit; `Release smoke` for the RC succeeded | Sets the version `X.Y.Z`, turns the RC's changelog heading into `[X.Y.Z] - <date>`, commits, tags, pushes |
 
-The [proxy](proxy.md) is optional. With the real binary (not `cargo run`, so the background process outlives the build):
+If a check fails after the files were edited, the script puts them back. If `main` moved after the RC, cut a new RC with what changed, test it, and promote that one.
 
-```sh
-tokred proxy enable               # once: choose the port and content recording, turn the features on, start it
-tokred proxy start                # background; or `tokred proxy start --foreground` to watch it
-tokred proxy status               # running? does this terminal use it?
-tokred claude                     # Claude Code through the proxy, for this run only
-tokred routing status             # decisions recorded so far (routing is `observe` by default)
-tokred stats                      # figures, including suggestions
-tokred proxy stop
-```
+**Dry run.** `--dry-run` (`-n`) runs the checks and edits the files but does not commit, tag or push; undo with `git checkout -- .`. The workflow has the same `dry_run` input. For a real rehearsal, an RC is one: it is published as a pre-release, which is never "latest", so nobody gets it by accident.
 
-`tokred claude` starts the proxy by itself if it is not running, passes every argument to `claude` and exits with its exit code. If the proxy cannot start, Claude Code runs as before.
+### The `RELEASE_TOKEN` secret
 
-To start the proxy at login: `tokred proxy service install` (undo with `uninstall`).
+`Cut a release` needs a repository secret named `RELEASE_TOKEN`: a fine-grained personal access token with `Contents: read and write` on this repository. The default `GITHUB_TOKEN` cannot be used, because a tag pushed with it does not start other workflows, so the release would never be built. The workflow fails with a message when the secret is missing.
 
-### Build the release archives on your machine
+## What a release contains
 
-This is what the release pipeline does, without publishing anything:
-
-```sh
-dist plan                          # what a release would contain (archives, checksums, install scripts)
-dist build --artifacts=local       # build the archives for this machine's target
-dist build --artifacts=global      # the checksums and the install scripts
-```
-
-`dist` is installed with `cargo install cargo-dist --locked` (or `brew install cargo-dist`, a developer tool; users never need it); the version used in CI is pinned in `dist-workspace.toml`.
-
-## 2. Publish a release
-
-### How delivery works
-
-One tag push does everything. The `dist`-generated `.github/workflows/release.yml` builds, for macOS, Linux (musl) and Windows on x86_64 (and macOS and Linux also on aarch64), an archive plus its `.sha256`, and uploads them to a GitHub Release together with the four install scripts copied from `install/`:
+The `Release` workflow is generated by `dist` and starts on a tag that looks like a version (`v0.2.0`, `v0.2.0-rc.1`). It builds five targets and uploads these assets to the GitHub release:
 
 | Asset | What it is |
 |---|---|
-| `tokred-<target>.tar.gz` / `.zip` | The binary with the README, licences and changelog |
+| `tokred-<target>.tar.gz` / `.zip` | The binary with the README, licences and changelog. Targets: `aarch64-apple-darwin`, `x86_64-apple-darwin`, `aarch64-unknown-linux-musl`, `x86_64-unknown-linux-musl`, `x86_64-pc-windows-msvc` |
 | `tokred-<target>.tar.gz.sha256` / `.zip.sha256` | `<sha256>  <file name>`; the install scripts and `tokred update` verify it |
-| `install.sh`, `install.ps1`, `uninstall.sh`, `uninstall.ps1` | The scripts users run (`extra-artifacts` in `dist-workspace.toml`) |
+| `install.sh`, `install.ps1`, `uninstall.sh`, `uninstall.ps1` | The scripts users run, copied from `install/` |
 | `source.tar.gz`, `sha256.sum` | Added by `dist` |
 
-That is all: **no tokens, no secrets, no tap or bucket repositories, no package registry.** The pipeline needs nothing but the repository's own `GITHUB_TOKEN`. Users then run:
+The release notes come from the matching section of `CHANGELOG.md`. The pipeline needs only the repository's own `GITHUB_TOKEN`; no package manager or registry is involved.
 
-```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sostenes198/tokred/releases/latest/download/install.sh | sh
-irm https://github.com/sostenes198/tokred/releases/latest/download/install.ps1 | iex
-```
+A version with a suffix (`-rc.1`) is published as a **pre-release**. `releases/latest/download/` always points at the newest stable release, so users who run the plain install command never get an RC. To install a specific one, pass the version:
 
-(`releases/latest/download/` always points at the newest stable release; `releases/download/vX.Y.Z/` at a fixed one. The scripts also exist on the `main` branch at `https://raw.githubusercontent.com/sostenes198/tokred/main/install/`.) See [installation](installation.md) for what they do.
-
-### Every release
-
-```sh
-# 1. Start from a green main
-git switch main && git pull
-cargo fmt --all --check && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace
-
-# 2. Bump the version: [workspace.package] and the `version = "…"` of every tokred-* entry
-#    in [workspace.dependencies] must all match
-sed -i '' 's/"0\.1\.0"/"0.2.0"/' Cargo.toml   # macOS; on Linux: sed -i 's/…/…/'
-cargo check --workspace                         # refreshes Cargo.lock
-
-# 3. CHANGELOG.md and CHANGELOG.pt-BR.md: turn [Unreleased] into [0.2.0] - YYYY-MM-DD
-#    (the GitHub Release notes are taken from it)
-
-# 4. Check what would be released
-dist plan
-
-# 5. Commit, then tag and push (this is the moment the release starts)
-git commit -am "chore: release 0.2.0"
-git tag v0.2.0
-git push && git push origin v0.2.0
-```
-
-Watch the run in the repository's **Actions** tab (workflow *Release*). It takes about 10 to 20 minutes.
-
-**Dry run first.** Push a pre-release tag such as `v0.2.0-rc.1`: `dist` builds everything and creates a GitHub *pre-release*. It is not "latest", so `releases/latest/download/` does not point at it and nobody gets it by accident. Try it with a fixed version:
+**macOS and Linux**
 
 ```sh
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sostenes198/tokred/releases/download/v0.2.0-rc.1/install.sh | sh -s -- --version 0.2.0-rc.1
 ```
 
-Check `tokred --version`, `tokred doctor` and the uninstall script, then push the real tag (delete the pre-release if you want it gone).
+**Windows (PowerShell)**
 
-### The release smoke test: the release is not announced until it is green
+```powershell
+$env:TOKRED_VERSION = "0.2.0-rc.1"; irm https://github.com/sostenes198/tokred/releases/download/v0.2.0-rc.1/install.ps1 | iex
+```
 
-The pre-release dry run above is the moment to run the **release smoke test** (see [testing](testing.md#3-release-smoke-test)). The `Release smoke` workflow starts by itself when `Release` succeeds for a `v*` tag, installs tokred from that published release on Ubuntu, macOS (Apple Silicon and Intel), Windows and in Alpine, Debian and Fedora containers, and checks every feature against real state. You can also run it for any tag: **Actions, Release smoke, Run workflow**, or by hand:
+## Release smoke test
+
+The tests of [development](development.md) run against code built from the working tree. The smoke test proves what a user gets: it installs tokred from the **published** release (the release's own `install.sh` or `install.ps1`, which download the real binary) and checks every feature against real state, not "it ran".
+
+It runs by itself when `Release` succeeds for a `v*` tag, on Ubuntu, macOS (Apple Silicon and Intel) and Windows runners and in Alpine, Debian and Fedora containers (Alpine has no glibc, so a green run proves the static musl binary). You can also run it for any tag from **Actions, Release smoke, Run workflow**, or by hand:
 
 ```sh
 sh tests/release/smoke.sh v0.2.0-rc.1
 ```
 
-**Do not announce a release (a message, a README link, a "latest" bump) while any job of `Release smoke` for its tag is red.** A red job means the published artifacts do not do what they promise on that platform: read the `not ok - ...` line and the `smoke-logs-*` artifact ([how to read a failure](testing.md#reading-a-failure)), fix it on `main` and cut the next release candidate or patch version.
-
-### Check the result
-
-```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sostenes198/tokred/releases/latest/download/install.sh | sh
-tokred --version && tokred doctor
-tokred update                     # "up to date", or it replaces itself
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\release\smoke.ps1 -Tag v0.2.0-rc.1 -AllowRealProfile
 ```
 
-On Windows: `irm https://github.com/sostenes198/tokred/releases/latest/download/install.ps1 | iex`, then `tokred --version`.
+The files are `tests/release/smoke.sh` (POSIX `sh`), `smoke.ps1` (Windows PowerShell 5.1 and 7), `check.py` (JSON, TOML and SQLite assertions) and `fake_upstream.py` (a fake Anthropic API that streams slowly). It needs Python 3.7+ and `curl`. Everything runs in a throwaway directory (`HOME`, `TOKRED_HOME`, `TOKRED_DATA_DIR`, `CLAUDE_CONFIG_DIR`), starting from a user's own `settings.json` and shell profiles. On Windows the user `PATH` and the PowerShell profiles cannot be sandboxed: the script backs them up and restores them, and outside CI it asks for `-AllowRealProfile`.
 
-### When something goes wrong
+### What it checks
 
-- **A build job fails:** fix, delete the tag (`git push origin :refs/tags/v0.2.0` and `git tag -d v0.2.0`) and tag again. Nothing was published if the failure was before the `host` job.
-- **A bad release is out:** publish a new patch version; `latest` then points to it. To pull the bad one, delete the GitHub release (the tag can stay or go).
-- **An install script has a bug:** fix it on `main` and cut a new patch release; the raw `main` URL serves the fix at once for people who use it.
+| Step | Proves |
+|---|---|
+| 1. Install | `tokred --version` equals the tag; the binary is in place; one marked block in each shell profile with the user's lines intact; the six hooks and agents are installed next to the user's own keys and hook; the proxy answers its health endpoint and `ANTHROPIC_BASE_URL` points at it |
+| 2. The `claude` wrapper | In fresh `sh`, `bash`, `dash` and `zsh`: `claude` is a function, `tokred initialize` really ran, arguments arrive intact, and without tokred on `PATH` `claude` still runs |
+| 3. Traffic through the proxy | Against the fake upstream: streamed main-loop and subagent requests come back as the fake's bytes; the dashboard link works once; the sessions API and the turn detail are right; `/metrics` is HTML; a wrong `Host` is 421; `stats --json` has the proxy section; turning content recording off is applied |
+| 4. `unconfigure` and `configure` | Unconfigure removes hooks and unedited agents and keeps the user's keys and the proxy URL; configure brings it all back |
+| 5. Proxy switch | `proxy disable` removes only tokred's URL and leaves a foreign one; the wrapper does not re-enable; `proxy enable` keeps the saved port |
+| 6. Update | With only a pre-release published, `tokred update` exits 1 and says no stable release exists. The branch that replaces the binary is not exercised on purpose |
+| 7. Uninstall, twice | With the installed binary and, after a reinstall, with the release's uninstall script: nothing is left, `settings.json` equals the starting document and profiles are byte-for-byte what the user had. Two things stay by design and are printed as notes: `settings.json.tokred.bak` and an empty `agents/` folder (an agent the user edited is kept too) |
+| 8. Cleanup | Always (a trap): the proxy and the fake upstream are stopped and the last 30 lines of every log are printed |
 
-### What to update when `dist-workspace.toml` changes
+### Reading a failure
 
-Run `dist generate` and commit the changed `.github/workflows/release.yml`; do not edit that file by hand. Dependabot does bump action versions inside it (for example `actions/checkout`); `allow-dirty = ["ci"]` in `dist-workspace.toml` makes `dist plan` accept that instead of failing with "out of date contents", so such pull requests can be merged (but it also makes `dist generate` refuse to run: comment the line out while you regenerate, then put it back). See also [installation](installation.md) and [decisions](decisions.md).
+- The last line is `not ok - [<step>] <what was expected>: <what was found>` and the exit status is 1. Under it are the last 30 lines of every log. In CI the logs are the `smoke-logs-*` artifact of the failed job; locally, `SMOKE_KEEP=1` keeps the whole sandbox.
+- A failure in step 1 or 7 on **one platform only** is a packaging or installer problem. A failure in steps 3 to 5 on **every platform** is a product bug: reproduce it with the commands of the step in a sandbox ([development](development.md)).
+- `skip - ...` lines are not failures: a shell that is not installed, or the GitHub API rate limit in step 6.
+- A red job is a finding about the published artifacts. Fix it on `main` and cut the next RC; do not promote.
+
+Knobs, documented at the top of each script: `SMOKE_TAG`, `SMOKE_REPO`, `SMOKE_PORT`, `SMOKE_DIR`, `SMOKE_KEEP=1`, `SMOKE_LOG_DIR`, `SMOKE_CONTINUE=1` (count failures and go on; a diagnostic mode, the exit status is still 1), `SMOKE_SKIP_UPDATE=1`, `SMOKE_PYTHON`, `GITHUB_TOKEN` (only for the script's own GitHub API probe).
+
+### What it cannot cover
+
+Claude Code itself with a real login: requests are shaped like Claude Code's and sent to a fake API, so subscription traffic, real model output and Claude Code's start-up are not tested. It cannot test a binary that is not published yet (the installer tests of [development](development.md) cover the scripts), or the branch of `tokred update` that replaces the binary.
+
+## When something goes wrong
+
+- **A build job fails.** Fix it on `main`, then cut a new RC. Nothing is published if the failure was before the `host` job; to reuse a tag that was never published, delete it (`git push origin :refs/tags/v0.2.0-rc.1` and `git tag -d v0.2.0-rc.1`).
+- **A bad release is out.** Publish a new patch version; `latest` then points to it. To pull the bad one, delete the GitHub release (the tag can stay or go).
+- **An install script has a bug.** Fix it on `main` and cut a new release; the `main` copy of `install/` serves the fix at once for people who use that URL.
+
+## What `dist-workspace.toml` controls
+
+It configures `dist` (the version of `dist` used in CI is pinned there): the five targets, the archive formats (`.tar.gz`, `.zip`), the `.sha256` checksums, no installers of its own (the scripts of `install/` are used), and the `extra-artifacts` that upload the four install scripts next to the archives.
+
+After you change it, run `dist generate` and commit the changed `.github/workflows/release.yml`; do not edit that file by hand. `dist plan` shows what a release would contain, and `dist build --artifacts=local` builds the archives for your machine's target without publishing anything. Install `dist` with `cargo install cargo-dist --locked`.
+
+`allow-dirty = ["ci"]` is set so that Dependabot's bumps of action versions inside the generated workflow do not fail `dist plan` with "out of date contents".

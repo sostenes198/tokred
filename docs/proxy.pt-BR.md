@@ -2,118 +2,100 @@
 
 # O proxy local
 
-O `tokred proxy` é um servidor local opcional entre o Claude Code e a API da Anthropic. Ele vê cada requisição e cada resposta. Por isso consegue medi-las com exatidão, rotear requisições de subagentes e auxiliares para um modelo mais barato, dar conselhos sobre o loop principal e manter resultados grandes de ferramentas fora do contexto sem perdê-los.
+O proxy é um servidor local opcional entre o Claude Code e a API da Anthropic: ele mede cada requisição com exatidão, pode rotear requisições de subagentes e auxiliares para um modelo mais barato, dá conselhos sobre o loop principal e pode manter resultados grandes de ferramentas fora do contexto sem perdê-los.
 
 ```
 Claude Code ──(ANTHROPIC_BASE_URL=http://127.0.0.1:1029)──► tokred proxy ──► api.anthropic.com
 ```
 
-Todo o resto do tokred (os subagentes, os hooks de guarda, `stats`, `audit`) funciona com ou sem o proxy.
+O resto do tokred (os [hooks e agentes](hooks-and-agents.pt-BR.md), `stats`, `audit`) funciona com ou sem ele.
 
-## Como usar
+## Comandos
 
-```sh
-tokred claude            # sobe o proxy se preciso e abre o Claude Code por ele, só nesta execução
-tokred proxy status      # está rodando? este terminal está usando?
-tokred proxy stop
-```
+| Comando | O que faz |
+|---|---|
+| `tokred proxy enable` | Liga os recursos do proxy: escolhe a porta e a gravação de conteúdo, salva, sobe o proxy e aponta as configurações do Claude Code para ele |
+| `tokred proxy disable` | Desliga os recursos e remove a `ANTHROPIC_BASE_URL` do tokred das configurações do Claude Code. Um proxy em execução não é parado |
+| `tokred proxy start` | Sobe o proxy em segundo plano. `--foreground` o mantém no terminal (o serviço de usuário usa isso); `--bind HOST:PORT` substitui o `[proxy] bind` nesta execução. Recusa enquanto os recursos estão desligados |
+| `tokred proxy stop` | Para o proxy e espera até ele terminar |
+| `tokred proxy status` | Está rodando, em qual porta, e este terminal o usa (`--json` para scripts) |
+| `tokred proxy service install` / `uninstall` | Instala o proxy como serviço de usuário que sobe no login (unit de usuário do systemd, agente do launchd, tarefa de logon no Windows). Recusa enquanto os recursos estão desligados |
+| `tokred claude [args]` | Sobe o proxy se preciso e executa o `claude` por ele, só nesta execução. Argumentos e código de saída passam direto; nada é gravado nas configurações do Claude Code. Sem os recursos do proxy, executa o `claude` direto |
+| `tokred dashboard` | Abre o [dashboard ao vivo](dashboard.pt-BR.md) |
 
-Os recursos do proxy ficam desligados até o `tokred proxy enable` ser executado (o script de instalação o executa, a menos que você passe `--no-proxy`; veja [a chave](#a-chave-proxy-enabled)): enquanto estiverem desligados, o `tokred claude` executa o `claude` direto.
+O [script de instalação](installation.pt-BR.md) executa `tokred proxy enable` (a menos que você passe `--no-proxy`) e instala o wrapper de shell `claude`, que executa `tokred initialize` antes de cada abertura. O `tokred configure` só prepara hooks e agentes e nunca mexe no proxy.
 
-O `tokred claude` repassa todos os argumentos ao `claude` sem alteração e sai com o código de saída do `claude`. Nada é gravado nas configurações do Claude Code. Se o proxy não subir, ou se o `ANTHROPIC_BASE_URL` já apontar para outro gateway, o Claude Code roda exatamente como antes e o tokred explica o motivo no stderr.
+### `tokred proxy enable`
+
+| Flag | Significado |
+|---|---|
+| `--port <n>` (ou `TOKRED_PORT`) | Porta do `[proxy] bind`, de 1024 a 65535 em `127.0.0.1`. Perguntada em um terminal (padrão: a porta salva, senão 1029; o comando verifica se a porta está livre). Uma porta ocupada informada por flag só avisa |
+| `--record-content <true\|false>` (ou `TOKRED_RECORD_CONTENT`) | `[proxy] log_bodies`: se o [dashboard](dashboard.pt-BR.md) pode mostrar o que foi enviado e devolvido. Perguntada em um terminal (padrão: a resposta salva, senão sim). Sem terminal, uma resposta não salva é não |
+| `--yes`, `-y` | Não pergunta nada: usa as flags, os valores salvos, senão porta 1029 e sem gravação |
+
+Uma flag vale mais que a variável de ambiente correspondente, e suas outras chaves no `tokred.toml` permanecem. Se o proxy já estiver rodando em outra porta, ou com outra configuração de gravação, ele é reiniciado para aplicar a mudança.
 
 ### A chave: `[proxy] enabled`
 
-O `enabled` no `tokred.toml` é a chave única dos recursos do proxy. Ela é `false` até você executar `tokred proxy enable` (o script de instalação o executa, a menos que você passe `--no-proxy`); o `tokred configure` só prepara os hooks e os agentes e nunca mexe no proxy. O `tokred proxy enable` e o `tokred proxy disable` a alteram e valem na hora.
+O `enabled` no `tokred.toml` é a chave única dos recursos do proxy. Ela é `false` até você executar `tokred proxy enable`.
 
-```sh
-tokred proxy disable     # recursos desligados: a URL do tokred sai das configurações do Claude Code, mais nada muda
-tokred proxy enable      # recursos ligados: escolhe a porta e a gravação de conteúdo, sobe o proxy e aponta as configurações do Claude Code para ele
-tokred initialize        # o que o wrapper de shell do `claude` executa antes de cada abertura (veja abaixo)
-```
+O `tokred initialize` faz o `settings.json` do Claude Code concordar com ela, e é o que o wrapper `claude` executa antes de cada abertura. Ele reconcilia uma única chave, `env.ANTHROPIC_BASE_URL` (`http://127.0.0.1:<porta>`, a partir do `[proxy] bind`):
 
-O `tokred proxy enable` é onde o proxy é configurado. Ele escolhe duas coisas e as salva no `tokred.toml` junto com `enabled = true`:
-
-```sh
-tokred proxy enable                                    # num terminal: pergunta a porta e se grava o conteúdo
-tokred proxy enable --port 1050 --record-content true  # respostas de antemão, nada é perguntado
-tokred proxy enable --yes                              # não pergunta nada: valores salvos, senão porta 1029 e sem gravar
-```
-
-- **`--port <n>`** (ou `TOKRED_PORT`) é a porta de `[proxy] bind` (1024 a 65535, em `127.0.0.1`, a menos que o seu `bind` cite outro host). Perguntada, o padrão é a porta salva, senão 1029; o comando abre a porta para ver se está livre, pergunta de novo quando está ocupada e aceita a porta em que o proxy desta instalação já escuta. Dada por flag, uma porta ocupada só avisa.
-- **`--record-content <true|false>`** (ou `TOKRED_RECORD_CONTENT`; `yes`, `no`, `1` e `0` também valem) é o `[proxy] log_bodies`: se o [painel](dashboard.pt-BR.md) pode mostrar o que foi enviado e devolvido. O texto fica no banco do próprio tokred nesta máquina; cabeçalhos e credenciais nunca são gravados. Perguntada, o padrão é a resposta salva, senão sim; sem terminal, uma resposta não salva é não.
-
-Uma flag vale mais que a sua variável de ambiente. As suas outras chaves do `tokred.toml` ficam. Se o proxy já estiver rodando em outra porta que não a nova, ele é parado e iniciado de novo na nova porta. Em seguida as configurações do Claude Code são reconciliadas, como descrito a seguir.
-
-O `tokred initialize` faz o `settings.json` do Claude Code concordar com a chave, e é o que o wrapper do `claude` instalado pelo instalador executa antes de toda abertura. A única coisa que ele reconcilia é o `env.ANTHROPIC_BASE_URL` (`http://127.0.0.1:<porta>` de `[proxy] bind`):
-
-| `enabled` | O valor está ausente ou é do tokred | O valor é outro gateway |
+| `enabled` | O valor está ausente ou é do tokred | O valor é de outro gateway |
 |---|---|---|
-| `true` | Sobe o proxy se ele não estiver rodando e, quando ele responder, grava a URL. Se o proxy não puder subir, a URL é removida de novo (uma URL que aponta para um proxy morto pararia o Claude Code) e um aviso é impresso | Nada é alterado e nada é iniciado; uma linha no stderr diz que o tokred está habilitado mas o `ANTHROPIC_BASE_URL` aponta para outro lugar |
-| `false` | Remove a URL do tokred (e o objeto `env` se ele ficar vazio). Um proxy em execução não é parado | Fica como está |
+| `true` | Sobe o proxy se ele não estiver rodando e, quando responde, grava a URL. Se não conseguir subir, a URL é removida de novo (uma URL apontando para um proxy morto impediria o Claude Code de funcionar) e um aviso é impresso | Nada é alterado nem iniciado; uma linha no stderr avisa |
+| `false` | Remove a URL do tokred. Um proxy em execução não é parado | Deixada como está |
 
-"A URL do tokred" é a URL atual do proxy ou qualquer URL que o tokred gravou antes (por exemplo depois de você mudar a porta); um valor exportado no shell conta como valor atual também. O seu próprio gateway nunca é sobrescrito, mesmo um em `127.0.0.1`. O `initialize` nunca falha e não imprime nada a menos que haja um aviso (`--verbose` diz o que fez, `--json` imprime um relatório); quando tudo já está certo, custa uma leitura de arquivo e uma sonda de saúde.
+"A URL do tokred" é a URL atual do proxy ou qualquer URL que o tokred gravou antes (por exemplo, após mudar a porta). O seu gateway nunca é sobrescrito, nem mesmo um em `127.0.0.1`. O `initialize` nunca falha e não imprime nada, a não ser que haja um aviso (`--verbose` diz o que fez, `--json` imprime um relatório).
 
-Enquanto a URL está no `settings.json`, o Claude Code aberto de qualquer lugar (uma IDE, um terminal sem o wrapper) passa pelo proxy. Se o proxy não estiver rodando nesse momento, a API fica inalcançável, por isso há três proteções: o serviço de usuário abaixo; o hook `session-start`, que sobe o proxy em segundo plano quando ele está habilitado, a sessão aponta para ele e ele não responde (veja [hooks](hooks.pt-BR.md)); e o `tokred doctor`, que avisa quando a URL está gravada e o proxy está parado. Para sair de qualquer problema: `tokred proxy disable` (ou `tokred unconfigure`, ou apague `ANTHROPIC_BASE_URL` do objeto `env` do `settings.json`).
-
-Para ter o proxy sempre disponível, instale-o como serviço do usuário que sobe no login (uma unit de usuário do systemd no Linux, um agente do launchd no macOS, uma tarefa de logon no Windows):
-
-```sh
-tokred proxy service install      # e depois: tokred proxy service uninstall
-```
-
-O `tokred proxy start` roda em segundo plano sem serviço; `--foreground` o mantém no terminal (o serviço usa isso). Os dois se recusam enquanto `enabled = false`.
-
-Com `enabled = false`, o `tokred claude` executa o `claude` direto e avisa no stderr.
+Enquanto a URL está no `settings.json`, o Claude Code aberto de qualquer lugar (uma IDE, um terminal sem o wrapper) passa pelo proxy, e se o proxy estiver fora do ar ele não alcança a API. Três salvaguardas cobrem isso: o serviço de usuário, o hook `session-start` (sobe o proxy em segundo plano quando a sessão aponta para ele e ele não responde) e o `tokred doctor` (avisa quando a URL está gravada e o proxy está fora do ar). Para sair de qualquer problema, execute `tokred proxy disable` (ou `tokred uninstall`, ou apague `ANTHROPIC_BASE_URL` do objeto `env` do `settings.json`).
 
 ## O que ele faz
 
 | Recurso | Padrão | O que altera |
 |---|---|---|
-| Medição | sempre ligada | Nada. Registra o modelo, os tokens (inclusive gravações de cache de 1 hora), a latência, o motivo de parada, os nomes das ferramentas oferecidas, a duração de cache pedida (`5m` ou `1h`), o modo de roteamento em vigor e a causa provável de um cache miss de cada requisição; o `tokred stats`, o `tokred metrics` e o relatório HTML a leem como sua fonte exata ([metrics](metrics.pt-BR.md)) |
+| Medição | sempre ligada | Nada. Registra o modelo, os tokens (incluindo gravações de cache de 1 hora), a latência, o motivo de parada, os nomes das ferramentas, a duração do cache, o modo de roteamento em vigor e a causa provável de uma falha de cache de prompt. `tokred stats`, `tokred metrics` e o relatório os usam como fonte exata ([metrics](metrics.pt-BR.md)) |
 | [Roteamento de modelo](routing.pt-BR.md) | `observe` | Só requisições de subagentes e auxiliares, e só em `enforce`. **O modelo do loop principal nunca é trocado** |
-| Sugestões | mostradas pelo `tokred suggest` e pelo `tokred stats` (e, se você quiser, na status line e numa mensagem de uma linha) | Nada. Avisa quando os últimos prompts do loop principal foram simples o bastante para um modelo mais barato |
-| Compressão reversível | `observe` | Só em `enforce`: resultados grandes de ferramentas viram uma prévia mais um id; o original é guardado e o modelo o lê de volta com o `tokred_retrieve` |
+| Sugestões | mostradas pelo `tokred suggest` e pelo `tokred stats` | Nada. Avisa quando os últimos prompts do loop principal eram simples o bastante para um modelo mais barato |
+| Compressão reversível | `observe` | Só em `enforce`: resultados grandes de ferramentas são trocados por uma prévia e um id; o original é guardado e o modelo o relê com `tokred_retrieve`. Ligue com `tokred compression on` |
 | Medição de cache de respostas | ligada | Nada. Conta repetições exatas para mostrar se um cache de respostas ajudaria |
 
-`observe` quer dizer que o recurso registra o que *faria*, então o `tokred routing status`, o `tokred suggest` e o `tokred stats` mostram a economia antes de você ligar qualquer coisa.
+`observe` significa que o recurso registra o que faria, então `tokred routing status`, `tokred suggest` e `tokred stats` mostram a economia antes de você ligar qualquer coisa. As chaves estão em [configuration](configuration.pt-BR.md).
 
 ## Garantias
 
-- **Fail-open.** Se qualquer etapa falhar, a requisição original é repassada sem alteração. Uma requisição reescrita que a API rejeita antes de algo chegar ao Claude Code é reenviada na forma original. O proxy nunca faz o Claude Code parar por um bug do tokred.
-- **Só loopback.** Escuta em `127.0.0.1`, confere o cabeçalho `Host`, e seus endpoints de administração exigem um segredo guardado em `<dados>/proxy/secret` (permissão só do dono).
-- **Repassa tudo o que não entende.** Cabeçalhos (`anthropic-beta`, `x-claude-code-*`, credenciais) e campos passam sem alteração, então recursos novos do Claude Code continuam funcionando.
-- **Privado.** Credenciais nunca são registradas nem guardadas. O conteúdo das mensagens não é lido, mantido nem guardado, a menos que você ligue `[proxy] log_bodies` (desligado por padrão), que alimenta o [painel](dashboard.pt-BR.md); sem isso só contagens, hashes e a estrutura das requisições são registrados. Veja a [decisão](decisions.pt-BR.md).
-
-## Painel e relatório
-
-O proxy também responde `GET /dashboard` (sessões ao vivo, o que foi enviado e respondido, subagentes; server-sent events) e `GET /metrics` (o relatório HTML do `tokred metrics`) na própria porta. Nunca são repassados ao upstream, exigem login (o `tokred dashboard` abre) e não levam cabeçalhos CORS. Veja [painel](dashboard.pt-BR.md).
+- **Fail-open.** Se qualquer etapa falhar, a requisição original é encaminhada sem alteração. Uma requisição reescrita que a API rejeita (400, 404 ou 422) antes de qualquer coisa chegar ao Claude Code é enviada de novo na forma original. Um bug do tokred nunca impede o Claude Code de funcionar.
+- **Só loopback.** Ele se recusa a escutar em um endereço que não seja loopback, só responde a requisições cujo cabeçalho `Host` nomeia um endereço loopback e a sua própria porta (a defesa contra DNS rebinding), e seus endpoints administrativos (`/__tokred/...`) exigem um segredo guardado em `<data>/proxy/secret`, com permissão só do dono.
+- **Nada que ele não entenda é alterado.** Cabeçalhos (`anthropic-beta`, `x-claude-code-*`, credenciais) e campos passam sem alteração, então recursos novos do Claude Code continuam funcionando. O único cabeçalho que ele reescreve é o `Accept-Encoding`, enviado como `identity` ao upstream para que a resposta possa ser lida enquanto chega em streaming.
+- **O modelo do loop principal nunca é trocado**, seja qual for a configuração.
+- **Privado.** Credenciais nunca são registradas nem guardadas. O conteúdo das mensagens não é lido nem guardado, a menos que você ligue `[proxy] log_bodies` (veja [dashboard](dashboard.pt-BR.md)).
 
 ## Logins
 
-Os logins por chave de API e por assinatura claude.ai funcionam (verificado no spike F7). Com assinatura, a credencial viaja no cabeçalho `authorization` e o proxy a repassa, junto com o valor OAuth do `anthropic-beta`, sem tocar. Medir tráfego de assinatura por um gateway local é uma configuração que a documentação do Claude Code descreve. Reescrever o modelo de requisições de assinatura não é tratado pelos termos da Anthropic, então o roteamento fica em `observe` a menos que você o ligue ([decisão](decisions.pt-BR.md)).
+Tanto o login por chave de API quanto o da assinatura claude.ai funcionam. Com assinatura, a credencial viaja no cabeçalho `authorization`, e o proxy a encaminha, junto com o valor OAuth do `anthropic-beta`, sem alteração. A própria documentação do Claude Code descreve medir o tráfego de assinatura por um gateway local.
 
-## Atrás de um proxy corporativo
+Os termos da Anthropic não tratam da reescrita do modelo das requisições de assinatura, então o roteamento fica em `observe` por padrão para todo login; o `tokred doctor` avisa quando `enforce` está ligado com login de assinatura. Ligá-lo é uma escolha informada sua ([decisions](decisions.pt-BR.md)).
 
-O proxy chega à API do mesmo jeito que o Claude Code, quando a sua rede exige.
+## Atrás de uma rede corporativa
 
-- **Proxy HTTP.** Se `HTTPS_PROXY` estiver definida (também `ALL_PROXY` e `HTTP_PROXY`, nessa ordem, e os nomes em minúsculas), o proxy pede a ele um túnel com `CONNECT` até o host da API. `usuario:senha@` no endereço é enviado como autenticação basic e nunca é registrado em log. `NO_PROXY` funciona como no curl: nomes de host separados por vírgula (um sufixo também vale para subdomínios), endereços IP, faixas CIDR, `*`. Proxies SOCKS (`socks5://`) e `https://` não são suportados; o tokred avisa no log e no `tokred doctor` e conecta direto.
-- **Autoridades certificadoras.** Além das raízes embutidas, ele confia no repositório de certificados do sistema operacional e nos arquivos PEM indicados por `NODE_EXTRA_CA_CERTS` e `SSL_CERT_FILE` (as variáveis que o Claude Code lê) e por `ca_bundle` em `[proxy]` do `tokred.toml`. É disso que um proxy que inspeciona TLS precisa.
-- **Fail-open.** Um valor que não é um endereço de proxy, ou um arquivo de CA ausente ou sem certificado, é registrado uma vez (pelo nome da variável ou do arquivo, nunca pelo valor) e ignorado: o proxy conecta direto, ou com as raízes restantes. Um proxy que responde mas recusa o túnel (ou um certificado em que não se confia) resulta no `502` de sempre para um upstream inalcançável.
-- O `tokred doctor` e o `tokred proxy status` mostram o proxy (só host e porta) e os arquivos de CA extras em uso.
+O proxy alcança a API do mesmo jeito que o Claude Code.
 
-As configurações são lidas quando o proxy sobe, do ambiente do processo que o inicia: defina as variáveis antes do `tokred proxy start` ou do `tokred claude` e, para o serviço do usuário, no ambiente em que o serviço roda (ou coloque o arquivo de CA em `ca_bundle`). Reinicie o proxy depois de mudá-las.
+| Configuração | Efeito |
+|---|---|
+| `HTTPS_PROXY` (depois `ALL_PROXY`, `HTTP_PROXY` e os nomes em minúsculas) | O proxy pede a esse proxy HTTP um túnel `CONNECT` até o host da API. `usuario:senha@` é enviado como autenticação básica e nunca registrado |
+| `NO_PROXY` | Como no curl: nomes de host separados por vírgula (um sufixo também vale para subdomínios), endereços IP, faixas CIDR, `*` |
+| `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `[proxy] ca_bundle` | Arquivos PEM com autoridades certificadoras extras, confiadas além das raízes embutidas e do repositório de certificados do sistema operacional. É o que um proxy que inspeciona TLS exige |
 
-## Limites
+Um valor que não é endereço de proxy, ou um arquivo de CA ausente ou vazio, é registrado uma vez (pelo nome, nunca pelo valor) e ignorado: o proxy conecta direto, ou com as raízes restantes. Um proxy que recusa o túnel, ou um certificado não confiável, resulta no `502` de sempre. O `tokred doctor` e o `tokred proxy status` mostram o proxy (só host e porta) e os arquivos de CA extras em uso.
 
-- Numa rede corporativa só proxies `http://` são suportados (sem SOCKS), e as configurações de proxy são lidas uma vez, quando o proxy sobe.
-- Ele só lê o uso de uma resposta não comprimida. Pede uma ao servidor (`Accept-Encoding: identity`); se a resposta vier comprimida mesmo assim, ela é repassada sem alteração, só não é medida.
-- Uma requisição de compactação não traz cabeçalho que a distinga, então pode ser tomada por um prompt simples. O roteamento nunca troca o modelo do loop principal, então isso só afeta os conselhos.
+As configurações são lidas uma vez, quando o proxy sobe, a partir do ambiente do processo que o inicia. Defina as variáveis antes de `tokred proxy start` ou `tokred claude` (no caso do serviço de usuário, no ambiente em que o serviço roda, ou use `ca_bundle`) e reinicie o proxy depois de alterá-las.
 
 ## Retenção
 
-O que o proxy guarda é apagado após `[proxy] retention_days` (padrão 90; `0` guarda tudo): uma vez quando o proxy inicia e depois a cada hora. Veja [configuração](configuration.pt-BR.md).
+O que o proxy guarda é apagado depois de `[proxy] retention_days` (padrão 90; `0` guarda tudo), uma vez quando o proxy sobe e depois a cada hora. Resultados de ferramentas guardados e substituições de uma conversa que ainda tem uma requisição dentro do período são mantidos, qualquer que seja a idade.
 
-## Configuração
+## Limites
 
-`[proxy]`, `[routing]`, `[suggest]`, `[compression]` e `[shadow]` no `tokred.toml`; veja [configuração](configuration.pt-BR.md).
+- Só há suporte a proxies `http://` (sem SOCKS, sem TLS até o proxy).
+- O uso só é lido de uma resposta sem compressão. Se uma resposta chegar comprimida mesmo assim, ela é encaminhada sem alteração e não é medida.
+- Uma requisição de compactação não traz cabeçalho que a distinga, então pode ser tomada por um prompt simples. O roteamento nunca troca o modelo do loop principal, então isso só afeta o conselho.

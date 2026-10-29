@@ -1,62 +1,70 @@
 [English](dashboard.md) | **Português**
 
-# O painel ao vivo
+# O dashboard ao vivo
 
-O [proxy local](proxy.pt-BR.md) serve duas páginas na própria porta, no seu navegador:
+O [proxy local](proxy.pt-BR.md) serve duas páginas na própria porta, para mostrar no navegador o que está acontecendo agora nas suas sessões do Claude Code. As duas estão embutidas no binário e não carregam nada da rede.
 
-- **`/dashboard`**: todas as sessões ativas agora e as últimas 10 que ficaram ociosas ou terminaram. Clique em uma para ver o que está acontecendo: cada requisição que o Claude Code enviou, o que o modelo respondeu (em streaming, conforme chega), as ferramentas chamadas, o custo, os tokens, a decisão de roteamento de modelo e os subagentes em execução. As atualizações chegam em tempo real (server-sent events).
-- **`/metrics`**: o mesmo relatório HTML autocontido que o `tokred metrics` grava (últimos 30 dias, sem a auditoria do projeto).
-
-Ambas funcionam offline: as páginas estão embutidas no binário e não carregam nada da rede.
+- **`/dashboard`**: todas as sessões ativas e as últimas 10 que ficaram ociosas ou terminaram. Abra uma para ver cada requisição que o Claude Code enviou, o que o modelo respondeu (em streaming, conforme chega), as ferramentas chamadas, o custo, os tokens, a decisão de roteamento e os subagentes em execução. Atualiza ao vivo (server-sent events).
+- **`/metrics`**: o mesmo relatório HTML que o `tokred metrics` gera (últimos 30 dias, sem a auditoria de projeto).
 
 ## Como abrir
 
 ```sh
-tokred dashboard            # abre o navegador
-tokred dashboard --no-open  # imprime o endereço
+tokred dashboard
 ```
 
-O proxy precisa estar ligado e rodando: execute `tokred proxy enable` uma vez (o script de instalação o executa, a menos que você tenha passado `--no-proxy`), o que também o inicia; depois, `tokred claude`, o wrapper `claude` ou `tokred proxy start` o iniciam de novo; o `tokred dashboard` não inicia nada e avisa se o proxy está parado. Outros usuários da máquina alcançam o `127.0.0.1`, então as páginas pedem login: o comando obtém do proxy um **token de uso único** (com o segredo de administração em `<dados>/proxy/secret`) e abre `http://127.0.0.1:<porta>/dashboard?token=...`. O proxy troca o token por um cookie (`HttpOnly`, `SameSite=Strict`) e redireciona para `/dashboard`. O token do endereço **funciona uma vez e expira em 60 segundos**; rode `tokred dashboard` de novo para obter outro. Os cookies ficam na memória do proxy: reiniciá-lo encerra o seu login. Sem um cookie válido, toda página do painel responde `401` com um aviso para rodar `tokred dashboard`.
+`tokred dashboard --no-open` imprime o endereço em vez de abrir o navegador.
 
-Navegadores de outros sites não conseguem usar o painel: requisições marcadas `Sec-Fetch-Site: cross-site` ou `same-site` são recusadas (`403`), nenhum cabeçalho CORS é enviado e as páginas levam uma `Content-Security-Policy` estrita (o texto do app é sempre exibido como texto, nunca como HTML, porque resultados de ferramentas e a saída do modelo podem conter marcação hostil).
+O proxy precisa estar habilitado e rodando: `tokred proxy enable` o sobe, e depois `tokred claude`, o wrapper `claude` ou `tokred proxy start` o sobem de novo. O `tokred dashboard` não sobe nada e avisa se o proxy estiver fora do ar.
+
+Outros usuários da máquina alcançam `127.0.0.1`, então as páginas pedem login. O comando obtém do proxy um **token de uso único** (usando o segredo administrativo em `<data>/proxy/secret`) e abre `http://127.0.0.1:<porta>/dashboard?token=...`. O proxy troca o token por um cookie (`HttpOnly`, `SameSite=Strict`, válido por 12 horas) e redireciona para `/dashboard`. O token funciona uma vez e expira em 60 segundos; execute `tokred dashboard` de novo para um novo. Os cookies ficam na memória do proxy, então reiniciar o proxy desconecta você. Sem um cookie válido, toda página responde `401` com um aviso para executar `tokred dashboard`.
+
+Navegadores de outros sites não conseguem usá-lo: requisições marcadas com `Sec-Fetch-Site: cross-site` ou `same-site` são recusadas (`403`), nenhum cabeçalho CORS é enviado e as páginas levam uma `Content-Security-Policy` estrita. O texto de requisições e respostas é sempre exibido como texto, nunca como HTML, porque resultados de ferramentas e saídas do modelo podem conter marcação hostil.
 
 ## Privacidade: `[proxy] log_bodies`
 
-O que o painel pode mostrar depende de uma opção, desligada por padrão:
+O que o dashboard pode mostrar depende de uma única configuração, desligada por padrão. O `tokred proxy enable` pergunta sobre ela.
 
 | `log_bodies` | O que é mostrado e guardado |
 |---|---|
-| `false` (padrão) | **Só metadados**: modelos, tokens, custo, tempos, status HTTP, motivo de parada, nomes das ferramentas chamadas, decisão de roteamento, subagentes. Nada do conteúdo das mensagens é lido das requisições ou respostas, mantido em memória, enviado ao navegador ou guardado. As páginas avisam que o conteúdo não é registrado. |
-| `true` | Também o **conteúdo**: de cada requisição, as mensagens novas desde a requisição anterior da mesma conversa (não o histórico inteiro, que é reenviado a cada turno), e a resposta (texto, raciocínio, chamadas de ferramenta com um resumo curto da entrada). Os textos são cortados em 20.000 caracteres (`…[truncated N chars]`). Cabeçalhos e credenciais nunca são capturados. |
+| `false` (padrão) | **Só metadados**: modelos, tokens, custo, tempos, status HTTP, motivo de parada, nomes das ferramentas chamadas, decisão de roteamento, subagentes. Nada sobre o conteúdo das mensagens é lido, mantido em memória, enviado ao navegador ou guardado; as páginas avisam isso |
+| `true` | Também os **conteúdos**: de cada requisição, as mensagens novas desde a requisição anterior da mesma conversa (não o histórico inteiro que é reenviado a cada volta), e a resposta (texto, raciocínio, chamadas de ferramentas com um resumo curto da entrada). Cada texto é cortado em 20.000 caracteres (`…[truncated N chars]`). Cabeçalhos e credenciais nunca são capturados |
 
-Com `log_bodies = true`, o conteúdo é guardado no banco (tabela `captured_turns`) e mantido só para sessões ativas ou entre as últimas 10, e nunca por mais que `[proxy] retention_days` (padrão 90). A limpeza roda quando o proxy inicia e a cada hora; ela esvazia o conteúdo (a linha de metadados permanece até passar `retention_days`). Tudo fica na sua máquina. Veja a [decisão](decisions.pt-BR.md) sobre o compromisso.
+Com `log_bodies = true`, os conteúdos ficam no banco local (tabela `captured_turns`) e só são mantidos para sessões ativas ou entre as últimas 10, e nunca por mais que `[proxy] retention_days` (padrão 90). A limpeza roda quando o proxy sobe e a cada hora; ela esvazia os conteúdos e a linha de metadados permanece até passar `retention_days`. Tudo fica na sua máquina, mas quem puder ler o banco lê os conteúdos. Mudar a configuração com `tokred proxy enable --record-content` reinicia um proxy em execução para que valha. O balanço dos prós e contras está em [decisions](decisions.pt-BR.md).
 
 ## O que ele mostra
 
-- Uma sessão tem o nome que o Claude Code dá a ela: o título que você escolheu, ou o que o próprio Claude Code gerou (lido do fim do transcript da sessão em `projects/`, e atualizado a cada 30 segundos, porque o Claude Code só nomeia a sessão depois do primeiro turno), com a pasta onde ela roda e um id curto embaixo do nome. Uma sessão sem transcript mostra o id curto. Só transcripts dentro da pasta do Claude Code são lidos, e deles só o título e a pasta são usados.
-- Uma sessão está **ativa** enquanto há uma requisição em andamento ou a última foi há menos de 5 minutos, **ociosa** nos 55 minutos seguintes e **encerrada** depois disso.
-- Um subagente conta como **em execução** enquanto há uma requisição dele em andamento e por 60 segundos após a última.
+- Uma sessão recebe o nome do jeito que o Claude Code a nomeia: o título que você deu, senão o gerado pelo Claude Code, com a pasta em que roda e um id curto. O título é lido do fim da transcrição da sessão em `projects/` e relido enquanto a sessão roda, porque o Claude Code só dá nome à sessão depois da primeira volta. Uma sessão sem transcrição mostra o id curto. Só transcrições dentro da pasta do Claude Code são lidas, e delas só se tiram o título e a pasta.
+- Uma sessão está **ativa** enquanto há uma requisição em andamento ou a última foi há menos de 5 minutos, **ociosa** até uma hora depois da última atividade, e **encerrada** depois disso.
+- Um subagente conta como **em execução** enquanto uma requisição dele está em andamento e por 60 segundos depois da última.
 - Os custos usam a tabela de preços do `tokred pricing`; um modelo sem preço não mostra custo.
-- O detalhe de uma sessão traz os 500 turnos mais recentes; `"truncated": true` indica que há turnos mais antigos no banco.
+- O detalhe de uma sessão traz as 500 voltas mais recentes; `"truncated": true` indica que há voltas mais antigas no banco.
 - Requisições sem id de sessão (algumas chamadas auxiliares) não são acompanhadas.
+- Uma requisição de compactação aparece como `auxiliary`.
 
 ## Referência da API
 
-Todas são `GET`, respondidas pelo proxy e nunca repassadas à API da Anthropic. Exigem o cookie de sessão.
+Para quem faz scripts. Todas as rotas são `GET`, respondidas pelo proxy e nunca encaminhadas à API da Anthropic, e exigem o cookie de sessão. Outros métodos respondem `405`, um caminho desconhecido sob `/dashboard/` responde `404` e um `Host` errado responde `421`.
 
 | Caminho | Resposta |
 |---|---|
 | `/metrics` | O relatório HTML |
-| `/dashboard`, `/dashboard/app.css`, `/dashboard/app.js` | O app de página única |
+| `/dashboard`, `/dashboard/app.css`, `/dashboard/app.js` | O aplicativo de página única |
 | `/dashboard/api/sessions` | `{"active": [S], "recent": [S]}`; `S.status` é `active` na primeira lista e `idle` ou `ended` na segunda |
-| `/dashboard/api/sessions/{id}` | `{"session": S, "turns": [T], "truncated"?: true}`, turno mais antigo primeiro; um turno em andamento tem `in_flight: true` e o texto recebido até agora em `response.text` |
-| `/dashboard/events` (`?session=<id>`) | `text/event-stream`: `session`, `turn_start`, `turn_delta`, `turn_end`, `subagent`; um comentário `: ping` a cada 15 segundos. Os eventos não são reenviados após uma reconexão: leia a API de novo |
+| `/dashboard/api/sessions/{id}` | `{"session": S, "turns": [T], "truncated"?: true}`, da volta mais antiga para a mais nova; uma volta em andamento tem `in_flight: true` e o texto recebido até agora em `response.text` |
+| `/dashboard/events` (`?session=<id>`) | `text/event-stream` com os eventos abaixo e um comentário `: ping` a cada 15 segundos. Eventos não são reenviados após uma reconexão: leia a API de novo |
 | `/favicon.ico`, `/dashboard/favicon.ico` | `204` |
 
-`S` (sessão): `id`, `started_at`, `last_activity_at` (segundos unix), `status`, `requests`, `models`, `cost_usd`, `input`, `output`, `cache_read`, `cache_write`, `subagents_running`, `content_recorded`.
+Sessão `S`: `id`, `started_at`, `last_activity_at` (segundos unix), `status`, `requests`, `models`, `cost_usd`, `input`, `output`, `cache_read`, `cache_write`, `subagents_running`, `content_recorded`.
 
-`T` (turno, uma requisição e sua resposta): `id`, `session_id`, `ts` (segundos unix), `origin` (`main`, `subagent` ou `auxiliary`; uma requisição de compactação é `auxiliary`), `agent_id`, `agent_type`, `model_requested`, `model_effective`, `status`, `stop_reason`, `usage` (`input`, `output`, `cache_write`, `cache_read`), `cost_usd`, `duration_ms`, `ttfb_ms`, `tools`, `routing` (`outcome`, `reason`), `in_flight`, `sent` (`[{role, text}]` ou `null`), `response` (`{text, thinking, tool_uses: [{name, input_summary}]}` ou `null`).
+Volta `T` (uma requisição e sua resposta): `id`, `session_id`, `ts` (segundos unix), `origin` (`main`, `subagent` ou `auxiliary`), `agent_id`, `agent_type`, `model_requested`, `model_effective`, `status`, `stop_reason`, `usage` (`input`, `output`, `cache_write`, `cache_read`), `cost_usd`, `duration_ms`, `ttfb_ms`, `tools`, `routing` (`outcome`, `reason`), `in_flight`, `sent` (`[{role, text}]` ou `null`), `response` (`{text, thinking, tool_uses: [{name, input_summary}]}` ou `null`).
 
-Eventos: `session` traz um `S`; `turn_start` um `T` com `in_flight: true` e sem resposta; `turn_delta` `{session_id, turn_id, text}` para acrescentar à resposta; `turn_end` o `T` final; `subagent` `{session_id, agent_id, agent_type, state: "running" | "finished", ts}`.
+Eventos:
 
-Outros métodos nesses caminhos respondem `405`; um `Host` errado responde `421`.
+| Evento | Dados |
+|---|---|
+| `session` | um `S` |
+| `turn_start` | um `T` com `in_flight: true` e sem resposta |
+| `turn_delta` | `{session_id, turn_id, text}`, para anexar à resposta (enviado só com `log_bodies = true`) |
+| `turn_end` | o `T` final |
+| `subagent` | `{session_id, agent_id, agent_type, state: "running" \| "finished", ts}` |
