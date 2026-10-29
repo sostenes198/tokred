@@ -238,11 +238,15 @@ fn restart_if_stale(io: &mut Io, ctx: &ProxyCtx<'_>, port: u16, record: bool) ->
     let Some((running, recorded)) = running_proxy(ctx) else {
         return Ok(());
     };
-    let wanted = if record { "recorded" } else { "not recorded" };
+    let wanted = if record {
+        "be recorded"
+    } else {
+        "not be recorded"
+    };
     let why = if running != port {
         format!("is running on port {running}; restarting it on port {port}")
     } else if recorded != Some(record) {
-        format!("has to restart to apply the setting; conversation content will be {wanted}")
+        format!("has to restart to apply the setting; conversation content will {wanted}")
     } else {
         return Ok(());
     };
@@ -1271,7 +1275,7 @@ mod tests {
                 let wanted = if record {
                     "will be recorded"
                 } else {
-                    "will be not recorded"
+                    "will not be recorded"
                 };
                 assert!(out.contains(wanted), "{out}");
             }

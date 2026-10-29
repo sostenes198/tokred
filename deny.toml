@@ -6,7 +6,7 @@ unmaintained = "workspace"
 yanked = "deny"
 
 [licenses]
-# Spec section 15: MIT, Apache-2.0, BSD, ISC, Unicode, Zlib.
+# Allowed licenses: MIT, Apache-2.0, BSD, ISC, Unicode, Zlib.
 # CDLA-Permissive-2.0 covers the Mozilla CA certificate data bundled by webpki-roots (via ureq).
 allow = ["MIT", "Apache-2.0", "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib", "CDLA-Permissive-2.0"]
 confidence-threshold = 0.9

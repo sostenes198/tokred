@@ -179,7 +179,7 @@ pub enum ServiceCommand {
 /// Sub-commands of `tokred routing`.
 #[derive(Debug, Subcommand)]
 pub enum RoutingCommand {
-    /// Mode, circuit breaker and recent decisions.
+    /// Mode and recent routing decisions.
     Status {
         /// Machine-readable output.
         #[arg(long)]

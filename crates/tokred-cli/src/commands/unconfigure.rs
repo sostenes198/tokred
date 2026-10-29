@@ -87,7 +87,11 @@ fn purge_data_folder(fs: &dyn FileSystem, env: &Env) -> Result<String> {
             show(root)
         ));
     }
-    if !(fs.exists(&env.data.db_path()) || fs.exists(&env.data.config_path())) {
+    let proxy_secret = crate::daemon::ProxyFiles::new(root.join("proxy")).secret_path();
+    let looks_like_tokreds = [env.data.db_path(), env.data.config_path(), proxy_secret]
+        .iter()
+        .any(|path| fs.exists(path));
+    if !looks_like_tokreds {
         bail!(
             "refusing to purge {}: it does not look like a tokred data folder",
             show(root)
@@ -180,6 +184,19 @@ mod tests {
         let (result, out) = unconfigure_cmd(&sb, true);
         result.unwrap();
         assert!(out.contains("nothing to purge"));
+    }
+
+    #[test]
+    fn purge_deletes_a_folder_that_only_holds_the_proxy_files() {
+        let sb = Sandbox::new();
+        sb.write_settings("{}");
+        let proxy = sb.env.data.root().join("proxy");
+        std::fs::create_dir_all(&proxy).unwrap();
+        std::fs::write(proxy.join("secret"), "s".repeat(32)).unwrap();
+        let (result, out) = unconfigure_cmd(&sb, true);
+        result.unwrap();
+        assert!(out.contains("data folder deleted"), "{out}");
+        assert!(!sb.env.data.root().exists());
     }
 
     #[test]

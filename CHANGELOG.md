@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- `tokred uninstall` no longer refuses to delete a data folder that holds only the proxy's files (no database or `tokred.toml` yet).
+- Clearer messages: `proxy enable` says conversation content "will not be recorded", the proxy's refusal to listen on a non-loopback address no longer suggests a `--bind` that cannot allow it, and `routing status --help` no longer promises a circuit breaker it does not show.
 - `tokred uninstall` no longer runs its final cleanup from a fixed file in the shared temporary folder: the script is written to a new, uniquely named file that only its owner can read (another user could have planted a file at the fixed name, and two uninstalls at once collided). The Windows cleanup now removes the PATH entry and the profile wrapper before the binary, so the binary's folder disappearing means it is done.
 
 ## [0.1.0-rc.3] - 2026-10-29

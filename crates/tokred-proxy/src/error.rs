@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 #[derive(Debug, thiserror::Error)]
 pub enum ProxyError {
     /// The bind address is not loopback and `allow_non_loopback` was not set.
-    #[error("refusing to listen on {0}: only loopback addresses are allowed without --bind")]
+    #[error("refusing to listen on {0}: the proxy only listens on loopback addresses")]
     NonLoopback(SocketAddr),
     /// The bind address could not be parsed.
     #[error("invalid bind address `{0}`")]

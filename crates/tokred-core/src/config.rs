@@ -226,7 +226,7 @@ pub struct ProxyConfig {
     pub upstream: String,
     /// Days of proxy records kept.
     pub retention_days: u32,
-    /// Log request bodies (debugging only; never credentials).
+    /// Record conversation content for the dashboard (never credentials). Off: metadata only.
     pub log_bodies: bool,
     /// A PEM file of certificate authorities to trust for the upstream, in addition to the
     /// bundled roots, the operating system's and `NODE_EXTRA_CA_CERTS` / `SSL_CERT_FILE`.

@@ -8,6 +8,8 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ### Corrigido
 
+- O `tokred uninstall` não se recusa mais a apagar uma pasta de dados que só tem os arquivos do proxy (ainda sem banco de dados nem `tokred.toml`).
+- Mensagens mais claras: o `proxy enable` diz que o conteúdo das conversas "will not be recorded", a recusa do proxy a escutar em endereço fora do loopback não sugere mais um `--bind` que não pode permitir isso, e o `routing status --help` não promete mais um circuit breaker que não mostra.
 - O `tokred uninstall` não executa mais a limpeza final a partir de um arquivo fixo na pasta temporária compartilhada: o script é gravado num arquivo novo, de nome único, que só o dono lê (outro usuário poderia ter plantado um arquivo no nome fixo, e dois desinstaladores ao mesmo tempo colidiam). A limpeza no Windows agora remove a entrada do PATH e o wrapper do perfil antes do binário, então a pasta do binário sumir significa que terminou.
 
 ## [0.1.0-rc.3] - 2026-10-29
