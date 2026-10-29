@@ -20,7 +20,7 @@ cargo test -p tokred -- --nocapture          # show what tests print
 |---|---|
 | `#[cfg(test)]` modules | Pure logic: classification, pricing, routing decisions, compression, config |
 | `crates/<crate>/tests/` | Real SQLite files, real temp folders, the proxy against a fake upstream (forwarding, streaming, gzip) |
-| `crates/tokred-cli/tests/e2e.rs` | The real `tokred` binary: `configure` (port and content flags), hooks, `doctor`, `unconfigure`, `uninstall` in a sandbox |
+| `crates/tokred-cli/tests/e2e.rs` | The real `tokred` binary: `configure` (hooks and agents only; it leaves the proxy alone), `proxy enable` argument checks, hooks, `doctor`, `unconfigure`, `uninstall` in a sandbox |
 | `crates/tokred-proxy/tests/network.rs` | The corporate-network path: a fake HTTP proxy answering `CONNECT` in front of a fake HTTPS upstream signed by a throwaway authority (`rcgen`), `NO_PROXY`, refused tunnels, bad values; `network_logs.rs` checks that credentials never reach the logs |
 | `crates/tokred-cli/tests/proxy_e2e.rs` | The real binary running the proxy: forwarding, recording, `Host` check, `tokred claude`, advice commands, the process exiting after `proxy stop`, `proxy start` with captured output (on Windows a detached proxy used to keep the caller waiting; the first CI run on Windows is the check of the `Start-Process` launch) |
 | `tests/installer/install_test.sh`, `install_test.ps1` | The install and uninstall scripts against a fake release (see below) |
@@ -63,7 +63,7 @@ cargo build -p tokred && sh tests/installer/install_test.sh
 shellcheck install/*.sh tests/installer/*.sh        # what the CI `shellcheck` job runs
 ```
 
-The shell test covers: install, the `PATH`/`claude` block written once and byte-identical on a second run, a new shell finding `tokred --version`, the wrapper end to end in `sh`, `bash`, `dash` and `zsh` when present (a fake `claude` that records its arguments and a fake `tokred` that records that `initialize` ran first; arguments with spaces, quotes, an empty string, `*` and `$HOME` arrive intact; `claude` still runs without `tokred`; `command claude` bypasses it), an existing `alias claude` in zsh, `--no-alias`, `--no-modify-path`, `TOKRED_NO_ALIAS=1`, fish and zsh files, uninstall (everything gone, other lines kept, `--purge`), a wrong checksum, a missing release, a bad port and unknown flags. The wrapper test uses a fake `tokred`; `tokred initialize` itself is tested in its own crate.
+The shell test covers: install, the `PATH`/`claude` block written once and byte-identical on a second run, a new shell finding `tokred --version`, the wrapper end to end in `sh`, `bash`, `dash` and `zsh` when present (a fake `claude` that records its arguments and a fake `tokred` that records that `initialize` ran first; arguments with spaces, quotes, an empty string, `*` and `$HOME` arrive intact; `claude` still runs without `tokred`; `command claude` bypasses it), an existing `alias claude` in zsh, `--no-alias`, `--no-modify-path`, `TOKRED_NO_ALIAS=1`, the proxy step (`--port` reaching `[proxy] bind` through `tokred proxy enable` and a running proxy that the test then stops; `--no-proxy` and `TOKRED_NO_PROXY=1` leaving `[proxy]` untouched; the other installs run with `--no-proxy` so no proxy is left running), fish and zsh files, uninstall (everything gone, other lines kept, `--purge`), a wrong checksum, a missing release, a bad port and unknown flags. The wrapper test uses a fake `tokred`; `tokred initialize` itself is tested in its own crate.
 
 `install_test.ps1` is the same story for Windows; it edits the runner's user `PATH` and PowerShell profile and restores them, so outside CI it needs `-AllowRealProfile`. To try the scripts by hand without a release, see [release](release.md).
 
@@ -113,7 +113,7 @@ PY
 ```sh
 # Terminal B (with the sandbox exports above)
 sed -i '' 's#^upstream = .*#upstream = "http://127.0.0.1:9000"#' "$TOKRED_DATA_DIR/tokred.toml"   # Linux: sed -i without ''
-tokred proxy start && tokred proxy status
+tokred proxy enable --yes && tokred proxy status   # the proxy is set up by `enable`: port 1029, content not recorded
 
 # a small request (no tools, one message: tokred sees it as "auxiliary"), then a "subagent" one (it carries an agent id)
 curl -s http://127.0.0.1:1029/v1/messages -H 'x-api-key: test' -H 'x-claude-code-session-id: s1' \
@@ -139,6 +139,7 @@ What to check:
 You need your own login (an API key, or `claude` logged into a subscription). Using a throwaway `CLAUDE_CONFIG_DIR` means logging in again inside it; that is intended.
 
 ```sh
+tokred proxy enable --yes   # the features are off until this (the sandbox's data folder, so nothing real changes)
 tokred claude                # same as `claude`, through the proxy, for this run only
 # work for a minute, with at least one subagent (e.g. ask it to "explore the repo")
 tokred routing status        # decisions for the subagent requests

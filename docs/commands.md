@@ -6,7 +6,7 @@ Every command that prints a report accepts `--json` for machine-readable output.
 
 | Command | What it does |
 |---|---|
-| `tokred configure` | Integrate with Claude Code |
+| `tokred configure` | Integrate with Claude Code: hooks and agents (the proxy is `proxy enable`) |
 | `tokred update` | Replace the binary when the install script put it there; otherwise say to reinstall |
 | `tokred unconfigure` | Remove tokred's hooks and agents from Claude Code (the proxy is not touched) |
 | `tokred uninstall` | Remove tokred completely, without asking: proxy and service, hooks, agents, proxy URL, data folder, binary, `PATH` entry and `claude` wrapper |
@@ -18,7 +18,7 @@ Every command that prints a report accepts `--json` for machine-readable output.
 | `tokred pricing sync` / `show` | Refresh or show the price table |
 | `tokred cache stats` / `prune` | State of the tiered cache; remove expired entries |
 | `tokred proxy start` / `stop` / `status` | Run and inspect the optional [local proxy](proxy.md) |
-| `tokred proxy enable` / `disable` | Turn the proxy features on or off (`[proxy] enabled`) and apply it at once |
+| `tokred proxy enable` / `disable` | Turn the proxy features on (choosing the port and content recording) or off, and apply it at once |
 | `tokred proxy service install` / `uninstall` | Start the proxy at login, as a user service |
 | `tokred initialize` | Make Claude Code's settings agree with `[proxy] enabled`; run by the `claude` shell wrapper before every launch |
 | `tokred claude [args...]` | Run Claude Code through the proxy, for this run only |
@@ -32,23 +32,18 @@ Every command that prints a report accepts `--json` for machine-readable output.
 
 The folder of Claude Code can be given with `--claude-dir <path>` on every command that needs it.
 
-## `tokred configure [--claude-dir <path>] [--yes] [--force] [--proxy-port <n>] [--record-content | --no-record-content]`
+## `tokred configure [--claude-dir <path>] [--yes] [--force]`
 
-Integrates tokred with Claude Code. The install script runs it for you; run it again any time.
+Integrates tokred with Claude Code: the hooks and the agents, plus what is neutral (the database and the default `tokred.toml`). It does **not** set up the proxy: the port, the recording of conversation content and `[proxy] enabled` are all `tokred proxy enable` (below), and `configure` writes no `[proxy]` value beyond the defaults (`enabled = false`). The install script runs both for you; run it again any time.
 
 1. Finds the Claude Code folder, in this order: `--claude-dir`, the value saved in `tokred.toml` (`[claude] dir`), `$CLAUDE_CONFIG_DIR`, `~/.claude` (`%USERPROFILE%\.claude` on Windows). A folder is valid when it exists and contains `settings.json` or `projects/`. An explicit `--claude-dir` that is not valid is an error. If nothing is found, an interactive terminal is asked for the path; otherwise the command fails and suggests `--claude-dir`.
 2. Detects rtk and tells you the two will coexist.
-3. Prints the **plan**: hooks to add (`+`), update (`~`) or keep (`=`), agents to create, update or leave alone, and the backup it will make. It asks for confirmation; `--yes` skips the question (required when stdin is not a terminal).
-4. In a terminal, asks the two proxy questions (see below), unless a flag or variable already answered them.
-5. Applies it: creates the data folder, database and `tokred.toml`, merges `settings.json` (backup in `settings.json.tokred.bak`, only the last one is kept), and installs the agents.
+3. Prints the **plan**: hooks to add (`+`), update (`~`) or keep (`=`), agents to create, update or leave alone, and the backup it will make. It asks for confirmation; `--yes` skips the question (required when stdin is not a terminal). Answering no changes nothing and exits with code 2, which the install script reads as "stop": it then does not run `tokred proxy enable` either.
+4. Applies it: creates the data folder, database and `tokred.toml`, merges `settings.json` (backup in `settings.json.tokred.bak`, only the last one is kept), and installs the agents.
 
 Running it again is safe: the result is the same. If `settings.json` is not valid JSON the command aborts and **writes nothing**. `--force` overwrites agent files even if you edited them (otherwise your version is kept and the new one is written to `tokred-x.md.new`).
 
-**The proxy port.** `--proxy-port <n>` (or `TOKRED_PORT`) sets `[proxy] bind` to `<host>:<n>` (the host of an existing value is kept, default `127.0.0.1`). Without it, a terminal is asked: "Port for the tokred proxy [1029]" (the default is the saved port, else 1029). A non-number, a port below 1024 and a port above 65535 are rejected; the command tries to bind `127.0.0.1:<port>` to see that it is free, and when it is busy it says so and asks again. A port the proxy of this installation already listens on is accepted. A port given by flag is not asked about; if something else listens on it you get a warning (the proxy will not start until it is free).
-
-**Content recording.** `--record-content` / `--no-record-content` (or `TOKRED_RECORD_CONTENT=1|0`) set `[proxy] log_bodies`. Without them, a terminal is asked "Record conversation content so the dashboard can show it? [Y/n]" with the explanation that the text stays in tokred's own database on this machine and headers and credentials are never recorded (the default is the saved value, else yes).
-
-**Without a terminal** (or with `--yes`) nothing is asked: a flag, else the environment variable, else the value already in `tokred.toml`, else the default (port 1029, content **not** recorded). Choices that were not given are never changed, so the quiet re-run after every upgrade keeps yours.
+A value that the user chose for the proxy (in `tokred.toml`, or through `proxy enable`) is never changed by `configure`, so the quiet re-run after every upgrade keeps it.
 
 ## `tokred update [--claude-dir <path>]`
 
@@ -105,9 +100,18 @@ Estimates (characters / 4) the weight of the context Claude Code loads before yo
 
 The optional [local proxy](proxy.md). `start` runs it in the background (the same binary, `proxy start --foreground`); `--foreground` keeps it in the terminal, which is what the user service uses. `--bind` overrides `[proxy] bind` (default `127.0.0.1:1029`). `stop` asks it to shut down and waits until it has. `status` shows whether it is running, whether the user service is installed, whether this terminal's `ANTHROPIC_BASE_URL` points to it, and the routing and compression modes. With `--json` the `network` field has the HTTP proxy (host and port only) and the extra CA files the proxy uses. It is a background process that does not keep the output pipes of its caller, so `out=$(tokred proxy start)` returns (on Windows it is started through PowerShell's `Start-Process` for that reason).
 
-## `tokred proxy enable` / `disable`
+## `tokred proxy enable [--port <n>] [--record-content <true|false>] [--yes]` / `disable`
 
-Set `[proxy] enabled` in `tokred.toml` and apply it at once. `enable` starts the proxy if needed and, once it answers, sets `env.ANTHROPIC_BASE_URL` in Claude Code's `settings.json` to the proxy's URL. `disable` removes tokred's URL from there and leaves a running proxy running (`tokred proxy stop` stops it). While disabled, `proxy start` and `proxy service install` refuse, `tokred claude` runs `claude` directly and `doctor` shows "disabled"; `proxy stop` and `proxy status` still work. A different gateway in `ANTHROPIC_BASE_URL` is never overwritten or removed: `enable` then only saves the setting and says so. See [proxy](proxy.md).
+Turn the proxy features on or off and apply it at once. This is the one place that sets the proxy up.
+
+`enable` chooses two things, saves them with `[proxy] enabled = true` in `tokred.toml` (in place: your other keys stay), starts the proxy if needed and, once it answers, sets `env.ANTHROPIC_BASE_URL` in Claude Code's `settings.json` to the proxy's URL:
+
+- **The port.** `--port <n>` (or `TOKRED_PORT`; the flag wins) sets `[proxy] bind` to `<host>:<n>` (the host of an existing value is kept, default `127.0.0.1`). Without it, a terminal is asked: "Port for the tokred proxy [1029]" (the default is the saved port, else 1029). A non-number, a port below 1024 and a port above 65535 are rejected; the command tries to bind `127.0.0.1:<port>` to see that it is free, and when it is busy it says so and asks again. A port the proxy of this installation already listens on is accepted. A port given by flag or variable is not asked about; if something else listens on it you get a warning (the proxy will not start until it is free).
+- **Content recording.** `--record-content <value>` (or `TOKRED_RECORD_CONTENT`; the flag wins) sets `[proxy] log_bodies`. The value is `true`, `false`, `yes`, `no`, `1` or `0`, in any letter case. Without it, a terminal is asked "Record conversation content so the dashboard can show it? [Y/n]" with the explanation that the text stays in tokred's own database on this machine and headers and credentials are never recorded. The default is the value saved by an earlier `enable`, else yes.
+
+**Without a terminal** (or with `--yes`) nothing is asked: only what a flag or variable says is changed; the rest keeps the saved value, else the defaults (port 1029, content **not** recorded). If the proxy is already running on another port than the new one, it is stopped and started again on the new port, and the command says so.
+
+`disable` removes tokred's URL from there and leaves a running proxy running (`tokred proxy stop` stops it). While disabled, `proxy start` and `proxy service install` refuse, `tokred claude` runs `claude` directly and `doctor` shows "disabled"; `proxy stop` and `proxy status` still work. A different gateway in `ANTHROPIC_BASE_URL` is never overwritten or removed: `enable` then only saves the setting and says so. See [proxy](proxy.md).
 
 ## `tokred initialize [--quiet | --verbose] [--json]`
 

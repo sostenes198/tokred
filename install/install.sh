@@ -8,8 +8,9 @@
 #   2. installs the binary into ${TOKRED_HOME:-$HOME/.tokred}/bin;
 #   3. adds that folder to PATH and defines a `claude` wrapper in your shell profiles
 #      (one marked block, so it can be replaced or removed cleanly);
-#   4. runs `tokred configure`, which asks for the proxy port and whether conversation
-#      content may be recorded for the dashboard.
+#   4. runs `tokred configure` (the hooks and the agents), then `tokred proxy enable`, which
+#      asks for the proxy port and whether conversation content may be recorded for the
+#      dashboard, saves the answers, starts the proxy and points Claude Code at it.
 # It never uses sudo and never writes outside TOKRED_HOME and your shell profile files.
 #
 # Options (environment variable in brackets):
@@ -18,6 +19,7 @@
 #   --version X          install release vX instead of the latest [TOKRED_VERSION]
 #   --no-modify-path     do not touch PATH [TOKRED_NO_MODIFY_PATH=1]
 #   --no-alias           do not define the `claude` wrapper [TOKRED_NO_ALIAS=1]
+#   --no-proxy           hooks and agents only: do not enable the proxy [TOKRED_NO_PROXY=1]
 #   --no-configure       only install the binary [TOKRED_NO_CONFIGURE=1]
 #   -h, --help           this text
 # Other environment variables: TOKRED_HOME, TOKRED_RELEASE_BASE_URL (an https:// or file://
@@ -48,6 +50,7 @@ Usage: install.sh [options]
   --version X          install release vX, not the latest [TOKRED_VERSION]
   --no-modify-path     do not touch PATH                  [TOKRED_NO_MODIFY_PATH=1]
   --no-alias           do not define the claude wrapper   [TOKRED_NO_ALIAS=1]
+  --no-proxy           hooks and agents only, no proxy    [TOKRED_NO_PROXY=1]
   --no-configure       only install the binary            [TOKRED_NO_CONFIGURE=1]
   -h, --help           this text
 
@@ -65,10 +68,12 @@ PORT="${TOKRED_PORT:-}"
 VERSION="${TOKRED_VERSION:-}"
 NO_PATH=0
 NO_ALIAS=0
+NO_PROXY=0
 NO_CONFIGURE=0
 if is_on "${TOKRED_YES:-}"; then YES=1; fi
 if is_on "${TOKRED_NO_MODIFY_PATH:-}"; then NO_PATH=1; fi
 if is_on "${TOKRED_NO_ALIAS:-}"; then NO_ALIAS=1; fi
+if is_on "${TOKRED_NO_PROXY:-}"; then NO_PROXY=1; fi
 if is_on "${TOKRED_NO_CONFIGURE:-}"; then NO_CONFIGURE=1; fi
 
 [ -n "${HOME:-}" ] || { printf 'error: HOME is not set\n' >&2; exit 1; }
@@ -91,6 +96,7 @@ while [ $# -gt 0 ]; do
         --version=*) VERSION="${1#--version=}" ;;
         --no-modify-path) NO_PATH=1 ;;
         --no-alias) NO_ALIAS=1 ;;
+        --no-proxy) NO_PROXY=1 ;;
         --no-configure) NO_CONFIGURE=1 ;;
         -h | --help)
             usage
@@ -303,30 +309,66 @@ else
     fi
 fi
 
+# How the questions of `tokred configure` and `tokred proxy enable` are answered. `curl | sh`
+# leaves stdin as the pipe: talk to the terminal when there is one, else nobody can answer.
+#   stdin: stdin is the terminal      tty: ask on /dev/tty      none: no questions (defaults)
+if [ "$YES" = "1" ]; then
+    ASK=none
+elif [ -t 0 ]; then
+    ASK=stdin
+elif have_tty; then
+    ASK=tty
+else
+    ASK=none
+fi
+
+# run_tokred ARGS...: runs the installed tokred the way $ASK says.
+run_tokred() {
+    case "$ASK" in
+        stdin) PATH="$BIN_DIR:$PATH" "$BIN_DIR/tokred" "$@" ;;
+        tty) PATH="$BIN_DIR:$PATH" "$BIN_DIR/tokred" "$@" </dev/tty ;;
+        *) PATH="$BIN_DIR:$PATH" "$BIN_DIR/tokred" "$@" </dev/null ;;
+    esac
+}
+
 CONFIGURED=0
 if [ "$NO_CONFIGURE" = "1" ]; then
     step "Skipping tokred configure (--no-configure); run it yourself when you are ready"
 else
     step "Running tokred configure"
     set -- configure
-    if [ -n "$PORT" ]; then
-        set -- "$@" --proxy-port "$PORT"
-    fi
-    # `curl | sh` leaves stdin as the pipe: talk to the terminal when there is one.
-    if [ "$YES" = "1" ]; then
+    if [ "$ASK" = "none" ]; then
+        if [ "$YES" != "1" ]; then
+            say "    no terminal to ask on: applying the defaults (--yes)"
+        fi
         set -- "$@" --yes
-        if PATH="$BIN_DIR:$PATH" "$BIN_DIR/tokred" "$@" </dev/null; then CONFIGURED=1; fi
-    elif [ -t 0 ]; then
-        if PATH="$BIN_DIR:$PATH" "$BIN_DIR/tokred" "$@"; then CONFIGURED=1; fi
-    elif have_tty; then
-        if PATH="$BIN_DIR:$PATH" "$BIN_DIR/tokred" "$@" </dev/tty; then CONFIGURED=1; fi
+    fi
+    STATUS=0
+    run_tokred "$@" || STATUS=$?
+    case "$STATUS" in
+        0) CONFIGURED=1 ;;
+        # The plan was declined: nothing was changed, and the proxy is left alone too.
+        2) say "    configure was declined: leaving Claude Code and the proxy alone" ;;
+        *) warn "tokred is installed, but 'tokred configure' did not finish (is Claude Code installed?). Run it again when you are ready." ;;
+    esac
+fi
+
+# The proxy is a separate step: `tokred configure` only touches hooks and agents.
+if [ "$CONFIGURED" = "1" ]; then
+    if [ "$NO_PROXY" = "1" ]; then
+        step "Skipping the proxy (--no-proxy); run 'tokred proxy enable' when you want it"
     else
-        say "    no terminal to ask on: applying the defaults (--yes)"
-        set -- "$@" --yes
-        if PATH="$BIN_DIR:$PATH" "$BIN_DIR/tokred" "$@" </dev/null; then CONFIGURED=1; fi
-    fi
-    if [ "$CONFIGURED" != "1" ]; then
-        warn "tokred is installed, but 'tokred configure' did not finish (is Claude Code installed?). Run it again when you are ready."
+        step "Running tokred proxy enable"
+        set -- proxy enable
+        if [ -n "$PORT" ]; then
+            set -- "$@" --port "$PORT"
+        fi
+        if [ "$ASK" = "none" ]; then
+            set -- "$@" --yes
+        fi
+        if ! run_tokred "$@"; then
+            warn "tokred is installed and configured, but 'tokred proxy enable' did not finish. Run it again when you are ready."
+        fi
     fi
 fi
 

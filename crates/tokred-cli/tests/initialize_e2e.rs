@@ -48,11 +48,11 @@ impl Sandbox {
         let path = sb.data().join("tokred.toml");
         let toml = std::fs::read_to_string(&path).unwrap();
         assert!(
-            toml.contains("enabled = true"),
-            "configure enables it: {toml}"
+            toml.contains("enabled = false"),
+            "configure leaves the proxy off: {toml}"
         );
         let toml = toml
-            .replace("enabled = true", &format!("enabled = {enabled}"))
+            .replace("enabled = false", &format!("enabled = {enabled}"))
             .replace(
                 "bind = \"127.0.0.1:1029\"",
                 &format!("bind = \"127.0.0.1:{}\"", sb.port),
@@ -124,36 +124,46 @@ impl Sandbox {
 
     /// Whether a tokred proxy answers on the port.
     fn proxy_answers(&self) -> bool {
-        let Ok(mut stream) = TcpStream::connect(("127.0.0.1", self.port)) else {
-            return false;
-        };
-        let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
-        let request = format!(
-            "GET /__tokred/health HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nconnection: close\r\n\r\n",
-            self.port
-        );
-        let _ = stream.write_all(request.as_bytes());
-        let mut text = String::new();
-        let _ = stream.read_to_string(&mut text);
-        text.contains("\"ok\":true")
+        answers_on(self.port)
     }
 
     #[cfg(unix)]
     fn wait_for_proxy(&self) -> bool {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while Instant::now() < deadline {
-            if self.proxy_answers() {
-                return true;
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        false
+        wait_for(self.port)
     }
 
     #[cfg(unix)]
     fn stop_proxy(&self) {
         self.tokred().args(["proxy", "stop"]).assert().success();
     }
+}
+
+/// Whether a tokred proxy answers on `port`.
+fn answers_on(port: u16) -> bool {
+    let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+    let request = format!(
+        "GET /__tokred/health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nconnection: close\r\n\r\n"
+    );
+    let _ = stream.write_all(request.as_bytes());
+    let mut text = String::new();
+    let _ = stream.read_to_string(&mut text);
+    text.contains("\"ok\":true")
+}
+
+/// Waits up to ten seconds for a tokred proxy to answer on `port`.
+#[cfg(unix)]
+fn wait_for(port: u16) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        if answers_on(port) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    false
 }
 
 #[test]
@@ -427,4 +437,50 @@ fn doctor_shows_the_switch() {
         .assert()
         .success()
         .stdout(predicate::str::contains("proxy:       disabled"));
+}
+
+/// `proxy enable` saves its answers, starts the proxy and, asked for another port, moves it.
+#[cfg(unix)]
+#[test]
+fn proxy_enable_saves_its_answers_and_moves_a_running_proxy_to_the_new_port() {
+    let sb = Sandbox::new(false);
+    let first = sb.port.to_string();
+    let status = sb.run_plain(&[
+        "proxy",
+        "enable",
+        "--port",
+        &first,
+        "--record-content",
+        "Yes",
+    ]);
+    assert!(status.success());
+    assert!(sb.wait_for_proxy());
+    let toml = std::fs::read_to_string(sb.data().join("tokred.toml")).unwrap();
+    assert!(toml.contains("enabled = true"), "{toml}");
+    assert!(toml.contains("log_bodies = true"), "{toml}");
+    assert!(
+        toml.contains(&format!("bind = \"127.0.0.1:{first}\"")),
+        "{toml}"
+    );
+    assert!(sb.settings_text().contains(&sb.url()));
+
+    let other = free_port();
+    let status = sb.run_plain(&["proxy", "enable", "--port", &other.to_string()]);
+    assert!(status.success());
+    assert!(wait_for(other), "the proxy runs on the new port");
+    assert!(!sb.proxy_answers(), "and no longer on the old one");
+    let toml = std::fs::read_to_string(sb.data().join("tokred.toml")).unwrap();
+    assert!(
+        toml.contains(&format!("bind = \"127.0.0.1:{other}\"")),
+        "{toml}"
+    );
+    assert!(
+        toml.contains("log_bodies = true"),
+        "the saved answer stays: {toml}"
+    );
+    assert!(
+        sb.settings_text()
+            .contains(&format!("http://127.0.0.1:{other}"))
+    );
+    sb.stop_proxy();
 }

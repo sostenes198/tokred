@@ -9,8 +9,9 @@
   2. installs tokred.exe into %LOCALAPPDATA%\tokred\bin (or $env:TOKRED_HOME\bin);
   3. adds that folder to your user PATH and defines a `claude` function in your PowerShell
      profile (one marked block, so it can be replaced or removed cleanly);
-  4. runs `tokred configure`, which asks for the proxy port and whether conversation content may
-     be recorded for the dashboard.
+  4. runs `tokred configure` (the hooks and the agents), then `tokred proxy enable`, which asks
+     for the proxy port and whether conversation content may be recorded for the dashboard,
+     saves the answers, starts the proxy and points Claude Code at it.
   It never needs administrator rights and never writes outside the tokred folder, your user PATH
   and your PowerShell profile files. cmd.exe has no persistent aliases: the wrapper covers
   PowerShell only.
@@ -21,6 +22,7 @@
     -Version X       TOKRED_VERSION=X         install release vX instead of the latest
     -NoModifyPath    TOKRED_NO_MODIFY_PATH=1  do not touch the user PATH
     -NoAlias         TOKRED_NO_ALIAS=1        do not define the claude wrapper
+    -NoProxy         TOKRED_NO_PROXY=1        hooks and agents only: do not enable the proxy
     -NoConfigure     TOKRED_NO_CONFIGURE=1    only install the binary
   Also: TOKRED_HOME, TOKRED_RELEASE_BASE_URL (an https:// or file:// folder with the release
   assets; used by the tests and for mirrors).
@@ -34,7 +36,8 @@ param(
     [string]$Version = '',
     [switch]$NoModifyPath,
     [switch]$NoConfigure,
-    [switch]$NoAlias
+    [switch]$NoAlias,
+    [switch]$NoProxy
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,6 +60,7 @@ function Write-Step([string]$Message) {
 if (Test-On $env:TOKRED_YES) { $Yes = $true }
 if (Test-On $env:TOKRED_NO_MODIFY_PATH) { $NoModifyPath = $true }
 if (Test-On $env:TOKRED_NO_ALIAS) { $NoAlias = $true }
+if (Test-On $env:TOKRED_NO_PROXY) { $NoProxy = $true }
 if (Test-On $env:TOKRED_NO_CONFIGURE) { $NoConfigure = $true }
 if (-not $Version -and $env:TOKRED_VERSION) { $Version = $env:TOKRED_VERSION }
 if ($Port -eq 0 -and $env:TOKRED_PORT) {
@@ -239,23 +243,49 @@ else {
     }
 }
 
+# Nobody can answer questions with -Yes or when stdin is redirected (then the defaults apply).
+$canAsk = (-not $Yes) -and (-not [Console]::IsInputRedirected)
+
+$configured = $false
 if ($NoConfigure) {
     Write-Step 'Skipping tokred configure (-NoConfigure); run it yourself when you are ready'
 }
 else {
     Write-Step 'Running tokred configure'
     $configureArgs = @('configure')
-    if ($Port -gt 0) { $configureArgs += @('--proxy-port', "$Port") }
-    if ($Yes) {
-        $configureArgs += '--yes'
-    }
-    elseif ([Console]::IsInputRedirected) {
-        Write-Host '    no terminal to ask on: applying the defaults (--yes)'
+    if (-not $canAsk) {
+        if (-not $Yes) {
+            Write-Host '    no terminal to ask on: applying the defaults (--yes)'
+        }
         $configureArgs += '--yes'
     }
     & $exe @configureArgs
-    if ($LASTEXITCODE -ne 0) {
+    if ($LASTEXITCODE -eq 0) {
+        $configured = $true
+    }
+    elseif ($LASTEXITCODE -eq 2) {
+        # The plan was declined: nothing was changed, and the proxy is left alone too.
+        Write-Host '    configure was declined: leaving Claude Code and the proxy alone'
+    }
+    else {
         Write-Warning "tokred is installed, but 'tokred configure' did not finish (is Claude Code installed?). Run it again when you are ready."
+    }
+}
+
+# The proxy is a separate step: `tokred configure` only touches hooks and agents.
+if ($configured) {
+    if ($NoProxy) {
+        Write-Step "Skipping the proxy (-NoProxy); run 'tokred proxy enable' when you want it"
+    }
+    else {
+        Write-Step 'Running tokred proxy enable'
+        $proxyArgs = @('proxy', 'enable')
+        if ($Port -gt 0) { $proxyArgs += @('--port', "$Port") }
+        if (-not $canAsk) { $proxyArgs += '--yes' }
+        & $exe @proxyArgs
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "tokred is installed and configured, but 'tokred proxy enable' did not finish. Run it again when you are ready."
+        }
     }
 }
 

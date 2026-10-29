@@ -27,11 +27,11 @@
 | `TOKRED_BENCH_RUNS` | Runs per payload of `tokred doctor --bench` (default 50) |
 | `TOKRED_HOOK_GUARD_MS` | Overrides the 2 s time limit of a hook (used by the tests) |
 | `TOKRED_PROXY_OVERHEAD_REPORT` | Used by the proxy overhead test only: file to write the measured percentiles to |
-| `TOKRED_PORT` | Proxy port for `tokred configure` and the install scripts (1024 to 65535); the `--proxy-port` / `--port` flag wins over it |
-| `TOKRED_RECORD_CONTENT` | `1` lets `tokred configure` enable `[proxy] log_bodies`, `0` disables it, without asking; the `--record-content` / `--no-record-content` flags win over it |
+| `TOKRED_PORT` | Proxy port for `tokred proxy enable` and the install scripts (1024 to 65535); the `--port` flag wins over it |
+| `TOKRED_RECORD_CONTENT` | Answers `tokred proxy enable`'s question about recording conversation content (`[proxy] log_bodies`) without asking: `true`, `false`, `yes`, `no`, `1` or `0`; the `--record-content` flag wins over it |
 | `TOKRED_HOME` | Where the install script put the binary (`$TOKRED_HOME/bin`; default `~/.tokred`, Windows `%LOCALAPPDATA%\tokred`); `tokred update` only replaces a binary that lives there |
 | `TOKRED_RELEASE_BASE_URL` | Install scripts only: folder or URL (`https://` or `file://`) the release assets are downloaded from (mirrors, offline installs, tests) |
-| `TOKRED_YES`, `TOKRED_NO_MODIFY_PATH`, `TOKRED_NO_ALIAS`, `TOKRED_NO_CONFIGURE`, `TOKRED_VERSION` | Install and uninstall scripts only: the environment form of their options, see [installation](installation.md) |
+| `TOKRED_YES`, `TOKRED_NO_MODIFY_PATH`, `TOKRED_NO_ALIAS`, `TOKRED_NO_PROXY`, `TOKRED_NO_CONFIGURE`, `TOKRED_VERSION` | Install and uninstall scripts only: the environment form of their options, see [installation](installation.md) |
 | `NO_COLOR` / `CLICOLOR_FORCE` | Turn terminal colors off / force them on |
 
 ## `tokred.toml`
@@ -74,7 +74,7 @@ l2_hits = 3
 l3_hits = 10
 
 [proxy]
-enabled = true                         # the proxy switch (set by `tokred configure` on a new install)
+enabled = false                        # the proxy switch (turned on by `tokred proxy enable`)
 bind = "127.0.0.1:1029"                # address the proxy listens on
 upstream = "https://api.anthropic.com" # the only host requests are forwarded to
 retention_days = 90                    # days of proxy records and captured dashboard turns kept
@@ -117,13 +117,13 @@ compression = true                     # measure what compression would save
 response_cache = true                  # count exact repeated requests
 ```
 
-`tokred configure` is the one command that writes `[proxy] bind` and `[proxy] log_bodies` for you. It keeps the host of `bind` and changes only the port; in a terminal it asks for the port (default: the saved one, else 1029; the port must be 1024 to 65535 and free, unless it is this installation's own proxy) and whether conversation content may be recorded (default: the saved value, else yes). Without a terminal, or with `--yes`, it applies only what a flag or environment variable says (`--proxy-port` / `TOKRED_PORT`, `--record-content` / `--no-record-content` / `TOKRED_RECORD_CONTENT`) and leaves everything else as it is, so the quiet re-run after an upgrade never changes your choices; a first install without answers gets port 1029 and no content recording. See [installation](installation.md).
+`tokred proxy enable` is the one command that sets the proxy up: it writes `[proxy] bind`, `[proxy] log_bodies` and `[proxy] enabled = true` for you. It keeps the host of `bind` and changes only the port; in a terminal it asks for the port (default: the saved one, else 1029; the port must be 1024 to 65535 and free, unless it is this installation's own proxy) and whether conversation content may be recorded (default: the value saved by an earlier `enable`, else yes). Without a terminal, or with `--yes`, it changes only what a flag or environment variable says (`--port` / `TOKRED_PORT`, `--record-content` / `TOKRED_RECORD_CONTENT`) and leaves everything else as it is; a first enable without answers gets port 1029 and no content recording. `tokred configure` (hooks and agents) writes no `[proxy]` value beyond the defaults and never changes what you chose. See [installation](installation.md).
 
 The `[modes]` values take effect when the corresponding hook gets its real behaviour (phases F3 to F5).
 
 `ca_bundle` in `[proxy]` is optional and absent by default: the path of a PEM file with extra certificate authorities to trust for the upstream, in addition to the built-in roots, the operating system's store and the files named by `NODE_EXTRA_CA_CERTS` and `SSL_CERT_FILE`. The proxy also honours `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` and `NO_PROXY` (and the lower-case names) from its environment; see [behind a corporate proxy](proxy.md#behind-a-corporate-proxy).
 
-`[proxy] enabled` is the single switch of the proxy features. `tokred configure` sets it to `true` when you had no value yet (a value you wrote is kept, either way, and `unconfigure` leaves the file alone). While it is `true`, `tokred initialize` (run by the `claude` shell wrapper before every launch) starts the proxy when needed and keeps `env.ANTHROPIC_BASE_URL` in Claude Code's `settings.json` pointing at it; while it is `false`, tokred removes its own URL from there, `tokred claude` runs `claude` directly, `tokred proxy start` refuses, and `tokred doctor` shows "disabled". `tokred proxy enable` and `tokred proxy disable` change it and apply the effect at once. Installations configured before this switch existed have `enabled = false` written in `tokred.toml` (the old `configure` wrote every default), and tokred keeps explicit values: run `tokred proxy enable` once to turn the features on. A value of `ANTHROPIC_BASE_URL` that is not tokred's (your own gateway) is never overwritten or removed. The older `persist_base_url` key no longer exists; an old file that still has it keeps working (the key is ignored). See [proxy](proxy.md).
+`[proxy] enabled` is the single switch of the proxy features, `false` until you run `tokred proxy enable` (`tokred configure` leaves it alone: a value you wrote is kept, either way, and `unconfigure` leaves the file alone). While it is `true`, `tokred initialize` (run by the `claude` shell wrapper before every launch) starts the proxy when needed and keeps `env.ANTHROPIC_BASE_URL` in Claude Code's `settings.json` pointing at it; while it is `false`, tokred removes its own URL from there, `tokred claude` runs `claude` directly, `tokred proxy start` refuses, and `tokred doctor` shows "disabled". `tokred proxy enable` and `tokred proxy disable` change it and apply the effect at once. A value of `ANTHROPIC_BASE_URL` that is not tokred's (your own gateway) is never overwritten or removed. The older `persist_base_url` key no longer exists; an old file that still has it keeps working (the key is ignored). See [proxy](proxy.md).
 
 `retention_days` applies to everything the proxy stores (requests, routing decisions, prompt summaries, suggestions, shadow measurements, kept tool results and compression replacements): it is deleted when the proxy starts and then every hour. `0` keeps everything. The kept tool results and replacements of a conversation that still had a request within the period are kept whatever their age. `log_bodies` is not read yet.
 

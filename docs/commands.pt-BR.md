@@ -6,7 +6,7 @@ Todo comando que imprime um relatório aceita `--json` para saída legível por 
 
 | Comando | O que faz |
 |---|---|
-| `tokred configure` | Integra com o Claude Code |
+| `tokred configure` | Integra com o Claude Code: hooks e agentes (o proxy é o `proxy enable`) |
 | `tokred update` | Troca o binário quando o script de instalação o colocou lá; senão, manda reinstalar |
 | `tokred unconfigure` | Remove os hooks e agentes do tokred do Claude Code (o proxy não é tocado) |
 | `tokred uninstall` | Remove o tokred por completo, sem perguntar: proxy e serviço, hooks, agentes, URL do proxy, pasta de dados, binário, entrada no `PATH` e wrapper `claude` |
@@ -18,7 +18,7 @@ Todo comando que imprime um relatório aceita `--json` para saída legível por 
 | `tokred pricing sync` / `show` | Atualiza ou mostra a tabela de preços |
 | `tokred cache stats` / `prune` | Estado do cache em camadas; remove expirados |
 | `tokred proxy start` / `stop` / `status` | Executa e inspeciona o [proxy local](proxy.pt-BR.md) opcional |
-| `tokred proxy enable` / `disable` | Liga ou desliga os recursos do proxy (`[proxy] enabled`) e aplica na hora |
+| `tokred proxy enable` / `disable` | Liga os recursos do proxy (escolhendo a porta e a gravação de conteúdo) ou os desliga, e aplica na hora |
 | `tokred proxy service install` / `uninstall` | Inicia o proxy no login, como serviço de usuário |
 | `tokred initialize` | Faz as configurações do Claude Code concordarem com `[proxy] enabled`; executado pelo wrapper de shell do `claude` antes de toda abertura |
 | `tokred dashboard [--no-open]` | Abre o [painel ao vivo](dashboard.pt-BR.md) do proxy no navegador |
@@ -32,23 +32,18 @@ Todo comando que imprime um relatório aceita `--json` para saída legível por 
 
 A pasta do Claude Code pode ser dada com `--claude-dir <path>` em todo comando que precisa dela.
 
-## `tokred configure [--claude-dir <path>] [--yes] [--force] [--proxy-port <n>] [--record-content | --no-record-content]`
+## `tokred configure [--claude-dir <path>] [--yes] [--force]`
 
-Integra o tokred com o Claude Code. O script de instalação o executa por você; rode de novo quando quiser.
+Integra o tokred com o Claude Code: os hooks e os agentes, mais o que é neutro (o banco e o `tokred.toml` padrão). Ele **não** configura o proxy: a porta, a gravação do conteúdo das conversas e o `[proxy] enabled` são todos do `tokred proxy enable` (abaixo), e o `configure` não grava nenhum valor de `[proxy]` além dos padrões (`enabled = false`). O script de instalação executa os dois por você; rode de novo quando quiser.
 
 1. Encontra a pasta do Claude Code, nesta ordem: `--claude-dir`, o valor salvo no `tokred.toml` (`[claude] dir`), `$CLAUDE_CONFIG_DIR`, `~/.claude` (`%USERPROFILE%\.claude` no Windows). Uma pasta é válida quando existe e contém `settings.json` ou `projects/`. Um `--claude-dir` explícito que não seja válido é erro. Se nada for encontrado, um terminal interativo é perguntado pelo path; senão o comando falha e sugere `--claude-dir`.
 2. Detecta o rtk e informa que os dois vão coexistir.
-3. Mostra o **plano**: hooks a adicionar (`+`), atualizar (`~`) ou manter (`=`), agentes a criar, atualizar ou deixar como estão, e o backup que será feito. Pede confirmação; `--yes` pula a pergunta (obrigatório quando o stdin não é um terminal).
-4. Num terminal, faz as duas perguntas sobre o proxy (veja abaixo), a menos que uma flag ou variável já as tenha respondido.
-5. Aplica: cria a pasta de dados, o banco e o `tokred.toml`, faz o merge do `settings.json` (backup em `settings.json.tokred.bak`, mantendo só o último) e instala os agentes.
+3. Mostra o **plano**: hooks a adicionar (`+`), atualizar (`~`) ou manter (`=`), agentes a criar, atualizar ou deixar como estão, e o backup que será feito. Pede confirmação; `--yes` pula a pergunta (obrigatório quando o stdin não é um terminal). Responder não não muda nada e sai com o código 2, que o script de instalação lê como "pare": ele então também não executa o `tokred proxy enable`.
+4. Aplica: cria a pasta de dados, o banco e o `tokred.toml`, faz o merge do `settings.json` (backup em `settings.json.tokred.bak`, mantendo só o último) e instala os agentes.
 
 Rodar de novo é seguro: o resultado é o mesmo. Se o `settings.json` não for um JSON válido, o comando aborta e **não escreve nada**. `--force` sobrescreve os arquivos de agente mesmo que você os tenha editado (sem ele, sua versão é mantida e a nova vai para `tokred-x.md.new`).
 
-**A porta do proxy.** `--proxy-port <n>` (ou `TOKRED_PORT`) define `[proxy] bind` como `<host>:<n>` (o host de um valor existente é mantido, padrão `127.0.0.1`). Sem ela, um terminal é perguntado: "Port for the tokred proxy [1029]" (o padrão é a porta salva, senão 1029). Um não-número, uma porta abaixo de 1024 e uma acima de 65535 são rejeitados; o comando tenta abrir `127.0.0.1:<porta>` para ver se está livre e, quando está ocupada, avisa e pergunta de novo. Uma porta em que o proxy desta mesma instalação já escuta é aceita. Uma porta dada por flag não é perguntada; se outra coisa escuta nela, você recebe um aviso (o proxy não inicia até ela ficar livre).
-
-**Gravação de conteúdo.** `--record-content` / `--no-record-content` (ou `TOKRED_RECORD_CONTENT=1|0`) definem `[proxy] log_bodies`. Sem elas, um terminal é perguntado "Record conversation content so the dashboard can show it? [Y/n]", com a explicação de que o texto fica no banco do próprio tokred nesta máquina e de que cabeçalhos e credenciais nunca são gravados (o padrão é o valor salvo, senão sim).
-
-**Sem terminal** (ou com `--yes`) nada é perguntado: uma flag, senão a variável de ambiente, senão o valor que já está no `tokred.toml`, senão o padrão (porta 1029, conteúdo **não** gravado). O que não foi dito nunca é alterado, então a reexecução silenciosa depois de cada atualização mantém as suas escolhas.
+O que o usuário escolheu para o proxy (no `tokred.toml`, ou pelo `proxy enable`) nunca é alterado pelo `configure`, então a reexecução silenciosa depois de cada atualização o mantém.
 
 ## `tokred update [--claude-dir <path>]`
 
@@ -105,9 +100,18 @@ Estima (caracteres / 4) o peso do contexto que o Claude Code carrega antes de vo
 
 O [proxy local](proxy.pt-BR.md) opcional. `start` o executa em segundo plano (o mesmo binário, `proxy start --foreground`); `--foreground` o mantém no terminal, que é o que o serviço de usuário usa. `--bind` substitui `[proxy] bind` (padrão `127.0.0.1:1029`). `stop` pede que ele encerre e espera até que isso aconteça. `status` mostra se está rodando, se o serviço de usuário está instalado, se o `ANTHROPIC_BASE_URL` deste terminal aponta para ele e os modos de roteamento e compressão. Com `--json`, o campo `network` traz o proxy HTTP (só host e porta) e os arquivos de CA extras que o proxy usa. Ele é um processo em segundo plano que não mantém os pipes de saída de quem o chamou, então `out=$(tokred proxy start)` retorna (no Windows ele é iniciado pelo `Start-Process` do PowerShell por esse motivo).
 
-## `tokred proxy enable` / `disable`
+## `tokred proxy enable [--port <n>] [--record-content <true|false>] [--yes]` / `disable`
 
-Definem `[proxy] enabled` no `tokred.toml` e aplicam na hora. O `enable` sobe o proxy se preciso e, quando ele responder, grava no `settings.json` do Claude Code o `env.ANTHROPIC_BASE_URL` com a URL do proxy. O `disable` remove dali a URL do tokred e deixa em execução um proxy que esteja rodando (`tokred proxy stop` o para). Enquanto desabilitado, `proxy start` e `proxy service install` se recusam, o `tokred claude` executa o `claude` direto e o `doctor` mostra "disabled"; `proxy stop` e `proxy status` continuam funcionando. Outro gateway em `ANTHROPIC_BASE_URL` nunca é sobrescrito nem removido: nesse caso o `enable` só salva a configuração e avisa. Veja [proxy](proxy.pt-BR.md).
+Ligam ou desligam os recursos do proxy e aplicam na hora. É o único lugar que configura o proxy.
+
+O `enable` escolhe duas coisas, grava-as junto com `[proxy] enabled = true` no `tokred.toml` (no próprio arquivo: suas outras chaves ficam), sobe o proxy se preciso e, quando ele responder, grava no `settings.json` do Claude Code o `env.ANTHROPIC_BASE_URL` com a URL do proxy:
+
+- **A porta.** `--port <n>` (ou `TOKRED_PORT`; a flag vale mais) define `[proxy] bind` como `<host>:<n>` (o host de um valor existente é mantido, padrão `127.0.0.1`). Sem ela, um terminal é perguntado: "Port for the tokred proxy [1029]" (o padrão é a porta salva, senão 1029). Um não-número, uma porta abaixo de 1024 e uma acima de 65535 são rejeitados; o comando tenta abrir `127.0.0.1:<porta>` para ver se está livre e, quando está ocupada, avisa e pergunta de novo. Uma porta em que o proxy desta mesma instalação já escuta é aceita. Uma porta dada por flag ou variável não é perguntada; se outra coisa escuta nela, você recebe um aviso (o proxy não inicia até ela ficar livre).
+- **Gravação de conteúdo.** `--record-content <valor>` (ou `TOKRED_RECORD_CONTENT`; a flag vale mais) define `[proxy] log_bodies`. O valor é `true`, `false`, `yes`, `no`, `1` ou `0`, em qualquer caixa. Sem ele, um terminal é perguntado "Record conversation content so the dashboard can show it? [Y/n]", com a explicação de que o texto fica no banco do próprio tokred nesta máquina e de que cabeçalhos e credenciais nunca são gravados. O padrão é o valor salvo por um `enable` anterior, senão sim.
+
+**Sem terminal** (ou com `--yes`) nada é perguntado: só muda o que uma flag ou variável disser; o resto mantém o valor salvo, senão os padrões (porta 1029, conteúdo **não** gravado). Se o proxy já estiver rodando em outra porta que não a nova, ele é parado e iniciado de novo na nova porta, e o comando avisa.
+
+O `disable` remove dali a URL do tokred e deixa em execução um proxy que esteja rodando (`tokred proxy stop` o para). Enquanto desabilitado, `proxy start` e `proxy service install` se recusam, o `tokred claude` executa o `claude` direto e o `doctor` mostra "disabled"; `proxy stop` e `proxy status` continuam funcionando. Outro gateway em `ANTHROPIC_BASE_URL` nunca é sobrescrito nem removido: nesse caso o `enable` só salva a configuração e avisa. Veja [proxy](proxy.pt-BR.md).
 
 ## `tokred initialize [--quiet | --verbose] [--json]`
 

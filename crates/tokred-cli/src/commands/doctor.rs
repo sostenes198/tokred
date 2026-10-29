@@ -651,6 +651,18 @@ mod tests {
     fn doctor_reports_the_proxy_in_text_and_json() {
         let sb = Sandbox::new();
         configure(&sb);
+        // A fresh configure leaves the proxy off: `proxy enable` is what turns it on.
+        let (result, out) = run_doctor(&sb, false);
+        result.unwrap();
+        assert!(out.contains("proxy:       disabled"), "{out}");
+        let (result, out) = run_doctor(&sb, true);
+        result.unwrap();
+        let value: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(value["proxy"]["enabled"], false);
+
+        let path = sb.env.data.config_path();
+        let text = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(&path, text.replace("enabled = false", "enabled = true")).unwrap();
         let (result, out) = run_doctor(&sb, false);
         result.unwrap();
         assert!(out.contains("proxy:       not running"), "{out}");
@@ -658,10 +670,7 @@ mod tests {
         result.unwrap();
         let value: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(value["proxy"]["running"], false);
-        assert_eq!(
-            value["proxy"]["enabled"], true,
-            "a fresh configure enables it"
-        );
+        assert_eq!(value["proxy"]["enabled"], true);
         assert_eq!(value["proxy"]["settings_base_url"], serde_json::Value::Null);
         assert_eq!(value["proxy"]["routing_mode"], "observe");
         assert_eq!(value["proxy"]["compression_mode"], "observe");

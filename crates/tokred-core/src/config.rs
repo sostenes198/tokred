@@ -477,33 +477,6 @@ pub fn merge_config(existing: &str, claude_dir: Option<&Path>) -> Result<String,
     }
 }
 
-/// Whether `[proxy] enabled` has a value in `existing` (an unreadable file has none).
-#[must_use]
-pub fn proxy_enabled_is_set(existing: &str) -> bool {
-    toml::from_str::<toml::Table>(existing)
-        .ok()
-        .and_then(|table| table.get("proxy")?.as_table()?.get("enabled").cloned())
-        .is_some()
-}
-
-/// Sets `[<section>] <key>` in `existing` (the text of a `tokred.toml`), keeping every other
-/// key. The file is rewritten by the TOML serializer, so comments are not kept.
-pub fn set_config_value(
-    existing: &str,
-    section: &str,
-    key: &str,
-    value: toml::Value,
-) -> Result<String, ConfigError> {
-    let mut table: toml::Table = toml::from_str(existing)?;
-    table
-        .entry(section)
-        .or_insert_with(|| toml::Value::Table(toml::Table::new()))
-        .as_table_mut()
-        .ok_or_else(|| ConfigError::NotATable(section.to_owned()))?
-        .insert(key.to_owned(), value);
-    Ok(toml::to_string_pretty(&table)?)
-}
-
 /// Stores `dir` in `[claude] dir`; returns whether the value changed.
 fn set_claude_dir(table: &mut toml::Table, dir: &Path) -> Result<bool, ConfigError> {
     let value = toml::Value::String(dir.to_string_lossy().into_owned());
@@ -576,33 +549,6 @@ mod tests {
         let names =
             [TrafficMode::Off, TrafficMode::Observe, TrafficMode::Enforce].map(TrafficMode::as_str);
         assert_eq!(names, ["off", "observe", "enforce"]);
-    }
-
-    #[test]
-    fn the_enabled_switch_is_detected_and_set_in_place() {
-        assert!(!proxy_enabled_is_set(""));
-        assert!(!proxy_enabled_is_set("[proxy]\nbind = \"x:1\"\n"));
-        assert!(!proxy_enabled_is_set("proxy = 3"));
-        assert!(!proxy_enabled_is_set("[[["));
-        assert!(proxy_enabled_is_set("[proxy]\nenabled = false\n"));
-
-        let text = set_config_value(
-            "[proxy]\nbind = \"x:1\"\n",
-            "proxy",
-            "enabled",
-            toml::Value::Boolean(true),
-        )
-        .unwrap();
-        let cfg = Config::from_toml_str(&text).unwrap();
-        assert!(cfg.proxy.enabled);
-        assert_eq!(cfg.proxy.bind, "x:1", "other keys stay");
-        let fresh = set_config_value("", "proxy", "enabled", toml::Value::Boolean(false)).unwrap();
-        assert!(!Config::from_toml_str(&fresh).unwrap().proxy.enabled);
-        assert!(matches!(
-            set_config_value("proxy = 3", "proxy", "enabled", toml::Value::Boolean(true)),
-            Err(ConfigError::NotATable(section)) if section == "proxy"
-        ));
-        assert!(set_config_value("[[[", "proxy", "enabled", toml::Value::Boolean(true)).is_err());
     }
 
     #[test]

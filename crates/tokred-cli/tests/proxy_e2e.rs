@@ -31,7 +31,9 @@ impl Sandbox {
         let sb = Self { root };
         sb.tokred().args(["configure", "--yes"]).assert().success();
         let toml = std::fs::read_to_string(sb.data().join("tokred.toml")).unwrap();
+        // `configure` leaves the proxy off; `proxy start` needs it on.
         let toml = toml
+            .replace("enabled = false", "enabled = true")
             .replace(
                 "bind = \"127.0.0.1:1029\"",
                 &format!("bind = \"127.0.0.1:{port}\""),

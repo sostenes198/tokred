@@ -2,7 +2,7 @@
 
 # Installation
 
-tokred installs like rustup: one command in the terminal downloads the binary from the GitHub release, checks its checksum, puts it in your home folder, wires your shell and runs `tokred configure`. There is no package manager involved (no Homebrew, Scoop, winget or crates.io), no `sudo` and no administrator rights.
+tokred installs like rustup: one command in the terminal downloads the binary from the GitHub release, checks its checksum, puts it in your home folder, wires your shell and runs `tokred configure` and `tokred proxy enable`. There is no package manager involved (no Homebrew, Scoop, winget or crates.io), no `sudo` and no administrator rights.
 
 ```sh
 # macOS and Linux
@@ -20,14 +20,17 @@ The scripts are release assets (`install.sh`, `install.ps1`, `uninstall.sh`, `un
 2. Downloads `tokred-<target>.tar.gz` (Windows: `.zip`) and its `.sha256` from the release, and **verifies the checksum**. A mismatch stops everything before anything is written.
 3. Installs the binary in `${TOKRED_HOME:-$HOME/.tokred}/bin` (Windows: `%LOCALAPPDATA%\tokred\bin`).
 4. Adds that folder to your `PATH` and defines the [`claude` wrapper](#the-claude-wrapper): in the shell profiles that exist (`~/.bashrc`, `~/.bash_profile`, `~/.zshrc`, plus `~/.profile` and, when fish is installed, `~/.config/fish/conf.d/tokred.fish`); on Windows in your user `PATH` and your PowerShell profile. Everything it writes sits inside one marked block (`# >>> tokred >>>` ... `# <<< tokred <<<`), which is replaced on every run, so running the script twice changes nothing, and removed by the uninstall script.
-5. Runs [`tokred configure`](commands.md), which hooks tokred into Claude Code and asks the two questions below.
+5. Runs [`tokred configure`](commands.md), which hooks tokred into Claude Code (hooks and agents only; it asks nothing about the proxy).
+6. Runs [`tokred proxy enable`](commands.md#tokred-proxy-enable---port-n---record-content-truefalse---yes--disable), which asks the two questions below, saves the answers, starts the [proxy](proxy.md) and points Claude Code at it. `--no-proxy` skips this step, so you get the hooks and agents only (you can run `tokred proxy enable` any time later).
 
 It never uses `sudo`, never writes outside the tokred folder and your profile files, and refuses to run as root unless you pass `--yes`. With `curl ... | sh` the script's stdin is the pipe, so questions are asked on the terminal (`/dev/tty`); with no terminal at all it applies the defaults.
 
 ### The two questions
 
+They are `tokred proxy enable`'s, asked after `configure` has finished.
+
 - **Which port does the proxy use?** Default `1029` (or the one already in `tokred.toml`). Only 1024 to 65535 is accepted; the installer checks that the port is free by trying to bind `127.0.0.1:<port>`, says so when it is busy and asks again. If the proxy of this installation already listens on it, that is fine.
-- **Record conversation content so the dashboard can show what was sent and returned? [Y/n]** The text stays in tokred's own database on your machine; headers and credentials are never recorded. The answer is saved as `[proxy] log_bodies` in `tokred.toml`. Without a terminal, or with `--yes`, content is **not** recorded unless you say so (`--record-content`, `TOKRED_RECORD_CONTENT=1`). Change it later by editing `tokred.toml` or running `tokred configure` again.
+- **Record conversation content so the dashboard can show what was sent and returned? [Y/n]** The text stays in tokred's own database on your machine; headers and credentials are never recorded. The answer is saved as `[proxy] log_bodies` in `tokred.toml`. Without a terminal, or with `--yes`, content is **not** recorded unless you say so (`tokred proxy enable --record-content true`, `TOKRED_RECORD_CONTENT=1`). Change it later by editing `tokred.toml` or running `tokred proxy enable` again.
 
 ### Options
 
@@ -36,11 +39,12 @@ It never uses `sudo`, never writes outside the tokred folder and your profile fi
 | Shell option | PowerShell | Environment variable | Meaning |
 |---|---|---|---|
 | `-y`, `--yes` | `-Yes` | `TOKRED_YES=1` | Ask nothing; use the defaults and the options below |
-| `--port N` | `-Port N` | `TOKRED_PORT` | Proxy port (1024 to 65535) |
+| `--port N` | `-Port N` | `TOKRED_PORT` | Proxy port (1024 to 65535), passed to `tokred proxy enable --port` |
 | `--version X` | `-Version X` | `TOKRED_VERSION` | Install release `vX` instead of the latest |
 | `--no-modify-path` | `-NoModifyPath` | `TOKRED_NO_MODIFY_PATH=1` | Leave `PATH` alone |
 | `--no-alias` | `-NoAlias` | `TOKRED_NO_ALIAS=1` | Do not define the `claude` wrapper |
-| `--no-configure` | `-NoConfigure` | `TOKRED_NO_CONFIGURE=1` | Only install the binary |
+| `--no-proxy` | `-NoProxy` | `TOKRED_NO_PROXY=1` | Hooks and agents only: do not run `tokred proxy enable` |
+| `--no-configure` | `-NoConfigure` | `TOKRED_NO_CONFIGURE=1` | Only install the binary (no `configure`, no proxy) |
 | | | `TOKRED_HOME` | Install folder (default `~/.tokred`, Windows `%LOCALAPPDATA%\tokred`) |
 | | | `TOKRED_RELEASE_BASE_URL` | Where the release assets are downloaded from (`https://` or `file://`); for mirrors and offline installs |
 
@@ -48,6 +52,7 @@ It never uses `sudo`, never writes outside the tokred folder and your profile fi
 
 ```sh
 curl --proto '=https' --tlsv1.2 -LsSf .../install.sh | sh -s -- --yes --port 2000 --no-alias
+curl --proto '=https' --tlsv1.2 -LsSf .../install.sh | sh -s -- --no-proxy    # hooks and agents only
 TOKRED_VERSION=0.2.0 TOKRED_NO_ALIAS=1 sh install.sh
 ```
 
@@ -90,7 +95,7 @@ For development: `cargo build` and run `target/debug/tokred`, see [testing](test
 
 ## Optional: the local proxy
 
-The [proxy](proxy.md) is controlled by one switch, `[proxy] enabled` in `tokred.toml` (`tokred configure` turns it on for a new installation; `tokred proxy disable` turns it off). While it is on, `tokred initialize` (what the `claude` shell wrapper runs before every launch) starts the proxy when needed and keeps `env.ANTHROPIC_BASE_URL` in Claude Code's `settings.json` pointing at it; `tokred unconfigure` removes that URL again. Your own gateway in `ANTHROPIC_BASE_URL` is never overwritten.
+The [proxy](proxy.md) is controlled by one switch, `[proxy] enabled` in `tokred.toml` (`tokred proxy enable` turns it on and the install script runs it, unless you pass `--no-proxy`; `tokred proxy disable` turns it off; `tokred configure` never touches it). While it is on, `tokred initialize` (what the `claude` shell wrapper runs before every launch) starts the proxy when needed and keeps `env.ANTHROPIC_BASE_URL` in Claude Code's `settings.json` pointing at it; `tokred unconfigure` removes that URL again. Your own gateway in `ANTHROPIC_BASE_URL` is never overwritten.
 
 ```sh
 tokred claude                     # start the proxy if needed and run Claude Code through it, for this run only

@@ -28,7 +28,7 @@ Tudo roda na sua máquina, com um SQLite próprio e sem serviço externo. Foi pe
 
 ## Instalação
 
-Como o rustup: um comando baixa o tokred da release do GitHub, confere o checksum, instala em `~/.tokred/bin`, adiciona essa pasta ao seu `PATH` e executa `tokred configure`, que pergunta qual porta o proxy usa (padrão 1029) e se o painel pode gravar o conteúdo das conversas. Sem sudo, sem gerenciador de pacotes.
+Como o rustup: um comando baixa o tokred da release do GitHub, confere o checksum, instala em `~/.tokred/bin`, adiciona essa pasta ao seu `PATH` e executa `tokred configure` (hooks e agentes) e depois `tokred proxy enable`, que pergunta qual porta o proxy usa (padrão 1029) e se o painel pode gravar o conteúdo das conversas (`--no-proxy` o pula). Sem sudo, sem gerenciador de pacotes.
 
 ```sh
 # macOS e Linux
@@ -53,7 +53,7 @@ tokred metrics      # o mesmo, mais o relatório HTML
 
 | Comando | O que faz |
 |---|---|
-| `tokred configure [--claude-dir <path>] [--yes] [--force] [--proxy-port <n>] [--record-content\|--no-record-content]` | Faz o merge dos hooks no `settings.json`, instala os agentes, cria o banco e a config; pergunta a porta do proxy e a gravação de conteúdo |
+| `tokred configure [--claude-dir <path>] [--yes] [--force]` | Faz o merge dos hooks no `settings.json`, instala os agentes, cria o banco e a configuração (nada sobre o proxy: isso é o `proxy enable`) |
 | `tokred unconfigure [--purge]` | Remove só os hooks e agentes do tokred do Claude Code (o proxy não é tocado); `--purge` também apaga a pasta de dados |
 | `tokred uninstall` | Remove o tokred por completo, sem perguntar: o proxy e o serviço dele, hooks, agentes, a URL do proxy, a pasta de dados, o binário, a entrada no `PATH` e o wrapper `claude` |
 | `tokred doctor [--json] [--bench]` | Mostra o que está instalado e o que precisa de atenção; mede a latência dos hooks |

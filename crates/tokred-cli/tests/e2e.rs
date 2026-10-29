@@ -724,45 +724,76 @@ fn the_time_guard_ends_a_stuck_hook_with_exit_zero_and_records_it() {
     assert!(events[0].duration_us >= 300_000);
 }
 
-/// `configure` takes the proxy port and content recording from flags or the environment, and a
-/// quiet re-run (as after every upgrade) keeps them.
+/// `configure` is only about hooks and agents: it neither asks about nor writes the proxy, and
+/// the proxy options belong to `proxy enable`.
 #[test]
-fn configure_writes_the_proxy_port_and_content_choice() {
+fn configure_leaves_the_proxy_to_proxy_enable() {
     let sb = Sandbox::new();
     sb.tokred()
-        .args([
-            "configure",
-            "--yes",
-            "--proxy-port",
-            "2345",
-            "--record-content",
-        ])
+        .args(["configure", "--yes"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Proxy address: 127.0.0.1:2345"))
-        .stdout(predicate::str::contains("recorded for the dashboard"));
-    sb.tokred().args(["configure", "--yes"]).assert().success();
+        .stdout(predicate::str::contains("Proxy address").not())
+        .stdout(predicate::str::contains("tokred proxy enable"));
     let toml = std::fs::read_to_string(sb.data().join("tokred.toml")).unwrap();
-    assert!(toml.contains("bind = \"127.0.0.1:2345\""), "{toml}");
-    assert!(toml.contains("log_bodies = true"), "{toml}");
+    assert!(toml.contains("enabled = false"), "{toml}");
+    assert!(toml.contains("bind = \"127.0.0.1:1029\""), "{toml}");
+    assert!(toml.contains("log_bodies = false"), "{toml}");
+    assert!(
+        !sb.settings_json()
+            .to_string()
+            .contains("ANTHROPIC_BASE_URL")
+    );
 
+    // The old options are gone, and a quiet re-run keeps what the user wrote.
+    for flag in ["--proxy-port", "--record-content", "--no-record-content"] {
+        sb.tokred()
+            .args(["configure", "--yes", flag])
+            .assert()
+            .failure();
+    }
+    let chosen = toml.replace("enabled = false", "enabled = true");
+    std::fs::write(sb.data().join("tokred.toml"), &chosen).unwrap();
     sb.tokred()
         .env("TOKRED_PORT", "2346")
-        .env("TOKRED_RECORD_CONTENT", "0")
+        .env("TOKRED_RECORD_CONTENT", "1")
         .args(["configure", "--yes"])
         .assert()
-        .success()
-        .stdout(predicate::str::contains("Proxy address: 127.0.0.1:2346"))
-        .stdout(predicate::str::contains(
-            "Conversation content: not recorded",
-        ));
+        .success();
+    let after = std::fs::read_to_string(sb.data().join("tokred.toml")).unwrap();
+    assert_eq!(after, chosen, "configure left the [proxy] values alone");
+}
 
+/// `proxy enable` rejects what is not a usable port or yes/no answer, in a flag or in the
+/// environment, before anything is written.
+#[test]
+fn proxy_enable_rejects_bad_answers() {
+    let sb = Sandbox::new();
+    sb.tokred().args(["configure", "--yes"]).assert().success();
+    for args in [
+        ["proxy", "enable", "--port", "80"],
+        ["proxy", "enable", "--port", "abc"],
+        ["proxy", "enable", "--record-content", "maybe"],
+    ] {
+        sb.tokred().args(args).assert().failure();
+    }
     sb.tokred()
         .env("TOKRED_PORT", "80")
-        .args(["configure", "--yes"])
+        .args(["proxy", "enable"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("TOKRED_PORT"));
+    sb.tokred()
+        .env("TOKRED_RECORD_CONTENT", "maybe")
+        .args(["proxy", "enable"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("TOKRED_RECORD_CONTENT"));
+    let toml = std::fs::read_to_string(sb.data().join("tokred.toml")).unwrap();
+    assert!(
+        toml.contains("enabled = false"),
+        "nothing was written: {toml}"
+    );
 }
 
 /// A port nothing listens on, written as the proxy's address, so `uninstall` never talks to a

@@ -21,7 +21,17 @@ BEGIN="# >>> tokred >>>"
 [ -x "$BIN" ] || { printf 'build the binary first: cargo build -p tokred (looked for %s)\n' "$BIN" >&2; exit 1; }
 
 WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
+# Sandboxes whose installs started a proxy (one "home|data|claude" line each): stopped on exit.
+PROXIES="$WORK/proxy-sandboxes"
+: >"$PROXIES"
+stop_proxies() {
+    while IFS='|' read -r p_home p_data p_claude; do
+        [ -n "$p_home" ] || continue
+        env -i PATH="$PATH" HOME="$p_home" TOKRED_DATA_DIR="$p_data" CLAUDE_CONFIG_DIR="$p_claude" \
+            TOKRED_OFFLINE=1 "$BIN" proxy stop >/dev/null 2>&1 || true
+    done <"$PROXIES"
+}
+trap 'stop_proxies; rm -rf "$WORK"' EXIT
 trap 'exit 1' INT TERM HUP
 
 ok() { printf 'ok - %s\n' "$*"; }
@@ -76,6 +86,8 @@ new_sandbox() {
     S_DATA="$S_ROOT/data"
     S_CLAUDE="$S_ROOT/claude"
     S_SHELL=""
+    # Installs run with --no-proxy (so no proxy is left running) unless a test sets this to 1.
+    S_PROXY=0
     mkdir -p "$S_HOME" "$S_CLAUDE/projects"
 }
 
@@ -89,7 +101,14 @@ in_sandbox() {
         ${S_TOKRED_HOME:+TOKRED_HOME="$S_TOKRED_HOME"} ${S_SHELL:+SHELL="$S_SHELL"} "$@"
 }
 
-install_in_sandbox() { in_sandbox sh "$INSTALL_SH" "$@" </dev/null >"$S_ROOT/install.out" 2>&1; }
+install_in_sandbox() {
+    if [ "$S_PROXY" = "1" ]; then
+        printf '%s|%s|%s\n' "$S_HOME" "$S_DATA" "$S_CLAUDE" >>"$PROXIES"
+        in_sandbox sh "$INSTALL_SH" "$@" </dev/null >"$S_ROOT/install.out" 2>&1
+    else
+        in_sandbox sh "$INSTALL_SH" --no-proxy "$@" </dev/null >"$S_ROOT/install.out" 2>&1
+    fi
+}
 uninstall_in_sandbox() { in_sandbox sh "$UNINSTALL_SH" "$@" </dev/null >"$S_ROOT/uninstall.out" 2>&1; }
 
 # ------------------------------------------------------------ 1. a plain install (default folder)
@@ -113,10 +132,15 @@ assert_has "$S_HOME/.profile" 'claude() { if command -v tokred >/dev/null 2>&1; 
 assert_has "$S_HOME/.profile" 'export PATH="$HOME/.tokred/bin:$PATH"'
 ok "the profiles got one block with PATH and the claude function"
 
-assert_has "$S_DATA/tokred.toml" "127.0.0.1:$PORT"
 assert_has "$S_CLAUDE/settings.json" "$INSTALLED"
 assert_file "$S_CLAUDE/agents/tokred-dev.md"
-ok "tokred configure ran with the port and wrote the hooks"
+ok "tokred configure ran and wrote the hooks and the agents"
+
+assert_has "$S_ROOT/install.out" "Skipping the proxy (--no-proxy)"
+assert_has "$S_DATA/tokred.toml" "enabled = false"
+assert_lacks "$S_DATA/tokred.toml" "127.0.0.1:$PORT"
+assert_lacks "$S_CLAUDE/settings.json" "ANTHROPIC_BASE_URL"
+ok "--no-proxy leaves [proxy] and the Claude Code settings untouched (the port is not used)"
 
 # ------------------------------------------------------------ 2. idempotent
 
@@ -206,6 +230,73 @@ if command -v zsh >/dev/null 2>&1; then
     ok "an existing claude alias is replaced by the function (zsh)"
 fi
 
+# ------------------------------------------------------------ 4b. the proxy step
+
+new_sandbox
+S_PROXY=1
+install_in_sandbox --yes --port "$PORT" || { cat "$S_ROOT/install.out" >&2; die "the install with the proxy failed"; }
+assert_has "$S_ROOT/install.out" "Running tokred proxy enable"
+assert_has "$S_DATA/tokred.toml" "127.0.0.1:$PORT"
+assert_has "$S_DATA/tokred.toml" "enabled = true"
+# Nobody answered the content question: it is not recorded.
+assert_has "$S_DATA/tokred.toml" "log_bodies = false"
+assert_has "$S_CLAUDE/settings.json" "http://127.0.0.1:$PORT"
+assert_file "$S_CLAUDE/agents/tokred-dev.md"
+in_sandbox "$(tokred_home)/bin/tokred" proxy status >"$S_ROOT/status.out" 2>&1 || true
+assert_has "$S_ROOT/status.out" "tokred proxy: running"
+in_sandbox "$(tokred_home)/bin/tokred" proxy stop >/dev/null 2>&1 || die "could not stop the proxy"
+ok "the install runs tokred proxy enable: the port reaches [proxy] bind and the proxy runs"
+
+new_sandbox
+in_sandbox TOKRED_NO_PROXY=1 sh "$INSTALL_SH" --yes --port "$PORT" </dev/null >"$S_ROOT/install.out" 2>&1 || die "TOKRED_NO_PROXY install failed"
+assert_has "$S_DATA/tokred.toml" "enabled = false"
+assert_lacks "$S_DATA/tokred.toml" "127.0.0.1:$PORT"
+assert_file "$S_CLAUDE/agents/tokred-dev.md"
+ok "TOKRED_NO_PROXY=1 skips the proxy"
+
+new_sandbox
+install_in_sandbox --yes --no-configure || die "install --no-configure failed"
+assert_lacks "$S_ROOT/install.out" "Running tokred proxy enable"
+ok "--no-configure skips the proxy step too"
+
+# A declined or failed `configure` stops the proxy step too. The release holds a fake tokred
+# that logs its arguments and exits with $FAKE_CONFIGURE_EXIT for `configure`.
+FAKE_REL="$WORK/fake-release"
+mkdir -p "$FAKE_REL/pack/tokred-$TARGET"
+cat >"$FAKE_REL/pack/tokred-$TARGET/tokred" <<'EOF'
+#!/bin/sh
+echo "$*" >>"$FAKE_LOG"
+if [ "$1" = "configure" ]; then exit "${FAKE_CONFIGURE_EXIT:-0}"; fi
+exit 0
+EOF
+chmod +x "$FAKE_REL/pack/tokred-$TARGET/tokred"
+tar -czf "$FAKE_REL/$ASSET" -C "$FAKE_REL/pack" "tokred-$TARGET"
+printf '%s  %s\n' "$(sha256_of "$FAKE_REL/$ASSET")" "$ASSET" >"$FAKE_REL/$ASSET.sha256"
+
+for code in 0 1 2; do
+    new_sandbox
+    FAKE_LOG="$S_ROOT/fake.log"
+    : >"$FAKE_LOG"
+    in_sandbox TOKRED_RELEASE_BASE_URL="file://$FAKE_REL" FAKE_LOG="$FAKE_LOG" FAKE_CONFIGURE_EXIT="$code" \
+        sh "$INSTALL_SH" --yes --port "$PORT" </dev/null >"$S_ROOT/install.out" 2>&1 || die "the install failed with configure exit $code"
+    case "$code" in
+        0)
+            assert_has "$FAKE_LOG" "proxy enable --port $PORT --yes"
+            assert_lacks "$S_ROOT/install.out" "did not finish"
+            ;;
+        1)
+            assert_lacks "$FAKE_LOG" "proxy"
+            assert_has "$S_ROOT/install.out" "'tokred configure' did not finish"
+            ;;
+        2)
+            assert_lacks "$FAKE_LOG" "proxy"
+            assert_lacks "$S_ROOT/install.out" "did not finish"
+            assert_has "$S_ROOT/install.out" "configure was declined"
+            ;;
+    esac
+done
+ok "the proxy step runs only after a configure that finished: a declined (2) or failed one skips it"
+
 # ------------------------------------------------------------ 5. the switches
 
 new_sandbox
@@ -216,7 +307,7 @@ assert_lacks "$S_HOME/.profile" 'claude()'
 ok "--no-alias keeps PATH and skips the wrapper"
 
 new_sandbox
-in_sandbox TOKRED_NO_ALIAS=1 sh "$INSTALL_SH" --yes --port "$PORT" </dev/null >/dev/null 2>&1 || die "TOKRED_NO_ALIAS install failed"
+in_sandbox TOKRED_NO_ALIAS=1 sh "$INSTALL_SH" --yes --no-proxy --port "$PORT" </dev/null >/dev/null 2>&1 || die "TOKRED_NO_ALIAS install failed"
 assert_lacks "$S_HOME/.profile" 'claude()'
 ok "TOKRED_NO_ALIAS=1 skips the wrapper"
 
@@ -323,8 +414,17 @@ if ! (: </dev/tty) 2>/dev/null; then
     new_sandbox
     install_in_sandbox --port "$PORT" || { cat "$S_ROOT/install.out" >&2; die "the install without --yes and without a terminal failed"; }
     assert_has "$S_ROOT/install.out" "no terminal to ask on"
-    assert_has "$S_DATA/tokred.toml" "127.0.0.1:$PORT"
+    assert_file "$S_CLAUDE/agents/tokred-dev.md"
     ok "without a terminal the defaults are applied"
+
+    new_sandbox
+    S_PROXY=1
+    install_in_sandbox --port "$PORT" || { cat "$S_ROOT/install.out" >&2; die "the install with the proxy, without --yes and without a terminal, failed"; }
+    assert_has "$S_DATA/tokred.toml" "127.0.0.1:$PORT"
+    assert_has "$S_DATA/tokred.toml" "enabled = true"
+    assert_has "$S_DATA/tokred.toml" "log_bodies = false"
+    in_sandbox "$(tokred_home)/bin/tokred" proxy stop >"$S_ROOT/stop.out" 2>&1 || { cat "$S_ROOT/stop.out" "$S_ROOT/install.out" >&2; die "could not stop the proxy"; }
+    ok "without a terminal the proxy is enabled with the defaults and the given port"
 fi
 
 printf 'all installer tests passed\n'

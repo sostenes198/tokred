@@ -18,17 +18,32 @@ tokred proxy status      # is it running, and does this terminal use it?
 tokred proxy stop
 ```
 
+The proxy features are off until `tokred proxy enable` has been run (the install script runs it, unless you pass `--no-proxy`; see [the switch](#the-switch-proxy-enabled)): while they are off `tokred claude` runs `claude` directly.
+
 `tokred claude` passes every argument to `claude` unchanged and exits with `claude`'s exit code. Nothing is written to Claude Code's settings. If the proxy cannot start, or `ANTHROPIC_BASE_URL` already points to another gateway, Claude Code runs exactly as before and tokred says why on stderr.
 
 ### The switch: `[proxy] enabled`
 
-`enabled` in `tokred.toml` is the one switch of the proxy features; `tokred configure` turns it on for a new installation. `tokred proxy enable` and `tokred proxy disable` change it and take effect at once.
+`enabled` in `tokred.toml` is the one switch of the proxy features. It is `false` until you run `tokred proxy enable` (the install script does, unless you pass `--no-proxy`); `tokred configure` only sets up the hooks and agents and never touches the proxy. `tokred proxy enable` and `tokred proxy disable` change it and take effect at once.
 
 ```sh
 tokred proxy disable     # features off: tokred's URL is removed from Claude Code's settings, nothing else changes
-tokred proxy enable      # features on: start the proxy and point Claude Code's settings at it
+tokred proxy enable      # features on: choose the port and content recording, start the proxy, point Claude Code's settings at it
 tokred initialize        # what the `claude` shell wrapper runs before each launch (see below)
 ```
+
+`tokred proxy enable` is where the proxy is set up. It chooses two things and saves them in `tokred.toml` together with `enabled = true`:
+
+```sh
+tokred proxy enable                                    # in a terminal: asks the port and whether to record content
+tokred proxy enable --port 1050 --record-content true  # answers up front, nothing is asked
+tokred proxy enable --yes                              # asks nothing: saved values, else port 1029 and no recording
+```
+
+- **`--port <n>`** (or `TOKRED_PORT`) is the port of `[proxy] bind` (1024 to 65535, on `127.0.0.1` unless your `bind` names another host). Asked, the default is the saved port, else 1029; the command binds the port to see that it is free, asks again when it is busy, and accepts the port the proxy of this installation already listens on. Given by flag, a busy port only warns.
+- **`--record-content <true|false>`** (or `TOKRED_RECORD_CONTENT`; `yes`, `no`, `1` and `0` also work) is `[proxy] log_bodies`: whether the [dashboard](dashboard.md) may show what was sent and returned. The text stays in tokred's own database on this machine; headers and credentials are never recorded. Asked, the default is the saved answer, else yes; without a terminal, an unsaved answer is no.
+
+A flag wins over its environment variable. Your other keys in `tokred.toml` stay. If the proxy is already running on another port than the new one, it is stopped and started again on the new port. Then Claude Code's settings are reconciled, as described next.
 
 `tokred initialize` makes Claude Code's `settings.json` agree with the switch, and it is what the `claude` wrapper installed by the installer runs before every launch. The one thing it reconciles is `env.ANTHROPIC_BASE_URL` (`http://127.0.0.1:<port>` from `[proxy] bind`):
 

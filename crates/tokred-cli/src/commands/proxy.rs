@@ -1,4 +1,4 @@
-//! `tokred proxy start|stop|status|service`.
+//! `tokred proxy start|stop|enable|disable|status|service`.
 //!
 //! The background proxy is this same binary running `tokred proxy start --foreground`. It writes
 //! `<data>/proxy/pid`, answers `GET /__tokred/health`, and accepts `GET /__tokred/status` and
@@ -10,10 +10,12 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
-use tokred_core::config::set_config_value;
+use tokred_core::config::ProxyConfig;
 use tokred_core::proxy::ProxyRequestRecord;
 use tokred_core::{Clock, Config, Timestamp};
 
+use super::advice::set_key;
+use super::port::{self, PortState};
 use super::{SystemClock, existing_store, initialize};
 use crate::args::{ProxyCommand, ServiceCommand};
 use crate::daemon::{
@@ -64,8 +66,20 @@ pub fn run(io: &mut Io, ctx: &ProxyCtx<'_>, command: &ProxyCommand) -> Result<()
             }
         }
         ProxyCommand::Stop => stop(io, ctx),
-        ProxyCommand::Enable => set_enabled(io, ctx, true),
-        ProxyCommand::Disable => set_enabled(io, ctx, false),
+        ProxyCommand::Enable {
+            port,
+            record_content,
+            yes,
+        } => {
+            let probe = |port| port::probe(&files(ctx.env), port);
+            let given = Answers {
+                port: *port,
+                record_content: *record_content,
+                ask: io.interactive() && !yes,
+            };
+            enable(io, ctx, given, &probe)
+        }
+        ProxyCommand::Disable => disable(io, ctx),
         ProxyCommand::Status { json } => status(io, ctx, *json),
         ProxyCommand::Service { command } => service(io, ctx, command),
     }
@@ -81,31 +95,165 @@ fn require_enabled(ctx: &ProxyCtx<'_>) -> Result<()> {
     )
 }
 
-/// `proxy enable|disable`: sets `[proxy] enabled` in `tokred.toml`, then reconciles Claude Code's
-/// settings at once (enable starts the proxy and points Claude Code at it; disable removes
-/// tokred's URL). A running proxy is left running.
-fn set_enabled(io: &mut Io, ctx: &ProxyCtx<'_>, enabled: bool) -> Result<()> {
+/// What `proxy enable` was told up front and whether it may ask for the rest.
+#[derive(Debug, Clone, Copy)]
+struct Answers {
+    /// `--port` or `TOKRED_PORT`.
+    port: Option<u16>,
+    /// `--record-content` or `TOKRED_RECORD_CONTENT`.
+    record_content: Option<bool>,
+    /// A person is at the terminal and `--yes` was not given.
+    ask: bool,
+}
+
+/// `proxy enable`: chooses the port and whether conversation content is recorded, saves them
+/// with `[proxy] enabled = true` in `tokred.toml` (the user's other keys stay), then reconciles
+/// Claude Code's settings at once: starts the proxy and points Claude Code at it. A proxy that
+/// runs on another port is restarted on the new one.
+///
+/// A flag or environment value is used as given. Otherwise a person at the terminal is asked, and
+/// without one the saved value stays (port 1029 and no recording when nothing was saved). `probe`
+/// tells what listens on a port.
+fn enable(
+    io: &mut Io,
+    ctx: &ProxyCtx<'_>,
+    given: Answers,
+    probe: &dyn Fn(u16) -> PortState,
+) -> Result<()> {
+    let port = choose_port(io, ctx, given, probe)?;
+    let record = choose_content(io, ctx, given)?;
+    let existing = std::fs::read_to_string(ctx.env.data.config_path()).unwrap_or_default();
+    let bind = toml::Value::String(port::with_port(&ctx.config.proxy.bind, port));
+    let text = set_key(&existing, "proxy", "bind", bind)?;
+    let text = set_key(&text, "proxy", "log_bodies", toml::Value::Boolean(record))?;
+    let text = set_key(&text, "proxy", "enabled", toml::Value::Boolean(true))?;
+    let config = Config::from_toml_str(&text)?;
+
+    // Saved before the restart: a proxy that is started again (by us, or by a user service that
+    // restarts it when it exits) must find the new port in the file.
+    save(ctx, &text)?;
+    restart_on_another_port(io, ctx, port)?;
+    let content = if record {
+        "recorded for the dashboard"
+    } else {
+        "not recorded"
+    };
+    let details = format!(
+        "  address: {}\n  conversation content: {content}\n",
+        config.proxy.bind
+    );
+    reconcile_and_report(io, ctx, &config, true, &details)
+}
+
+/// `proxy disable`: sets `[proxy] enabled = false`, then reconciles Claude Code's settings at once
+/// (tokred's URL is removed). A running proxy is left running.
+fn disable(io: &mut Io, ctx: &ProxyCtx<'_>) -> Result<()> {
+    let existing = std::fs::read_to_string(ctx.env.data.config_path()).unwrap_or_default();
+    let text = set_key(&existing, "proxy", "enabled", toml::Value::Boolean(false))?;
+    save(ctx, &text)?;
+    reconcile_and_report(io, ctx, ctx.config, false, "")
+}
+
+/// The port to use: the one given, else the answer of the person asked (the saved port
+/// is the default), else the saved port, else 1029. A port given up front that is taken only
+/// warns: the proxy starts once it is free.
+fn choose_port(
+    io: &mut Io,
+    ctx: &ProxyCtx<'_>,
+    given: Answers,
+    probe: &dyn Fn(u16) -> PortState,
+) -> Result<u16> {
+    let saved = port_of(&ctx.config.proxy.bind).unwrap_or(port::DEFAULT_PORT);
+    match given.port {
+        Some(port) => port::warn_if_busy(io, probe, port).map(|()| port),
+        None if given.ask => port::ask(io, probe, saved),
+        None => Ok(saved),
+    }
+}
+
+/// Whether conversation content is recorded: the answer given, else the person's (the saved
+/// value is the default, yes when nothing was chosen yet), else the saved value, else no.
+fn choose_content(io: &mut Io, ctx: &ProxyCtx<'_>, given: Answers) -> Result<bool> {
+    let saved = saved_content_choice(&ctx.config.proxy);
+    match given.record_content {
+        Some(record) => Ok(record),
+        None if given.ask => ask_record_content(io, saved.unwrap_or(true)),
+        None => Ok(saved.unwrap_or(false)),
+    }
+}
+
+/// What the user chose before about recording content, when `tokred.toml` tells. The file always
+/// holds a `log_bodies` value (`configure` writes the default, `false`), so a `false` counts as a
+/// choice only once the proxy has been enabled.
+fn saved_content_choice(proxy: &ProxyConfig) -> Option<bool> {
+    (proxy.enabled || proxy.log_bodies).then_some(proxy.log_bodies)
+}
+
+/// Explains and asks whether the dashboard may show what was sent and returned.
+fn ask_record_content(io: &mut Io, default: bool) -> Result<bool> {
+    let explanation = "\nThe dashboard can show what was sent to the model and what came back.\n\
+        That needs tokred to keep the conversation text in its own database on this machine;\n\
+        headers and credentials are never recorded, and nothing leaves this computer.\n";
+    write!(io.out(), "{explanation}")?;
+    let hint = if default { "[Y/n]" } else { "[y/N]" };
+    let question = format!("Record conversation content so the dashboard can show it? {hint} ");
+    let answer = io.ask(&question)?.unwrap_or_default().to_ascii_lowercase();
+    Ok(match answer.as_str() {
+        "y" | "yes" => true,
+        "n" | "no" => false,
+        _ => default,
+    })
+}
+
+/// Stops a proxy of this installation that runs on another port than `port`, so that the
+/// reconcile starts one on the new port.
+fn restart_on_another_port(io: &mut Io, ctx: &ProxyCtx<'_>, port: u16) -> Result<()> {
+    let running = files(ctx.env)
+        .read_pid()
+        .map(|(_, running)| running)
+        .filter(|running| *running != port && healthy(*running, ADMIN_TIMEOUT));
+    if let Some(running) = running {
+        let text = format!(
+            "The tokred proxy is running on port {running}; restarting it on port {port}.\n"
+        );
+        write!(io.out(), "{text}")?;
+        stop(io, ctx)?;
+    }
+    Ok(())
+}
+
+/// Writes `text` as `tokred.toml`.
+fn save(ctx: &ProxyCtx<'_>, text: &str) -> Result<()> {
     let path = ctx.env.data.config_path();
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-    let text = set_config_value(&existing, "proxy", "enabled", toml::Value::Boolean(enabled))?;
     std::fs::create_dir_all(ctx.env.data.root())
         .with_context(|| format!("could not create {}", ctx.env.data.root().display()))?;
-    std::fs::write(&path, text).with_context(|| format!("could not write {}", path.display()))?;
+    std::fs::write(&path, text).with_context(|| format!("could not write {}", path.display()))
+}
 
-    let report = initialize::reconcile(ctx.env, ctx.config, ctx.exe, enabled, ctx.settle)?;
-    let mut text = format!("[proxy] enabled = {enabled}\n");
+/// Reconciles Claude Code's settings with `enabled` (using `config`, which is what `tokred.toml`
+/// now says) and reports what happened. `details` are lines that follow the `[proxy] enabled`
+/// line.
+fn reconcile_and_report(
+    io: &mut Io,
+    ctx: &ProxyCtx<'_>,
+    config: &Config,
+    enabled: bool,
+    details: &str,
+) -> Result<()> {
+    let report = initialize::reconcile(ctx.env, config, ctx.exe, enabled, ctx.settle)?;
+    let mut shown = format!("[proxy] enabled = {enabled}\n{details}");
     for action in &report.actions {
-        writeln!(text, "  {action}")?;
+        writeln!(shown, "  {action}")?;
     }
     let summary = match report.state {
         initialize::State::Enabled => format!(
             "The tokred proxy is on. Claude Code started from now on goes through {}.\n",
-            base_url(port_of(&ctx.config.proxy.bind)?)
+            base_url(port_of(&config.proxy.bind)?)
         ),
         initialize::State::Disabled => disabled_summary(service_state(ctx.env) == Some(true)),
         _ => "The setting is saved; see the warnings printed on stderr.\n".to_owned(),
     };
-    write!(io.out(), "{text}{summary}")?;
+    write!(io.out(), "{shown}{summary}")?;
     write!(io.err(), "{}", report.warning_text())?;
     Ok(())
 }
@@ -703,12 +851,7 @@ mod tests {
         let (port, _) = fake_proxy(files(&sb.env).secret().unwrap());
         let config = config_on(port);
         let (mut io, out, err) = crate::io::testing::scripted_with_err(false, "");
-        run(
-            &mut io,
-            &ctx(&sb, &config, &no_serve),
-            &ProxyCommand::Enable,
-        )
-        .unwrap();
+        run(&mut io, &ctx(&sb, &config, &no_serve), &enable_command()).unwrap();
         let text = out.text();
         assert!(text.contains("[proxy] enabled = true"), "{text}");
         assert!(
@@ -768,7 +911,7 @@ mod tests {
         let down = config_on(1);
         let sb = claude_sandbox("{}");
         let (mut io, out, err) = crate::io::testing::scripted_with_err(false, "");
-        run(&mut io, &ctx(&sb, &down, &no_serve), &ProxyCommand::Enable).unwrap();
+        run(&mut io, &ctx(&sb, &down, &no_serve), &enable_command()).unwrap();
         let (text, warnings) = (out.text(), err.text());
         assert!(text.contains("The setting is saved"), "{text}");
         assert!(warnings.contains("could not be started"), "{warnings}");
@@ -777,7 +920,7 @@ mod tests {
 
         let sb = claude_sandbox(r#"{"env":{"ANTHROPIC_BASE_URL":"https://gateway.example"}}"#);
         let (mut io, _, err) = crate::io::testing::scripted_with_err(false, "");
-        run(&mut io, &ctx(&sb, &down, &no_serve), &ProxyCommand::Enable).unwrap();
+        run(&mut io, &ctx(&sb, &down, &no_serve), &enable_command()).unwrap();
         let warnings = err.text();
         assert!(warnings.contains("https://gateway.example"), "{warnings}");
         assert!(settings_text(&sb).contains("https://gateway.example"));
@@ -792,9 +935,380 @@ mod tests {
         let result = run(
             &mut io,
             &ctx(&sb, &config_on(1), &no_serve),
-            &ProxyCommand::Enable,
+            &enable_command(),
         );
         assert!(result.is_err());
+    }
+
+    fn enable_command() -> ProxyCommand {
+        ProxyCommand::Enable {
+            port: None,
+            record_content: None,
+            yes: false,
+        }
+    }
+
+    fn free_port() -> u16 {
+        TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
+    }
+
+    /// `proxy enable` with a fake port probe (a proxy that cannot start is fine: what these
+    /// tests look at is what was asked and saved).
+    fn enable_with(
+        sb: &Sandbox,
+        config: &Config,
+        interactive: bool,
+        input: &str,
+        given: (Option<u16>, Option<bool>),
+        probe: &dyn Fn(u16) -> PortState,
+    ) -> (Result<()>, String) {
+        let (mut io, out) = scripted(interactive, input);
+        let answers = Answers {
+            port: given.0,
+            record_content: given.1,
+            ask: interactive,
+        };
+        let result = enable(&mut io, &ctx(sb, config, &no_serve), answers, probe);
+        (result, out.text())
+    }
+
+    fn saved(sb: &Sandbox) -> Config {
+        let text = std::fs::read_to_string(sb.env.data.config_path()).unwrap();
+        Config::from_toml_str(&text).unwrap()
+    }
+
+    fn all_free(_: u16) -> PortState {
+        PortState::Free
+    }
+
+    fn fresh_config() -> Config {
+        Config::default()
+    }
+
+    #[test]
+    fn a_person_is_asked_for_the_port_and_for_recording_with_these_defaults() {
+        let sb = claude_sandbox("{}");
+        let (result, out) =
+            enable_with(&sb, &fresh_config(), true, "\n\n", (None, None), &all_free);
+        result.unwrap();
+        assert!(out.contains("Port for the tokred proxy [1029]: "), "{out}");
+        assert!(out.contains("nothing leaves this computer"), "{out}");
+        assert!(out.contains("show it? [Y/n] "), "{out}");
+        assert!(out.contains("address: 127.0.0.1:1029"), "{out}");
+        assert!(
+            out.contains("conversation content: recorded for the dashboard"),
+            "{out}"
+        );
+        let config = saved(&sb);
+        assert!(config.proxy.enabled);
+        assert_eq!(config.proxy.bind, "127.0.0.1:1029");
+        assert!(config.proxy.log_bodies);
+    }
+
+    #[test]
+    fn the_answers_are_saved_and_become_the_next_defaults() {
+        let sb = claude_sandbox("{}");
+        let (result, out) = enable_with(
+            &sb,
+            &fresh_config(),
+            true,
+            "2000\nn\n",
+            (None, None),
+            &all_free,
+        );
+        result.unwrap();
+        assert!(out.contains("conversation content: not recorded"), "{out}");
+        let config = saved(&sb);
+        assert_eq!(config.proxy.bind, "127.0.0.1:2000");
+        assert!(!config.proxy.log_bodies);
+        assert!(config.proxy.enabled);
+
+        // Asked again, the saved values are the defaults: pressing Enter keeps them.
+        let (result, out) = enable_with(&sb, &config, true, "\n\n", (None, None), &all_free);
+        result.unwrap();
+        assert!(out.contains("Port for the tokred proxy [2000]: "), "{out}");
+        assert!(out.contains("show it? [y/N] "), "{out}");
+        let config = saved(&sb);
+        assert_eq!(config.proxy.bind, "127.0.0.1:2000");
+        assert!(!config.proxy.log_bodies);
+
+        let (result, _) = enable_with(&sb, &config, true, "\nYES\n", (None, None), &all_free);
+        result.unwrap();
+        assert!(saved(&sb).proxy.log_bodies);
+    }
+
+    #[test]
+    fn a_content_default_that_was_never_chosen_is_yes() {
+        // `configure` leaves `log_bodies = false` behind: that is not a choice while the proxy
+        // has never been enabled, but it is one once it has.
+        let off = ProxyConfig::default();
+        assert_eq!(saved_content_choice(&off), None);
+        let chosen_no = ProxyConfig {
+            enabled: true,
+            ..off.clone()
+        };
+        assert_eq!(saved_content_choice(&chosen_no), Some(false));
+        let yes = ProxyConfig {
+            log_bodies: true,
+            ..off
+        };
+        assert_eq!(saved_content_choice(&yes), Some(true));
+    }
+
+    #[test]
+    fn a_bad_or_busy_port_is_asked_again_and_a_port_that_is_ours_is_accepted() {
+        let sb = claude_sandbox("{}");
+        let busy = |port: u16| {
+            if port == 3000 {
+                PortState::Busy
+            } else {
+                PortState::Free
+            }
+        };
+        let input = "abc\n80\n3000\n3001\nn\n";
+        let (result, out) = enable_with(&sb, &fresh_config(), true, input, (None, None), &busy);
+        result.unwrap();
+        assert!(out.contains("`abc` is not a port number"), "{out}");
+        assert!(
+            out.contains("Port 3000 is in use by another program. Choose another."),
+            "{out}"
+        );
+        assert_eq!(saved(&sb).proxy.bind, "127.0.0.1:3001");
+
+        let ours = |_| PortState::Ours;
+        let (result, _) = enable_with(&sb, &fresh_config(), true, "4000\nn\n", (None, None), &ours);
+        result.unwrap();
+        assert_eq!(saved(&sb).proxy.bind, "127.0.0.1:4000");
+    }
+
+    #[test]
+    fn flags_answer_for_the_user_and_a_busy_flag_port_only_warns() {
+        let sb = claude_sandbox("{}");
+        let busy = |_| PortState::Busy;
+        let given = (Some(5000), Some(true));
+        let (result, out) = enable_with(&sb, &fresh_config(), true, "", given, &busy);
+        result.unwrap();
+        assert!(
+            out.contains("Port 5000 is in use by another program: the proxy cannot start"),
+            "{out}"
+        );
+        assert!(!out.contains("Port for the tokred proxy"), "{out}");
+        assert!(!out.contains("Record conversation"), "{out}");
+        let config = saved(&sb);
+        assert_eq!(config.proxy.bind, "127.0.0.1:5000");
+        assert!(config.proxy.log_bodies);
+        assert!(config.proxy.enabled);
+    }
+
+    #[test]
+    fn a_flag_for_one_answer_still_asks_the_other() {
+        let sb = claude_sandbox("{}");
+        let (result, out) = enable_with(
+            &sb,
+            &fresh_config(),
+            true,
+            "n\n",
+            (Some(5001), None),
+            &all_free,
+        );
+        result.unwrap();
+        assert!(!out.contains("Port for the tokred proxy"), "{out}");
+        assert!(out.contains("show it? [Y/n] "), "{out}");
+        let config = saved(&sb);
+        assert_eq!(config.proxy.bind, "127.0.0.1:5001");
+        assert!(!config.proxy.log_bodies);
+    }
+
+    #[test]
+    fn without_a_terminal_only_the_given_answers_are_written() {
+        // Nothing saved, nothing said: port 1029, content not recorded.
+        let sb = claude_sandbox("{}");
+        let (result, out) = enable_with(&sb, &fresh_config(), false, "", (None, None), &all_free);
+        result.unwrap();
+        assert!(!out.contains("Port for the tokred proxy"), "{out}");
+        assert!(!out.contains("Record conversation"), "{out}");
+        let config = saved(&sb);
+        assert_eq!(config.proxy.bind, "127.0.0.1:1029");
+        assert!(!config.proxy.log_bodies);
+        assert!(config.proxy.enabled);
+
+        // What the user chose before stays (a re-run after an upgrade changes nothing)...
+        let mut chosen = fresh_config();
+        chosen.proxy.enabled = true;
+        chosen.proxy.bind = "127.0.0.1:2500".to_owned();
+        chosen.proxy.log_bodies = true;
+        let (result, _) = enable_with(&sb, &chosen, false, "", (None, None), &all_free);
+        result.unwrap();
+        let config = saved(&sb);
+        assert_eq!(config.proxy.bind, "127.0.0.1:2500");
+        assert!(config.proxy.log_bodies);
+
+        // ... unless a flag says otherwise.
+        let (result, _) = enable_with(&sb, &chosen, false, "", (None, Some(false)), &all_free);
+        result.unwrap();
+        let config = saved(&sb);
+        assert_eq!(config.proxy.bind, "127.0.0.1:2500");
+        assert!(!config.proxy.log_bodies);
+    }
+
+    #[test]
+    fn the_host_of_a_custom_bind_and_the_users_other_keys_survive() {
+        let sb = claude_sandbox("{}");
+        std::fs::create_dir_all(sb.env.data.root()).unwrap();
+        let before = "[proxy]\nbind = \"0.0.0.0:7000\"\nlog_bodies = true\nretention_days = 5\n\n[routing]\nmode = \"enforce\"\n";
+        std::fs::write(sb.env.data.config_path(), before).unwrap();
+        let config = saved(&sb);
+        let (result, out) = enable_with(&sb, &config, true, "\n\n", (None, None), &all_free);
+        result.unwrap();
+        assert!(out.contains("Port for the tokred proxy [7000]: "), "{out}");
+        assert!(out.contains("show it? [Y/n] "), "{out}");
+        let (result, _) = enable_with(&sb, &config, false, "", (Some(7100), None), &all_free);
+        result.unwrap();
+        let config = saved(&sb);
+        assert_eq!(config.proxy.bind, "0.0.0.0:7100");
+        assert_eq!(config.proxy.retention_days, 5);
+        assert!(config.proxy.log_bodies);
+        assert_eq!(config.routing.mode.as_str(), "enforce");
+    }
+
+    #[test]
+    fn a_proxy_running_on_another_port_is_restarted_on_the_new_one() {
+        let sb = claude_sandbox("{}");
+        let (old, stopped) = fake_proxy(files(&sb.env).secret().unwrap());
+        files(&sb.env).write_pid(1234, old).unwrap();
+        let config = config_on(old);
+        let new = free_port();
+        let given = (Some(new), Some(false));
+        let (result, out) = enable_with(&sb, &config, false, "", given, &all_free);
+        result.unwrap();
+        assert!(
+            out.contains(&format!(
+                "running on port {old}; restarting it on port {new}"
+            )),
+            "{out}"
+        );
+        assert!(out.contains("The tokred proxy stopped."), "{out}");
+        assert!(stopped.load(Ordering::SeqCst));
+        assert_eq!(saved(&sb).proxy.bind, format!("127.0.0.1:{new}"));
+    }
+
+    #[test]
+    fn the_new_port_is_saved_before_the_old_proxy_is_stopped() {
+        let sb = claude_sandbox("{}");
+        // A proxy that acknowledges the shutdown but keeps running: the stop fails.
+        let (old, _) = fake_proxy_with(files(&sb.env).secret().unwrap(), false);
+        files(&sb.env).write_pid(1234, old).unwrap();
+        let new = free_port();
+        let given = (Some(new), Some(false));
+        let (result, _) = enable_with(&sb, &config_on(old), false, "", given, &all_free);
+        assert!(format!("{:#}", result.unwrap_err()).contains("did not stop"));
+        let config = saved(&sb);
+        assert_eq!(config.proxy.bind, format!("127.0.0.1:{new}"));
+        assert!(config.proxy.enabled);
+    }
+
+    #[test]
+    fn a_proxy_already_on_the_chosen_port_is_not_restarted() {
+        let sb = claude_sandbox("{}");
+        let (port, stopped) = fake_proxy(files(&sb.env).secret().unwrap());
+        files(&sb.env).write_pid(1234, port).unwrap();
+        let (result, out) = enable_with(
+            &sb,
+            &config_on(port),
+            false,
+            "",
+            (Some(port), None),
+            &|_| PortState::Ours,
+        );
+        result.unwrap();
+        assert!(!out.contains("restarting"), "{out}");
+        assert!(!stopped.load(Ordering::SeqCst));
+        assert!(out.contains("The tokred proxy is on."), "{out}");
+    }
+
+    #[test]
+    fn a_recorded_proxy_that_is_gone_is_not_stopped() {
+        let sb = claude_sandbox("{}");
+        let gone = free_port();
+        files(&sb.env).write_pid(1234, gone).unwrap();
+        let (result, out) = enable_with(
+            &sb,
+            &fresh_config(),
+            false,
+            "",
+            (Some(free_port()), None),
+            &all_free,
+        );
+        result.unwrap();
+        assert!(!out.contains("restarting"), "{out}");
+    }
+
+    #[test]
+    fn the_command_takes_flags_and_the_real_port_probe() {
+        let sb = claude_sandbox("{}");
+        let port = free_port();
+        let command = ProxyCommand::Enable {
+            port: Some(port),
+            record_content: Some(true),
+            yes: false,
+        };
+        let (mut io, out) = scripted(false, "");
+        run(&mut io, &ctx(&sb, &fresh_config(), &no_serve), &command).unwrap();
+        let text = out.text();
+        assert!(
+            text.contains(&format!("address: 127.0.0.1:{port}")),
+            "{text}"
+        );
+        assert!(!text.contains("in use by another program"), "{text}");
+        let config = saved(&sb);
+        assert_eq!(config.proxy.bind, format!("127.0.0.1:{port}"));
+        assert!(config.proxy.log_bodies && config.proxy.enabled);
+
+        // A port somebody else holds is only a warning.
+        let held = TcpListener::bind("127.0.0.1:0").unwrap();
+        let busy = held.local_addr().unwrap().port();
+        let command = ProxyCommand::Enable {
+            port: Some(busy),
+            record_content: None,
+            yes: false,
+        };
+        let (mut io, out) = scripted(false, "");
+        run(&mut io, &ctx(&sb, &config, &no_serve), &command).unwrap();
+        let text = out.text();
+        assert!(
+            text.contains(&format!("Port {busy} is in use by another program")),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn yes_never_asks_even_in_a_terminal() {
+        let sb = claude_sandbox("{}");
+        let port = free_port();
+        let command = ProxyCommand::Enable {
+            port: None,
+            record_content: None,
+            yes: true,
+        };
+        let (mut io, out) = scripted(true, "should never be read\n");
+        run(&mut io, &ctx(&sb, &config_on(port), &no_serve), &command).unwrap();
+        let text = out.text();
+        assert!(!text.contains("Port for the tokred proxy"), "{text}");
+        assert!(!text.contains("Record conversation"), "{text}");
+        assert_eq!(saved(&sb).proxy.bind, format!("127.0.0.1:{port}"));
+    }
+
+    #[test]
+    fn enable_refuses_a_config_that_is_not_toml_before_asking_to_stop_anything() {
+        let sb = claude_sandbox("{}");
+        std::fs::create_dir_all(sb.env.data.root()).unwrap();
+        std::fs::write(sb.env.data.config_path(), "[[[").unwrap();
+        let (result, _) = enable_with(&sb, &fresh_config(), false, "", (None, None), &all_free);
+        assert!(format!("{:#}", result.unwrap_err()).contains("not valid TOML"));
     }
 
     fn ctx_with_refusal<'a>(sb: &'a Sandbox, config: &'a Config) -> ProxyCtx<'a> {
