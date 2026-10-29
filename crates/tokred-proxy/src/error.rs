@@ -20,6 +20,9 @@ pub enum ProxyError {
         /// Why it was refused.
         reason: &'static str,
     },
+    /// The TLS client could not be set up.
+    #[error("could not set up TLS for the upstream: {0}")]
+    Tls(#[from] rustls::Error),
     /// The listening socket could not be opened.
     #[error("could not listen on {addr}: {source}")]
     Bind {
@@ -62,6 +65,8 @@ mod tests {
         };
         assert!(bind.to_string().contains("busy"));
         assert!(std::error::Error::source(&bind).is_some());
+        let tls = ProxyError::from(rustls::Error::General("no provider".to_owned()));
+        assert!(tls.to_string().contains("no provider"));
         assert!(
             ProxyError::from(std::io::Error::other("io"))
                 .to_string()

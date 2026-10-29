@@ -47,9 +47,13 @@ which = "8.0.6"
 bytes = "1.12.1"
 http-body-util = "0.1.5"
 hyper = { version = "1.12.0", features = ["http1", "server", "client"] }
-hyper-rustls = { version = "0.27.10", default-features = false, features = ["http1", "ring", "webpki-roots", "tls12", "native-tokio"] }
-hyper-util = { version = "0.1.21", features = ["tokio", "client-legacy", "http1", "server"] }
+hyper-rustls = { version = "0.27.10", default-features = false, features = ["http1", "ring", "tls12"] }
+hyper-util = { version = "0.1.21", features = ["tokio", "client-legacy", "client-proxy", "http1", "server"] }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8.5"
+rustls-pki-types = "1.15.1"
+webpki-roots = "1.0.11"
 flate2 = "1.1.10"
 globset = "0.4.21"
 opener = "0.9.0"
@@ -67,6 +71,9 @@ insta = { version = "1.49.0", features = ["json"] }
 predicates = "3.1.4"
 proptest = "1.12.0"
 tempfile = "3.27.0"
+# A throwaway CA and TLS server for the corporate-network tests of tokred-proxy.
+rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "ring", "pem"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

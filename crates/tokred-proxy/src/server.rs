@@ -15,6 +15,7 @@ use tokio::task::JoinSet;
 use tokred_core::proxy::{ProxyHook, RecordSink};
 
 use crate::config::ServerConfig;
+use crate::connector::UpstreamClient;
 use crate::error::ProxyError;
 use crate::exchange::{self, Shared, SharedParts};
 use crate::host::check_bind;
@@ -72,6 +73,7 @@ pub struct Proxy {
     listener: std::net::TcpListener,
     local_addr: SocketAddr,
     upstream: Upstream,
+    client: UpstreamClient,
     config: ServerConfig,
 }
 
@@ -80,6 +82,7 @@ impl Proxy {
     pub fn bind(config: ServerConfig) -> Result<Self, ProxyError> {
         check_bind(config.bind, config.allow_non_loopback)?;
         let upstream = Upstream::parse(&config.upstream)?;
+        let client = UpstreamClient::build(&upstream, &config.network)?;
         let listener =
             std::net::TcpListener::bind(config.bind).map_err(|source| ProxyError::Bind {
                 addr: config.bind,
@@ -91,6 +94,7 @@ impl Proxy {
             listener,
             local_addr,
             upstream,
+            client,
             config,
         })
     }
@@ -113,6 +117,7 @@ impl Proxy {
         let shared = Arc::new(Shared::new(SharedParts {
             addr: self.local_addr,
             upstream: self.upstream,
+            client: self.client,
             hooks,
             sink,
             clock: self.config.clock,

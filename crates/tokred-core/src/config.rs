@@ -215,6 +215,10 @@ pub struct ProxyConfig {
     pub retention_days: u32,
     /// Log request bodies (debugging only; never credentials).
     pub log_bodies: bool,
+    /// A PEM file of certificate authorities to trust for the upstream, in addition to the
+    /// bundled roots, the operating system's and `NODE_EXTRA_CA_CERTS` / `SSL_CERT_FILE`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ca_bundle: Option<String>,
 }
 
 impl Default for ProxyConfig {
@@ -226,6 +230,7 @@ impl Default for ProxyConfig {
             persist_base_url: false,
             retention_days: 90,
             log_bodies: false,
+            ca_bundle: None,
         }
     }
 }

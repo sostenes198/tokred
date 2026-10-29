@@ -2,6 +2,8 @@
 //! with an in-memory record sink, and HTTP helpers. No external network is used.
 #![allow(dead_code)]
 
+pub mod net;
+
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicI64, Ordering};

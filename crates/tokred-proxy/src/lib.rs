@@ -21,11 +21,13 @@
 
 mod admin;
 mod config;
+mod connector;
 mod error;
 mod exchange;
 mod headers;
 mod host;
 mod miss;
+mod network;
 mod pipeline;
 mod record;
 mod server;
@@ -37,6 +39,7 @@ mod writer;
 pub use config::{DEFAULT_DRAIN_TIMEOUT, DEFAULT_SESSION_CAP, ServerConfig, SystemClock};
 pub use error::ProxyError;
 pub use miss::{MainTurn, MissCause, explain_cache_miss};
+pub use network::{CaFileSummary, NetworkSettings, NetworkSummary, ProxySummary};
 pub use server::{Proxy, Shutdown, run, run_blocking};
 pub use writer::{
     ApplyRecord, ChannelSink, DEFAULT_WRITER_CAPACITY, WriterReport, spawn_writer,
