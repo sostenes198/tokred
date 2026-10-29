@@ -23,7 +23,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 use tokred_core::Timestamp;
+use tokred_core::dashboard::{CapturedTurn, DashboardSource, SessionDetail, SessionList};
 use tokred_core::ports::Clock;
+use tokred_core::pricing::Usage;
 use tokred_core::proxy::{
     HookFailure, ProxyHook, ProxyRecord, ProxyRequestRecord, RecordSink, RequestCtx,
     ResponseSummary, rewrite_model, rewrite_ticket,
@@ -213,11 +215,39 @@ impl MemorySink {
             .lock()
             .unwrap()
             .iter()
-            .map(|record| match record {
-                ProxyRecord::Request(request) => (**request).clone(),
+            .filter_map(|record| match record {
+                ProxyRecord::Request(request) => Some((**request).clone()),
+                ProxyRecord::Captured(_) => None,
                 other => panic!("unexpected record {other:?}"),
             })
             .collect()
+    }
+
+    pub fn captured(&self) -> Vec<CapturedTurn> {
+        self.records
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|record| match record {
+                ProxyRecord::Captured(turn) => Some((**turn).clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Waits until at least `count` captured turns arrived.
+    pub async fn wait_for_captured(&self, count: usize) -> Vec<CapturedTurn> {
+        for _ in 0..500 {
+            let turns = self.captured();
+            if turns.len() >= count {
+                return turns;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!(
+            "expected {count} captured turns, got {}",
+            self.captured().len()
+        );
     }
 
     /// Waits until at least `count` request records arrived (the record is written when the
@@ -277,6 +307,65 @@ pub async fn start_with(config: ServerConfig, hooks: Vec<Arc<dyn ProxyHook>>) ->
         shutdown,
         sink,
         task,
+    }
+}
+
+/// Like [`start_with`], with the dashboard turned on.
+#[allow(clippy::unused_async)]
+pub async fn start_dashboard(
+    config: ServerConfig,
+    hooks: Vec<Arc<dyn ProxyHook>>,
+    source: Arc<FakeSource>,
+    capture: bool,
+) -> Running {
+    let proxy = Proxy::bind(config).unwrap().with_dashboard(source, capture);
+    let addr = proxy.local_addr();
+    let shutdown = Shutdown::new();
+    let sink = Arc::new(MemorySink::default());
+    let task = tokio::spawn(proxy.serve(hooks, sink.clone(), shutdown.clone()));
+    Running {
+        addr,
+        shutdown,
+        sink,
+        task,
+    }
+}
+
+/// A dashboard source with canned answers.
+#[derive(Default)]
+pub struct FakeSource {
+    pub sessions: Mutex<SessionList>,
+    pub details: Mutex<std::collections::HashMap<String, SessionDetail>>,
+    pub metrics: Mutex<Option<String>>,
+    pub failing: std::sync::atomic::AtomicBool,
+}
+
+impl DashboardSource for FakeSource {
+    fn sessions(&self) -> Result<SessionList, String> {
+        if self.failing.load(Ordering::SeqCst) {
+            return Err("database is locked".to_owned());
+        }
+        Ok(self.sessions.lock().unwrap().clone())
+    }
+
+    fn session(&self, id: &str) -> Result<Option<SessionDetail>, String> {
+        if self.failing.load(Ordering::SeqCst) {
+            return Err("database is locked".to_owned());
+        }
+        Ok(self.details.lock().unwrap().get(id).cloned())
+    }
+
+    fn metrics_html(&self) -> Result<String, String> {
+        self.metrics
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| "no report".to_owned())
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    fn cost_usd(&self, model: &str, usage: &Usage) -> Option<f64> {
+        (model != "unpriced").then(|| usage.output as f64 / 1000.0)
     }
 }
 

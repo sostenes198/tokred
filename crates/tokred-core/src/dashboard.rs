@@ -60,17 +60,66 @@ pub fn origin_label(origin: &str) -> &'static str {
     }
 }
 
+/// Text collected up to a character limit: what does not fit is counted, and
+/// [`Clipped::finish`] ends the text with `…[truncated N chars]`. Cuts happen on character
+/// boundaries.
+#[derive(Debug, Clone)]
+pub struct Clipped {
+    limit: usize,
+    text: String,
+    kept: usize,
+    dropped: usize,
+}
+
+impl Clipped {
+    /// An empty text that keeps at most `limit` characters.
+    #[must_use]
+    pub const fn new(limit: usize) -> Self {
+        Self {
+            limit,
+            text: String::new(),
+            kept: 0,
+            dropped: 0,
+        }
+    }
+
+    /// Appends `piece`, keeping what fits and counting the rest.
+    pub fn push_str(&mut self, piece: &str) {
+        let room = self.limit - self.kept;
+        let cut = piece
+            .char_indices()
+            .nth(room)
+            .map_or(piece.len(), |(at, _)| at);
+        let (head, tail) = piece.split_at(cut);
+        self.kept += head.chars().count();
+        self.dropped += tail.chars().count();
+        self.text.push_str(head);
+    }
+
+    /// Nothing was pushed (or only empty text).
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.kept == 0 && self.dropped == 0
+    }
+
+    /// The text with the truncation marker when anything was dropped.
+    #[must_use]
+    pub fn finish(self) -> String {
+        if self.dropped == 0 {
+            self.text
+        } else {
+            format!("{}…[truncated {} chars]", self.text, self.dropped)
+        }
+    }
+}
+
 /// Cuts `text` to [`MAX_TEXT_CHARS`] characters (never in the middle of a character), ending
 /// with `…[truncated N chars]` when something was cut.
 #[must_use]
 pub fn truncate_text(text: &str) -> String {
-    match text.char_indices().nth(MAX_TEXT_CHARS) {
-        None => text.to_owned(),
-        Some((cut, _)) => {
-            let dropped = text[cut..].chars().count();
-            format!("{}…[truncated {dropped} chars]", &text[..cut])
-        }
-    }
+    let mut clipped = Clipped::new(MAX_TEXT_CHARS);
+    clipped.push_str(text);
+    clipped.finish()
 }
 
 /// One session (`S` of the API).
@@ -412,6 +461,21 @@ mod tests {
         let cut = truncate_text(&long);
         assert!(cut.starts_with(&exact));
         assert!(cut.ends_with("…[truncated 3 chars]"), "{cut}");
+    }
+
+    #[test]
+    fn clipped_text_counts_what_it_drops_across_pieces() {
+        let mut clipped = Clipped::new(5);
+        assert!(clipped.is_empty());
+        clipped.push_str("ab");
+        clipped.push_str("");
+        clipped.push_str("cdéfg");
+        clipped.push_str("hi");
+        assert!(!clipped.is_empty());
+        assert_eq!(clipped.finish(), "abcdé…[truncated 4 chars]");
+        let mut fits = Clipped::new(3);
+        fits.push_str("abc");
+        assert_eq!(fits.finish(), "abc");
     }
 
     #[test]

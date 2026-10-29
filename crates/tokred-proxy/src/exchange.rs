@@ -29,6 +29,7 @@ use tokred_core::proxy::{
 };
 
 use crate::admin::{self, Admin};
+use crate::dashboard::{Dashboard, Tracked};
 use crate::headers;
 use crate::host::host_allowed;
 use crate::miss::{MainTurn, SessionTracker};
@@ -36,6 +37,7 @@ use crate::pipeline::{self, Prepared};
 use crate::record::{
     canonical_hash, message_key, micros, millis, new_request_id, thinking_signature,
 };
+use crate::routes::{self, Asked};
 use crate::server::Shutdown;
 use crate::tap::{Observed, ResponseTap};
 use crate::upstream::Upstream;
@@ -75,6 +77,7 @@ pub(crate) struct Shared {
     counters: Counters,
     started: Instant,
     shutdown: Shutdown,
+    dashboard: Option<Arc<Dashboard>>,
 }
 
 /// What [`Shared::new`] needs.
@@ -87,6 +90,7 @@ pub(crate) struct SharedParts {
     pub secret: String,
     pub session_cap: usize,
     pub shutdown: Shutdown,
+    pub dashboard: Option<Arc<Dashboard>>,
 }
 
 /// An HTTP/1 client for the upstream: rustls with the Mozilla roots for `https`, plain TCP
@@ -128,6 +132,7 @@ impl Shared {
             counters: Counters::default(),
             started: Instant::now(),
             shutdown: parts.shutdown,
+            dashboard: parts.dashboard,
         }
     }
 
@@ -208,8 +213,10 @@ fn bad_gateway(shared: &Shared, error: &str) -> Response<ProxyBody> {
 
 fn admin_response(shared: &Shared, action: Admin, headers: &HeaderMap) -> Response<ProxyBody> {
     let allowed = action == Admin::Health
-        || (matches!(action, Admin::Status | Admin::Shutdown)
-            && admin::authorized(headers, &shared.secret));
+        || (matches!(
+            action,
+            Admin::Status | Admin::Shutdown | Admin::DashboardToken
+        ) && admin::authorized(headers, &shared.secret));
     if !allowed {
         let (status, message) = admin::refusal(action);
         return json_response(status, &json!({"ok": false, "error": message}));
@@ -221,11 +228,28 @@ fn admin_response(shared: &Shared, action: Admin, headers: &HeaderMap) -> Respon
             json_response(StatusCode::OK, &json!({"ok": true, "stopping": true}))
         }
         Admin::Status => json_response(StatusCode::OK, &shared.status()),
+        Admin::DashboardToken => dashboard_token(shared),
         _ => json_response(
             StatusCode::OK,
             &json!({"ok": true, "version": crate::VERSION}),
         ),
     }
+}
+
+/// `POST /__tokred/dashboard-token`: a one-time token to open the dashboard with.
+fn dashboard_token(shared: &Shared) -> Response<ProxyBody> {
+    let Some(dashboard) = &shared.dashboard else {
+        return json_response(
+            StatusCode::NOT_FOUND,
+            &json!({"ok": false, "error": "the dashboard is not enabled"}),
+        );
+    };
+    let token = dashboard.auth.issue_token(Instant::now());
+    let expires_in = crate::auth::TOKEN_TTL.as_secs();
+    json_response(
+        StatusCode::OK,
+        &json!({"ok": true, "token": token, "expires_in": expires_in}),
+    )
 }
 
 /// The client's response: the upstream's status and headers (minus hop-by-hop ones) and body.
@@ -254,6 +278,17 @@ async fn respond(shared: &Arc<Shared>, request: Request<Incoming>) -> Response<P
     }
     if let Some(action) = admin::route(request.method(), request.uri().path()) {
         return admin_response(shared, action, request.headers());
+    }
+    if let Some(dashboard) = &shared.dashboard
+        && let Some(route) = routes::route(request.uri().path())
+    {
+        let asked = Asked {
+            method: request.method(),
+            headers: request.headers(),
+            query: request.uri().query(),
+            now: shared.clock.now(),
+        };
+        return routes::handle(dashboard, route, &asked).await;
     }
     let (parts, body) = request.into_parts();
     let Ok(collected) = body.collect().await else {
@@ -290,6 +325,11 @@ async fn messages(
     if prepared.failed {
         bump(&shared.counters.hook_failures);
     }
+    let id = new_request_id();
+    let tracked = shared
+        .dashboard
+        .as_ref()
+        .and_then(|dashboard| dashboard.begin(&id, ts, &prepared));
     let overhead_us = micros(received.elapsed());
     let mut bytes_out = prepared.send.len();
     let response = match shared.send(parts, prepared.send.clone()).await {
@@ -308,7 +348,7 @@ async fn messages(
         other => other,
     };
     let exchange = Exchange {
-        id: new_request_id(),
+        id,
         ts,
         prepared,
         received,
@@ -326,8 +366,14 @@ async fn messages(
                 status: head.status.as_u16(),
                 request_id: headers::text(&head.headers, "request-id").map(str::to_owned),
                 ttfb_ms,
+                tracked,
             };
-            let tap = ResponseTap::new(&head.headers);
+            let capture = shared.dashboard.as_ref().is_some_and(|d| d.capture);
+            let tap = if capture {
+                ResponseTap::capturing(&head.headers)
+            } else {
+                ResponseTap::new(&head.headers)
+            };
             let body = TapBody {
                 inner: body,
                 tap: Some(tap),
@@ -342,6 +388,7 @@ async fn messages(
                 status: StatusCode::BAD_GATEWAY.as_u16(),
                 request_id: None,
                 ttfb_ms,
+                tracked,
             };
             finish.complete(Observed::default());
             bad_gateway(shared, &error)
@@ -368,9 +415,18 @@ struct Finish {
     status: u16,
     request_id: Option<String>,
     ttfb_ms: u64,
+    /// The turn the dashboard follows, when it follows this one.
+    tracked: Option<Tracked>,
 }
 
 impl Finish {
+    /// Text of the response arrived (only when contents are captured).
+    fn delta(&self, text: String) {
+        if let (Some(dashboard), Some(tracked)) = (&self.shared.dashboard, &self.tracked) {
+            dashboard.delta(tracked, text);
+        }
+    }
+
     fn complete(mut self, observed: Observed) {
         let summary = ResponseSummary {
             status: self.status,
@@ -392,6 +448,15 @@ impl Finish {
             self.exchange.ts,
             &summary,
         );
+        if let (Some(dashboard), Some(tracked)) = (&self.shared.dashboard, self.tracked.take()) {
+            dashboard.end(
+                tracked,
+                &record,
+                &summary,
+                observed.content,
+                self.shared.sink.as_ref(),
+            );
+        }
         self.shared
             .sink
             .record(ProxyRecord::Request(Box::new(record)));
@@ -500,6 +565,9 @@ impl Body for TapBody {
             Poll::Ready(Some(Ok(frame))) => {
                 if let (Some(tap), Some(data)) = (self.tap.as_mut(), frame.data_ref()) {
                     tap.feed(data);
+                    if let (Some(text), Some(finish)) = (tap.take_delta(), self.finish.as_ref()) {
+                        finish.delta(text);
+                    }
                 }
             }
             Poll::Ready(Some(Err(_))) => self.end(false),

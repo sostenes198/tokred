@@ -10,8 +10,10 @@
 use hyper::HeaderMap;
 use hyper::header::{CONTENT_ENCODING, CONTENT_TYPE};
 use serde_json::Value;
+use tokred_core::dashboard::ResponseView;
 use tokred_core::pricing::Usage;
 
+use crate::capture::ResponseCapture;
 use crate::headers::text;
 use crate::sse::SseParser;
 
@@ -26,6 +28,9 @@ const EVENTS: [&str; 5] = [
     "message_stop",
     "error",
 ];
+
+/// Further events parsed when the content of the response is captured.
+const CONTENT_EVENTS: [&str; 2] = ["content_block_delta", "content_block_stop"];
 
 /// How the body is read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +60,8 @@ pub(crate) struct Observed {
     pub tool_uses: Vec<String>,
     /// The body broke off, the stream ended without `message_stop`, or it carried an error.
     pub interrupted: bool,
+    /// What the response said; only when the tap was built to capture content.
+    pub content: Option<ResponseView>,
 }
 
 #[derive(Debug, Default)]
@@ -62,6 +69,7 @@ struct State {
     observed: Observed,
     saw_stop: bool,
     saw_error: bool,
+    capture: Option<ResponseCapture>,
 }
 
 fn set(slot: &mut u64, value: Option<u64>) {
@@ -128,12 +136,18 @@ impl State {
     }
 
     fn event(&mut self, name: Option<&str>, data: &[u8]) {
-        if name.is_some_and(|name| !EVENTS.contains(&name)) {
+        let capturing = self.capture.is_some();
+        let wanted =
+            |name: &str| EVENTS.contains(&name) || (capturing && CONTENT_EVENTS.contains(&name));
+        if name.is_some_and(|name| !wanted(name)) {
             return;
         }
         let Ok(event) = serde_json::from_slice::<Value>(data) else {
             return;
         };
+        if let Some(capture) = self.capture.as_mut() {
+            capture.event(&event);
+        }
         match event.get("type").and_then(Value::as_str) {
             Some("message_start") => self.message(event.get("message").unwrap_or(&Value::Null)),
             Some("content_block_start") => {
@@ -191,6 +205,22 @@ impl ResponseTap {
         }
     }
 
+    /// Like [`ResponseTap::new`], and also reassembles what the response says (text, thinking,
+    /// tools called) for the dashboard.
+    pub(crate) fn capturing(headers: &HeaderMap) -> Self {
+        let mut tap = Self::new(headers);
+        tap.state.capture = Some(ResponseCapture::new());
+        tap
+    }
+
+    /// The response text that arrived since the last call (only when capturing).
+    pub(crate) fn take_delta(&mut self) -> Option<String> {
+        self.state
+            .capture
+            .as_mut()
+            .and_then(ResponseCapture::take_delta)
+    }
+
     /// Reads one chunk of the body.
     pub(crate) fn feed(&mut self, chunk: &[u8]) {
         match self.kind {
@@ -214,9 +244,13 @@ impl ResponseTap {
             && let Ok(message) = serde_json::from_slice::<Value>(&self.json)
         {
             self.state.message(&message);
+            if let Some(capture) = self.state.capture.as_mut() {
+                capture.message(&message);
+            }
         }
         let stream_cut = self.kind == Kind::Sse && !self.state.saw_stop;
         self.state.observed.interrupted = !complete || stream_cut || self.state.saw_error;
+        self.state.observed.content = self.state.capture.take().map(ResponseCapture::finish);
         self.state.observed
     }
 }
@@ -280,6 +314,7 @@ mod tests {
             stop_reason: Some("tool_use".to_owned()),
             tool_uses: vec!["Read".to_owned(), "web_search".to_owned()],
             interrupted: false,
+            content: None,
         }
     }
 
@@ -373,5 +408,62 @@ mod tests {
             tap.feed(&stream);
             assert_eq!(tap.finish(true), Observed::default());
         }
+    }
+
+    fn captured_stream() -> Vec<u8> {
+        sse(&[
+            json!({"type": "message_start", "message": {"id": "msg_c", "model": "m", "content": [], "usage": {"input_tokens": 1}}}),
+            json!({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}),
+            json!({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Hel"}}),
+            json!({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "lo"}}),
+            json!({"type": "content_block_stop", "index": 0}),
+            json!({"type": "content_block_start", "index": 1, "content_block": {"type": "tool_use", "id": "t", "name": "Read", "input": {}}}),
+            json!({"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": "{\"file_path\":\"/a\"}"}}),
+            json!({"type": "content_block_stop", "index": 1}),
+            json!({"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 9}}),
+            json!({"type": "message_stop"}),
+        ])
+    }
+
+    #[test]
+    fn a_capturing_tap_reassembles_the_response_and_streams_its_text() {
+        let stream = captured_stream();
+        let mut tap = ResponseTap::capturing(&headers("text/event-stream", None));
+        let mut deltas = Vec::new();
+        for chunk in stream.chunks(40) {
+            tap.feed(chunk);
+            deltas.extend(tap.take_delta());
+        }
+        assert_eq!(deltas.concat(), "Hello");
+        let observed = tap.finish(true);
+        let content = observed.content.unwrap();
+        assert_eq!(content.text, "Hello");
+        assert_eq!(content.tool_uses[0].name, "Read");
+        assert_eq!(content.tool_uses[0].input_summary, "/a");
+        assert_eq!(
+            observed.tool_uses,
+            ["Read"],
+            "the usual facts are read as well"
+        );
+        assert_eq!(observed.stop_reason.as_deref(), Some("tool_use"));
+    }
+
+    #[test]
+    fn a_tap_that_does_not_capture_never_parses_content_or_keeps_any() {
+        let mut tap = ResponseTap::new(&headers("text/event-stream", None));
+        tap.feed(&captured_stream());
+        assert_eq!(tap.take_delta(), None);
+        let observed = tap.finish(true);
+        assert_eq!(observed.content, None);
+        assert_eq!(observed.tool_uses, ["Read"]);
+    }
+
+    #[test]
+    fn a_capturing_tap_reads_a_json_body_too() {
+        let body = json!({"id": "m", "content": [{"type": "text", "text": "hi"}], "usage": {"input_tokens": 1}}).to_string();
+        let mut tap = ResponseTap::capturing(&headers("application/json", None));
+        tap.feed(body.as_bytes());
+        assert_eq!(tap.take_delta(), None, "a JSON body is read at its end");
+        assert_eq!(tap.finish(true).content.unwrap().text, "hi");
     }
 }

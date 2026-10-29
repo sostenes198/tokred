@@ -18,6 +18,8 @@ pub(crate) enum Admin {
     Status,
     /// `POST /__tokred/shutdown` (secret).
     Shutdown,
+    /// `POST /__tokred/dashboard-token` (secret): a one-time token to open the dashboard.
+    DashboardToken,
     /// A known path with the wrong method.
     WrongMethod,
     /// Unknown admin path.
@@ -31,23 +33,29 @@ pub(crate) fn route(method: &Method, path: &str) -> Option<Admin> {
         ("health", &Method::GET) => Admin::Health,
         ("status", &Method::GET) => Admin::Status,
         ("shutdown", &Method::POST) => Admin::Shutdown,
-        ("health" | "status" | "shutdown", _) => Admin::WrongMethod,
+        ("dashboard-token", &Method::POST) => Admin::DashboardToken,
+        ("health" | "status" | "shutdown" | "dashboard-token", _) => Admin::WrongMethod,
         _ => Admin::Unknown,
     })
 }
 
-/// Compares the header with the configured secret in time independent of where they differ.
-/// An empty configured secret matches nothing.
-pub(crate) fn authorized(headers: &HeaderMap, secret: &str) -> bool {
-    let given = headers
-        .get(SECRET_HEADER)
-        .map_or(&b""[..], |value| value.as_bytes());
-    let expected = secret.as_bytes();
-    let mut difference = u8::from(given.len() != expected.len() || expected.is_empty());
+/// Whether `given` equals `expected`, in time that does not depend on where they differ (only
+/// on their lengths).
+pub(crate) fn constant_time_eq(given: &[u8], expected: &[u8]) -> bool {
+    let mut difference = u8::from(given.len() != expected.len());
     for (index, byte) in expected.iter().enumerate() {
         difference |= byte ^ given.get(index).copied().unwrap_or(0);
     }
     difference == 0
+}
+
+/// Compares the header with the configured secret in constant time. An empty configured secret
+/// matches nothing.
+pub(crate) fn authorized(headers: &HeaderMap, secret: &str) -> bool {
+    let given = headers
+        .get(SECRET_HEADER)
+        .map_or(&b""[..], |value| value.as_bytes());
+    !secret.is_empty() && constant_time_eq(given, secret.as_bytes())
 }
 
 /// Status code and JSON body for a refused admin request.
@@ -55,7 +63,7 @@ pub(crate) fn refusal(action: Admin) -> (StatusCode, &'static str) {
     match action {
         Admin::WrongMethod => (StatusCode::METHOD_NOT_ALLOWED, "method not allowed"),
         Admin::Unknown => (StatusCode::NOT_FOUND, "unknown admin endpoint"),
-        Admin::Health | Admin::Status | Admin::Shutdown => {
+        Admin::Health | Admin::Status | Admin::Shutdown | Admin::DashboardToken => {
             (StatusCode::UNAUTHORIZED, "missing or wrong x-tokred-secret")
         }
     }
@@ -79,6 +87,14 @@ mod tests {
             route(&Method::GET, "/__tokred/shutdown"),
             Some(Admin::WrongMethod)
         );
+        assert_eq!(
+            route(&Method::POST, "/__tokred/dashboard-token"),
+            Some(Admin::DashboardToken)
+        );
+        assert_eq!(
+            route(&Method::GET, "/__tokred/dashboard-token"),
+            Some(Admin::WrongMethod)
+        );
         assert_eq!(route(&Method::GET, "/__tokred/other"), Some(Admin::Unknown));
         assert_eq!(route(&Method::GET, "/v1/messages"), None);
         assert_eq!(route(&Method::GET, "/__tokred"), None);
@@ -97,6 +113,16 @@ mod tests {
         assert!(!authorized(&with("abc1234"), "abc123"));
         assert!(!authorized(&HeaderMap::new(), "abc123"));
         assert!(!authorized(&with(""), ""), "an empty secret disables admin");
+    }
+
+    #[test]
+    fn the_comparison_is_exact_and_length_sensitive() {
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(constant_time_eq(b"", b""));
+        assert!(!constant_time_eq(b"abc", b"abd"));
+        assert!(!constant_time_eq(b"abc", b"abcd"));
+        assert!(!constant_time_eq(b"abcd", b"abc"));
+        assert!(!constant_time_eq(b"", b"a"));
     }
 
     #[test]

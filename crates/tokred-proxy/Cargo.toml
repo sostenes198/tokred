@@ -15,11 +15,13 @@ workspace = true
 [dependencies]
 blake3 = { workspace = true }
 bytes = { workspace = true }
-http-body-util = { workspace = true }
+http-body-util = { workspace = true, features = ["channel"] }
 hyper = { workspace = true }
 hyper-rustls = { workspace = true }
 hyper-util = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokred-core = { workspace = true }
@@ -30,4 +32,5 @@ tracing = { workspace = true }
 http-body-util = { workspace = true, features = ["channel"] }
 proptest = { workspace = true }
 tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { workspace = true }

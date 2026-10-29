@@ -20,14 +20,21 @@
 //! ```
 
 mod admin;
+mod auth;
+mod bus;
+mod capture;
 mod config;
+mod dashboard;
 mod error;
 mod exchange;
 mod headers;
 mod host;
+mod live;
+mod merge;
 mod miss;
 mod pipeline;
 mod record;
+mod routes;
 mod server;
 mod sse;
 mod tap;
@@ -35,6 +42,7 @@ mod upstream;
 mod writer;
 
 pub use config::{DEFAULT_DRAIN_TIMEOUT, DEFAULT_SESSION_CAP, ServerConfig, SystemClock};
+pub use dashboard::DecisionTap;
 pub use error::ProxyError;
 pub use miss::{MainTurn, MissCause, explain_cache_miss};
 pub use server::{Proxy, Shutdown, run, run_blocking};
@@ -52,5 +60,8 @@ pub const HEALTH_PATH: &str = "/__tokred/health";
 pub const STATUS_PATH: &str = "/__tokred/status";
 /// Path of the shutdown endpoint (`POST`, needs the secret).
 pub const SHUTDOWN_PATH: &str = "/__tokred/shutdown";
+/// Path of the endpoint that issues a one-time token to open the dashboard (`POST`, needs the
+/// secret).
+pub const DASHBOARD_TOKEN_PATH: &str = "/__tokred/dashboard-token";
 /// Header carrying the admin secret.
 pub const SECRET_HEADER: &str = admin::SECRET_HEADER;
