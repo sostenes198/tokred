@@ -15,6 +15,9 @@ use crate::args::{ClaudeDirArg, CompressionCommand, ProxyCommand, ServiceCommand
 use crate::daemon::ServiceKind;
 use crate::io::Io;
 
+/// The exit code when the user answered "no" to the confirmation.
+pub const DECLINED: i32 = 2;
+
 /// What `uninstall` was asked for.
 pub struct Request {
     /// `--claude-dir`.
@@ -49,7 +52,8 @@ pub fn run(io: &mut Io, ctx: &ProxyCtx<'_>, request: Request) -> Result<()> {
         write!(io.out(), "{plan}")?;
         if !confirm(io, "Remove tokred from this machine? [y/N] ")? {
             writeln!(io.out(), "Nothing was changed.")?;
-            return Ok(());
+            // Exit code 2 tells the uninstall script not to delete the binary.
+            return Err(super::ChildExit(DECLINED).into());
         }
         if !purge {
             let question =
@@ -216,7 +220,9 @@ mod tests {
         for answer in ["n\n", "\n", ""] {
             let (result, out, _) =
                 uninstall(&sb, true, answer, request(&sb, false, false), NO_PROXY);
-            result.unwrap();
+            let error = result.unwrap_err();
+            let declined = error.downcast_ref::<super::super::ChildExit>();
+            assert_eq!(declined, Some(&super::super::ChildExit(DECLINED)));
             assert!(out.contains("Nothing was changed."), "{out}");
             assert!(sb.agent("tokred-dev.md").exists());
         }
