@@ -660,8 +660,14 @@ mod tests {
         dash.end(tracked, &record("r1"), &summary(200, None), None, &sink);
         while events.try_recv().is_ok() {}
         let task = tokio::spawn(upkeep(dash.clone(), Arc::new(SystemClock)));
-        let finished = events.recv().await.unwrap();
-        assert!(String::from_utf8_lossy(&finished.frame).contains("finished"));
+        // A `session` event announced by the turn above may still be on its way: skip it.
+        let finished = loop {
+            let event = events.recv().await.unwrap();
+            if String::from_utf8_lossy(&event.frame).contains("finished") {
+                break event;
+            }
+        };
+        assert!(String::from_utf8_lossy(&finished.frame).contains("event: subagent"));
         dash.shutdown.trigger();
         tokio::time::timeout(Duration::from_secs(1), task)
             .await
