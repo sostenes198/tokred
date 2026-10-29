@@ -109,7 +109,15 @@ install_in_sandbox() {
         in_sandbox sh "$INSTALL_SH" --no-proxy "$@" </dev/null >"$S_ROOT/install.out" 2>&1
     fi
 }
-uninstall_in_sandbox() { in_sandbox sh "$UNINSTALL_SH" "$@" </dev/null >"$S_ROOT/uninstall.out" 2>&1; }
+# `--no-proxy` leaves the default port (1029) in tokred.toml, and a tokred proxy of the machine the
+# test runs on may be listening there: point the sandbox at a port nothing uses before removing it.
+uninstall_in_sandbox() {
+    if [ -f "$S_DATA/tokred.toml" ]; then
+        sed "s#127\.0\.0\.1:1029#127.0.0.1:$PORT#" "$S_DATA/tokred.toml" >"$S_ROOT/toml.tmp" \
+            && cat "$S_ROOT/toml.tmp" >"$S_DATA/tokred.toml"
+    fi
+    in_sandbox sh "$UNINSTALL_SH" "$@" </dev/null >"$S_ROOT/uninstall.out" 2>&1
+}
 
 # ------------------------------------------------------------ 1. a plain install (default folder)
 
