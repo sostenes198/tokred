@@ -6,6 +6,10 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+### Corrigido
+
+- Um proxy que ainda estava terminando quando o substituto iniciou apagava o arquivo de PID do substituto, então o `tokred proxy status` não mostrava o pid e o `tokred proxy enable` não achava o proxy em execução: desligar a gravação de conversas depois de um `stop`/`enable` ficava sem efeito. Agora o proxy só remove o arquivo de PID se ele ainda for o dele, e o `enable` também procura o proxy na porta configurada, aceitando só um que responda com o segredo desta instalação.
+
 ## [0.1.0-rc.2] - 2026-10-29
 
 ### Adicionado
@@ -15,8 +19,6 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 - O dashboard dá a cada sessão o nome que o Claude Code dá (o título que você escolheu ou o gerado, mais a pasta e um id curto), em vez de mostrar só o id da sessão.
 
 ### Corrigido
-
-- Um proxy que ainda estava terminando quando o substituto iniciou apagava o arquivo de PID do substituto, então o `tokred proxy status` não mostrava o pid e o `tokred proxy enable` não achava o proxy em execução: desligar a gravação de conversas depois de um `stop`/`enable` ficava sem efeito. Agora o proxy só remove o arquivo de PID se ele ainda for o dele, e o `enable` também procura o proxy na porta configurada, aceitando só um que responda com o segredo desta instalação.
 
 - O `tokred proxy enable --record-content false` agora vale para um proxy que já está rodando: o proxy lê essa configuração só ao iniciar, então continuava gravando o conteúdo das conversas até ser reiniciado. O `enable` agora pergunta ao proxy em execução o que ele grava (`content_recorded` no status dele) e o reinicia quando isso difere do pedido, ou quando ele é antigo demais para dizer.
 
