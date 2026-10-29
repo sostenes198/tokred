@@ -89,7 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: shellcheck install/*.sh tests/installer/*.sh
+      - run: shellcheck install/*.sh tests/installer/*.sh tests/release/*.sh
 
   installer:
     name: installer (${{ matrix.os }})

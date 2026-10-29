@@ -134,6 +134,16 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sostenes198/tokred/rele
 
 Confira `tokred --version`, `tokred doctor` e o script de desinstalação; só então envie a tag de verdade (apague a pre-release se quiser removê-la).
 
+### O teste de fumaça da release: a release só é anunciada quando ele está verde
+
+O ensaio com a pré-release acima é a hora de rodar o **teste de fumaça da release** (veja [testing](testing.pt-BR.md#3-teste-de-fumaça-da-release)). O workflow `Release smoke` começa sozinho quando o `Release` termina com sucesso para uma tag `v*`, instala o tokred dessa release publicada no Ubuntu, no macOS (Apple Silicon e Intel), no Windows e em contêineres Alpine, Debian e Fedora, e confere cada funcionalidade contra o estado real. Você também pode rodá-lo para qualquer tag: **Actions, Release smoke, Run workflow**, ou à mão:
+
+```sh
+sh tests/release/smoke.sh v0.2.0-rc.1
+```
+
+**Não anuncie uma release (mensagem, link no README, troca do "latest") enquanto algum job do `Release smoke` da tag estiver vermelho.** Um job vermelho quer dizer que os artefatos publicados não fazem o que prometem naquela plataforma: leia a linha `not ok - ...` e o artefato `smoke-logs-*` ([como ler uma falha](testing.pt-BR.md#ler-uma-falha)), corrija na `main` e gere o próximo release candidate ou a próxima versão de correção.
+
 ### Conferir o resultado
 
 ```sh

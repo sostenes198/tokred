@@ -134,6 +134,16 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sostenes198/tokred/rele
 
 Check `tokred --version`, `tokred doctor` and the uninstall script, then push the real tag (delete the pre-release if you want it gone).
 
+### The release smoke test: the release is not announced until it is green
+
+The pre-release dry run above is the moment to run the **release smoke test** (see [testing](testing.md#3-release-smoke-test)). The `Release smoke` workflow starts by itself when `Release` succeeds for a `v*` tag, installs tokred from that published release on Ubuntu, macOS (Apple Silicon and Intel), Windows and in Alpine, Debian and Fedora containers, and checks every feature against real state. You can also run it for any tag: **Actions, Release smoke, Run workflow**, or by hand:
+
+```sh
+sh tests/release/smoke.sh v0.2.0-rc.1
+```
+
+**Do not announce a release (a message, a README link, a "latest" bump) while any job of `Release smoke` for its tag is red.** A red job means the published artifacts do not do what they promise on that platform: read the `not ok - ...` line and the `smoke-logs-*` artifact ([how to read a failure](testing.md#reading-a-failure)), fix it on `main` and cut the next release candidate or patch version.
+
 ### Check the result
 
 ```sh
