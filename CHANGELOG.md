@@ -6,12 +6,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.1.0-rc.1] - 2026-10-29
+
 ### Added
 
 - Install like rustup: `install/install.sh` (macOS, Linux) and `install/install.ps1` (Windows) download the release archive from GitHub, verify its checksum, install it in `~/.tokred/bin` (`%LOCALAPPDATA%\tokred\bin`), add it to `PATH` and run `tokred configure` and `tokred proxy enable`. `uninstall.sh` / `uninstall.ps1` undo it. Options: `--yes`, `--port`, `--version`, `--no-modify-path`, `--no-alias`, `--no-proxy`, `--no-configure`, and `TOKRED_HOME`, `TOKRED_RELEASE_BASE_URL`.
 - The installer defines a `claude` wrapper (bash, zsh, fish, PowerShell) that runs `tokred initialize` first and then the real Claude Code; fail-open, skipped with `--no-alias` / `TOKRED_NO_ALIAS=1`, bypassed with `command claude`.
 - `tokred proxy enable` asks for the proxy port (default 1029, 1024 to 65535, must be free) and whether conversation content may be recorded for the dashboard; new flags `--port`, `--record-content <true|false>` and `--yes` and variables `TOKRED_PORT`, `TOKRED_RECORD_CONTENT` (a flag wins). A quiet re-run never changes a choice you made, and a running proxy is restarted on a new port.
-- `tokred uninstall [--yes] [--purge]`: stops the proxy, removes its user service, turns compression off, removes the hooks and agents and optionally the data folder.
+- `tokred uninstall`: stops the proxy, removes its user service, turns compression off, removes the hooks and agents and optionally the data folder.
 - Tests for the install scripts (`tests/installer/`) in CI on Linux, macOS and Windows, and `shellcheck`.
 
 ### Changed

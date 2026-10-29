@@ -1992,7 +1992,7 @@ dependencies = [
 
 [[package]]
 name = "tokred"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -2031,7 +2031,7 @@ dependencies = [
 
 [[package]]
 name = "tokred-audit"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "insta",
  "serde",
@@ -2045,7 +2045,7 @@ dependencies = [
 
 [[package]]
 name = "tokred-compress"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "blake3",
  "proptest",
@@ -2056,7 +2056,7 @@ dependencies = [
 
 [[package]]
 name = "tokred-core"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "proptest",
  "serde",
@@ -2068,7 +2068,7 @@ dependencies = [
 
 [[package]]
 name = "tokred-hooks"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "blake3",
  "globset",
@@ -2086,7 +2086,7 @@ dependencies = [
 
 [[package]]
 name = "tokred-install"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "blake3",
  "insta",
@@ -2101,7 +2101,7 @@ dependencies = [
 
 [[package]]
 name = "tokred-metrics"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "insta",
  "proptest",
@@ -2116,7 +2116,7 @@ dependencies = [
 
 [[package]]
 name = "tokred-pricing"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "serde_json",
  "thiserror",
@@ -2126,7 +2126,7 @@ dependencies = [
 
 [[package]]
 name = "tokred-proxy"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "blake3",
  "bytes",
@@ -2154,7 +2154,7 @@ dependencies = [
 
 [[package]]
 name = "tokred-report"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "insta",
  "opener",
@@ -2166,7 +2166,7 @@ dependencies = [
 
 [[package]]
 name = "tokred-routing"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "proptest",
  "serde",
@@ -2177,7 +2177,7 @@ dependencies = [
 
 [[package]]
 name = "tokred-store"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "rusqlite",
  "tempfile",
@@ -2187,7 +2187,7 @@ dependencies = [
 
 [[package]]
 name = "tokred-suggest"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "serde_json",
  "tokred-core",
@@ -2195,7 +2195,7 @@ dependencies = [
 
 [[package]]
 name = "tokred-update"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "flate2",
  "semver",
