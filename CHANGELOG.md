@@ -16,6 +16,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- A proxy that was still shutting down when its replacement started erased the replacement's pid file, so `tokred proxy status` showed no pid and `tokred proxy enable` could not find the running proxy: turning conversation recording off after a `stop`/`enable` went unapplied. A proxy now removes the pid file only if it still names it, and `enable` also looks for the proxy on the configured port, accepting only one that answers with this installation's secret.
+
 - `tokred proxy enable --record-content false` now takes effect on a proxy that is already running: the proxy reads that setting only when it starts, so it kept recording conversation content until restarted. `enable` now asks the running proxy what it records (`content_recorded` in its status) and restarts it when that differs from what was asked, or when it is too old to say.
 
 - The metrics report's summary cards (real cost, savings, tokens avoided, projection, latency) now follow the 7 days / 30 days / All buttons, with the period each one covers; before, only the daily charts changed. The toolbar says "Summary and daily charts"; the model, routing, guard, latency and audit sections still cover the whole period.

@@ -240,7 +240,7 @@ pub fn run(env: &Env, config: &Config, claude_dir: Option<&Path>, bind: &str) ->
             "tokred proxy stopped"
         );
     });
-    proxy_files.clear_pid();
+    proxy_files.clear_pid_of(std::process::id());
     result.map_err(Into::into)
 }
 

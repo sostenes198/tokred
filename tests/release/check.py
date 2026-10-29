@@ -231,7 +231,14 @@ def cmd_toml(args):
             match = re.match(r"^([A-Za-z0-9_.-]+)\s*=\s*(.*?)\s*(#.*)?$", text)
             if match and section == args.section and match.group(1) == args.key:
                 found = match.group(2)
-    expect(found == args.value, "[%s] %s = %s" % (args.section, args.key, args.value),
+    # A string is quoted in the file. Windows PowerShell 5.1 drops the quotes of an argument it
+    # passes on, so the expected value is compared without them on both sides.
+    def bare(value):
+        if value is not None and len(value) >= 2 and value[0] == value[-1] == '"':
+            return value[1:-1]
+        return value
+
+    expect(bare(found) == bare(args.value), "[%s] %s = %s" % (args.section, args.key, args.value),
            "[%s] %s is %r in %s, expected %r" % (args.section, args.key, found, args.file, args.value))
 
 

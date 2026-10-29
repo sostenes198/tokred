@@ -339,11 +339,8 @@ mod tests {
             "0.0.9",
         );
         run(&mut io, &ctx).unwrap();
-        assert!(
-            out.text().contains("Installing tokred 0.1.0 -> 0.0.9"),
-            "{}",
-            out.text()
-        );
+        let text = out.text();
+        assert!(text.contains("Installing tokred 0.1.0 -> 0.0.9"), "{text}");
     }
 
     #[test]
@@ -448,11 +445,8 @@ mod tests {
         );
         ctx.method = InstallMethod::Other;
         run(&mut io, &ctx).unwrap();
-        assert!(
-            out.text().contains("`--version 0.2.0-rc.3`"),
-            "{}",
-            out.text()
-        );
+        let text = out.text();
+        assert!(text.contains("`--version 0.2.0-rc.3`"), "{text}");
         assert!(downloads.requested.borrow().is_empty());
     }
 

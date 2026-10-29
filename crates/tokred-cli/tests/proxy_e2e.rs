@@ -918,3 +918,66 @@ fn an_open_event_stream_does_not_keep_the_proxy_from_stopping() {
     }
     wait_for_exit(pid);
 }
+
+/// What the running proxy says about itself, with this sandbox's admin secret.
+fn admin_status(sb: &Sandbox, port: u16) -> serde_json::Value {
+    let secret = std::fs::read_to_string(sb.data().join("proxy/secret")).unwrap();
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let request = format!(
+        "GET /__tokred/status HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nx-tokred-secret: {}\r\nconnection: close\r\n\r\n",
+        secret.trim()
+    );
+    stream.write_all(request.as_bytes()).unwrap();
+    let mut bytes = Vec::new();
+    stream.read_to_end(&mut bytes).unwrap();
+    json_body(&String::from_utf8_lossy(&bytes))
+}
+
+/// Turning content recording off must reach a proxy that is already running, and the record of
+/// the proxy that replaces it (its pid file) must survive the old one finishing: `enable` finds
+/// the running proxy through that file. Both used to go wrong, so recording went on after it was
+/// switched off.
+#[cfg(unix)]
+#[test]
+fn turning_recording_off_reaches_the_running_proxy_and_keeps_its_pid_file() {
+    let (upstream, _) = fake_upstream();
+    let port = free_port();
+    let sb = Sandbox::new(&upstream, port);
+    let on = [
+        "proxy",
+        "enable",
+        "--port",
+        &port.to_string(),
+        "--record-content",
+        "true",
+    ];
+    assert!(sb.run_detached(&on));
+    assert_eq!(admin_status(&sb, port)["content_recorded"], true);
+    let first = read_pid(&sb);
+
+    // Twice, so that a proxy which is still finishing is replaced again right away.
+    for _ in 0..2 {
+        assert!(sb.run_detached(&["proxy", "enable", "--record-content", "false"]));
+        assert_eq!(admin_status(&sb, port)["content_recorded"], false);
+        assert!(sb.run_detached(&["proxy", "enable", "--record-content", "true"]));
+        assert_eq!(admin_status(&sb, port)["content_recorded"], true);
+    }
+    wait_for_exit(first);
+    // However late the old proxies ended, the record names the one that is running.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let current = read_pid(&sb);
+    assert_ne!(current, first);
+    assert!(sb.run_detached(&["proxy", "enable", "--record-content", "false"]));
+    assert_eq!(admin_status(&sb, port)["content_recorded"], false);
+    assert!(sb.run_detached(&["proxy", "stop"]));
+    wait_for_exit(read_pid_or(&sb, current));
+}
+
+/// The pid in the record, or `fallback` when the record is gone (a stopped proxy clears it).
+#[cfg(unix)]
+fn read_pid_or(sb: &Sandbox, fallback: u32) -> u32 {
+    std::fs::read_to_string(sb.data().join("proxy/pid"))
+        .ok()
+        .and_then(|text| text.split_whitespace().next().and_then(|p| p.parse().ok()))
+        .unwrap_or(fallback)
+}

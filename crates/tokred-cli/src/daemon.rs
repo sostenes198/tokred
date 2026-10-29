@@ -114,6 +114,14 @@ impl ProxyFiles {
     pub fn clear_pid(&self) {
         let _ = std::fs::remove_file(self.pid_path());
     }
+
+    /// Forgets the proxy `pid`, unless the file already names another one. A proxy that is
+    /// still shutting down when its successor has started must not erase the successor's record.
+    pub fn clear_pid_of(&self, pid: u32) {
+        if self.read_pid().is_some_and(|(recorded, _)| recorded == pid) {
+            self.clear_pid();
+        }
+    }
 }
 
 fn parse_pid(text: &str) -> Option<(u32, u16)> {
@@ -446,6 +454,23 @@ mod tests {
         for bad in ["", "12", "x 1029", "12 port", "12 99999"] {
             assert_eq!(parse_pid(bad), None, "{bad:?}");
         }
+    }
+
+    #[test]
+    fn a_proxy_that_ends_late_does_not_erase_its_successors_record() {
+        let tmp = tempfile::tempdir().unwrap();
+        let files = ProxyFiles::new(tmp.path().join("proxy"));
+        // The old proxy (1) is still shutting down; its successor (2) has already written its pid.
+        files.write_pid(2, 1029).unwrap();
+        files.clear_pid_of(1);
+        assert_eq!(
+            files.read_pid(),
+            Some((2, 1029)),
+            "not the old one's to remove"
+        );
+        files.clear_pid_of(2);
+        assert_eq!(files.read_pid(), None, "the proxy's own record goes");
+        files.clear_pid_of(2);
     }
 
     #[test]

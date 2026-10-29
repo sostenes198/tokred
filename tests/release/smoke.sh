@@ -370,11 +370,11 @@ step "3. traffic through the proxy, the dashboard and the metrics"
 "$PY" -I "$FAKE" --port-file "$W/fake.port" >"$W/fake.log" 2>&1 &
 FAKE_PID=$!
 i=0
-while [ ! -s "$W/fake.port" ] && [ "$i" -lt 50 ]; do
+while [ ! -s "$W/fake.port" ] && [ "$i" -lt 150 ]; do
     i=$((i + 1))
     sleep 0.2
 done
-[ -s "$W/fake.port" ] || die "the fake upstream did not start: $(cat "$W/fake.log")"
+[ -s "$W/fake.port" ] || die "the fake upstream did not start in 30 s ($PY, $("$PY" --version 2>&1)): $(cat "$W/fake.log")"
 FAKE_PORT=$(cat "$W/fake.port")
 assert_eq "$(http_code "http://127.0.0.1:$FAKE_PORT/__fake/health")" "200" "the fake upstream answers on port $FAKE_PORT"
 

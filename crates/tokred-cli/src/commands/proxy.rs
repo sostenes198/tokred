@@ -207,17 +207,27 @@ fn ask_record_content(io: &mut Io, default: bool) -> Result<bool> {
 
 /// The port a proxy of this installation answers on and whether it records conversation content
 /// (`None` when it does not say: a proxy of an older version). `None` when none is running.
+///
+/// The proxy is looked for where its pid file says, else on the configured port (the file can be
+/// missing, for example after a restart; `stop` does the same). A proxy found only by the port
+/// counts only if it answers with this installation's secret: it may be someone else's.
 fn running_proxy(ctx: &ProxyCtx<'_>) -> Option<(u16, Option<bool>)> {
     let files = files(ctx.env);
-    let (_, port) = files
-        .read_pid()
-        .filter(|(_, port)| healthy(*port, ADMIN_TIMEOUT))?;
-    let recorded = files
+    let recorded_port = files.read_pid().map(|(_, port)| port);
+    let port = recorded_port.or_else(|| port_of(&ctx.config.proxy.bind).ok())?;
+    if !healthy(port, ADMIN_TIMEOUT) {
+        return None;
+    }
+    let status = files
         .secret()
         .ok()
         .and_then(|secret| admin(port, &secret, "GET", "/__tokred/status").ok())
-        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-        .and_then(|status| status["content_recorded"].as_bool());
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok());
+    // Only a proxy that is on the record may be restarted without having proved it is ours.
+    if status.is_none() && recorded_port.is_none() {
+        return None;
+    }
+    let recorded = status.and_then(|status| status["content_recorded"].as_bool());
     Some((port, recorded))
 }
 
@@ -345,13 +355,14 @@ fn stop(io: &mut Io, ctx: &ProxyCtx<'_>) -> Result<()> {
         writeln!(io.out(), "The tokred proxy is not running.")?;
         return Ok(());
     }
+    let stopping = files.read_pid().map(|(pid, _)| pid);
     admin(port, &files.secret()?, "POST", "/__tokred/shutdown")?;
     if !wait_until(ctx.settle, Duration::from_millis(50), &mut || {
         !healthy(port, ADMIN_TIMEOUT)
     }) {
         bail!("the proxy on port {port} did not stop");
     }
-    files.clear_pid();
+    stopping.map_or_else(|| files.clear_pid(), |pid| files.clear_pid_of(pid));
     writeln!(io.out(), "The tokred proxy stopped.")?;
     Ok(())
 }
@@ -1265,6 +1276,52 @@ mod tests {
                 assert!(out.contains(wanted), "{out}");
             }
         }
+    }
+
+    #[test]
+    fn a_running_proxy_is_found_by_its_port_when_the_pid_file_is_gone() {
+        // The pid file can be missing (an old proxy that ended late used to erase it). The proxy
+        // that answers with this installation's secret on the configured port is the one.
+        let sb = claude_sandbox("{}");
+        let (port, stopped) = fake_proxy_saying(
+            files(&sb.env).secret().unwrap(),
+            true,
+            r#"{"content_recorded":true}"#,
+        );
+        assert_eq!(files(&sb.env).read_pid(), None);
+        let (result, out) = enable_with(
+            &sb,
+            &config_on(port),
+            false,
+            "",
+            (Some(port), Some(false)),
+            &|_| PortState::Ours,
+        );
+        result.unwrap();
+        assert!(stopped.load(Ordering::SeqCst), "{out}");
+        assert!(out.contains("restart to apply the setting"), "{out}");
+    }
+
+    #[test]
+    fn a_proxy_of_another_installation_on_the_port_is_left_alone() {
+        let sb = claude_sandbox("{}");
+        // It answers health, but not with this installation's secret.
+        let (port, stopped) = fake_proxy_saying(
+            "someone else's secret".to_owned(),
+            true,
+            r#"{"content_recorded":true}"#,
+        );
+        let (result, out) = enable_with(
+            &sb,
+            &config_on(port),
+            false,
+            "",
+            (Some(port), Some(false)),
+            &|_| PortState::Ours,
+        );
+        result.unwrap();
+        assert!(!stopped.load(Ordering::SeqCst), "{out}");
+        assert!(!out.contains("restart"), "{out}");
     }
 
     #[test]
