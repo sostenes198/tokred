@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.1.0-rc.3] - 2026-10-29
+
 ### Fixed
 
 - A proxy that was still shutting down when its replacement started erased the replacement's pid file, so `tokred proxy status` showed no pid and `tokred proxy enable` could not find the running proxy: turning conversation recording off after a `stop`/`enable` went unapplied. A proxy now removes the pid file only if it still names it, and `enable` also looks for the proxy on the configured port, accepting only one that answers with this installation's secret.

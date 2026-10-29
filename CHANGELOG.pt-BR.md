@@ -6,6 +6,8 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+## [0.1.0-rc.3] - 2026-10-29
+
 ### Corrigido
 
 - Um proxy que ainda estava terminando quando o substituto iniciou apagava o arquivo de PID do substituto, então o `tokred proxy status` não mostrava o pid e o `tokred proxy enable` não achava o proxy em execução: desligar a gravação de conversas depois de um `stop`/`enable` ficava sem efeito. Agora o proxy só remove o arquivo de PID se ele ainda for o dele, e o `enable` também procura o proxy na porta configurada, aceitando só um que responda com o segredo desta instalação.
