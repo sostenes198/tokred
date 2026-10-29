@@ -26,8 +26,11 @@ pub(crate) const COLUMNS: &str = "id, ts, session_id, agent_id, agent_type, prom
     model_requested, model_effective, input, output, cache_write, cache_write_1h, cache_read, \
     thinking, message_key, bytes_in, bytes_out, upstream_ttfb_ms, total_ms, proxy_overhead_us, \
     status, json_extract(notes, '$.decision_id'), json_extract(notes, '$.model_rewritten'), \
-    COALESCE(json_extract(notes, '$.blocks_compressed'), 0), miss_cause, tools_hash, system_hash, stop_reason, tools, cache_ttl, routing_mode \
-    FROM proxy_requests";
+    COALESCE(json_extract(notes, '$.blocks_compressed'), 0), miss_cause, tools_hash, system_hash, stop_reason, tools, cache_ttl, routing_mode";
+
+/// How many columns [`COLUMNS`] selects (queries that join more columns after them read those by
+/// position, so the count is checked against the real statement in the tests).
+pub(crate) const COLUMN_COUNT: usize = 32;
 
 /// SQLite integers are signed: counters beyond `i64::MAX` saturate (unreachable in practice).
 fn to_db(value: u64) -> i64 {
@@ -166,5 +169,21 @@ impl tokred_core::proxy::ProxyRequestRepo for Store {
         to: Timestamp,
     ) -> Result<Vec<ProxyRequestRecord>, StoreError> {
         self.proxy_requests_between(from, to)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_column_count_matches_the_select() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::Store::open(&dir.path().join("t.db")).unwrap();
+        let stmt = store
+            .conn
+            .prepare(&format!("SELECT {COLUMNS} FROM proxy_requests"))
+            .unwrap();
+        assert_eq!(stmt.column_count(), COLUMN_COUNT);
     }
 }

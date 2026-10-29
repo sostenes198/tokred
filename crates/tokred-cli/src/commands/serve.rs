@@ -304,7 +304,7 @@ pub fn prune_old_data(db: &Path, retention_days: u32) {
         });
     match pruned {
         Ok((rows, captured)) => {
-            tracing::info!(rows, captured, retention_days, "pruned old proxy data")
+            tracing::info!(rows, captured, retention_days, "pruned old proxy data");
         }
         Err(error) => tracing::warn!(%error, "could not prune old proxy data"),
     }

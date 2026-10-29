@@ -54,21 +54,25 @@ fn model_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionModelRow> {
     })
 }
 
+/// The columns the joined parts of a turn start at: right after [`COLUMNS`](crate::proxy::COLUMNS).
+const JOINED: usize = crate::proxy::COLUMN_COUNT;
+
 fn turn_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredTurn> {
     let record = row_to_record(row)?;
-    let captured = match row.get::<_, Option<String>>(28)? {
+    let captured = match row.get::<_, Option<String>>(JOINED)? {
         Some(_) => Some(CapturedRow {
-            stop_reason: row.get(29)?,
-            tools_json: row.get(30)?,
-            sent_json: row.get(31)?,
-            response_json: row.get(32)?,
+            stop_reason: row.get(JOINED + 1)?,
+            tools_json: row.get(JOINED + 2)?,
+            sent_json: row.get(JOINED + 3)?,
+            response_json: row.get(JOINED + 4)?,
         }),
         None => None,
     };
-    let routing = match row.get::<_, Option<String>>(33)? {
+    let routing = match row.get::<_, Option<String>>(JOINED + 5)? {
         Some(outcome) => Some((
             outcome,
-            row.get::<_, Option<String>>(34)?.unwrap_or_default(),
+            row.get::<_, Option<String>>(JOINED + 6)?
+                .unwrap_or_default(),
         )),
         None => None,
     };

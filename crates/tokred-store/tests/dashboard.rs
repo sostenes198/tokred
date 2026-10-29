@@ -56,8 +56,17 @@ fn migration_v5_creates_the_table_on_an_existing_v4_database() {
     let db = dir.path().join("t.db");
     drop(Store::open(&db).unwrap());
     let conn = rusqlite::Connection::open(&db).unwrap();
-    conn.execute_batch("DROP TABLE captured_turns; PRAGMA user_version = 4;")
-        .unwrap();
+    // What a version 4 database looks like: no `captured_turns` (v5) and no richer request
+    // columns (v6).
+    conn.execute_batch(
+        "DROP TABLE captured_turns; \
+         ALTER TABLE proxy_requests DROP COLUMN stop_reason; \
+         ALTER TABLE proxy_requests DROP COLUMN tools; \
+         ALTER TABLE proxy_requests DROP COLUMN cache_ttl; \
+         ALTER TABLE proxy_requests DROP COLUMN routing_mode; \
+         PRAGMA user_version = 4;",
+    )
+    .unwrap();
     drop(conn);
     let store = Store::open(&db).unwrap();
     assert!(store.schema_version().unwrap() >= 5);
