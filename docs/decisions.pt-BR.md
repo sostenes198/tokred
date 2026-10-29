@@ -236,9 +236,9 @@ Conferido nos Termos do Consumidor da Anthropic (seção 3, item 7) e na documen
 
 ## 2026-10-29 — O `stats` mostra a sugestão pendente e nunca a marca como mostrada
 
-- **Contexto:** o campo `shown` da sugestão está documentado como marcado pela status line, pela mensagem ou pelo `stats`, mas a status line deliberadamente nunca o marca (ela é redesenhada o tempo todo) para não esconder a sugestão do canal da mensagem de uma linha; o `stats --json` também não deve escrever no banco.
+- **Contexto:** o campo `shown` da sugestão estava documentado como marcado pela status line, pela mensagem ou pelo `stats`, mas a status line deliberadamente nunca o marca (ela é redesenhada o tempo todo) para não esconder a sugestão do canal da mensagem de uma linha; o `stats --json` também não deve escrever no banco.
 - **Decisão:** o `stats` mostra a última sugestão do período que ainda não foi mostrada, com um aviso para o `tokred suggest`, e não altera o campo. A documentação ([proxy](proxy.pt-BR.md), [routing](routing.pt-BR.md)) lista o `tokred stats` entre os lugares onde as sugestões aparecem.
-- **Consequências:** o `stats` só lê e é repetível; a mesma sugestão fica no `stats` até o canal da mensagem mostrá-la. O comentário de `shown` que menciona `stats` está desatualizado e deve ser lido como "status line ou mensagem".
+- **Consequências:** o `stats` só lê e é repetível; a mesma sugestão fica no `stats` até o canal da mensagem mostrá-la. O comentário de `shown` agora diz que só o canal da mensagem o marca.
 
 ## 2026-10-29 — As seções do proxy no relatório HTML só aparecem quando o proxy registrou algo
 
@@ -249,5 +249,5 @@ Conferido nos Termos do Consumidor da Anthropic (seção 3, item 7) e na documen
 ## 2026-10-29 — Uma função monta o relatório a partir dos repositórios
 
 - **Contexto:** o proxy vai servir o mesmo relatório em `/metrics`, e o `tokred-proxy` não pode depender dos crates do store nem do report.
-- **Decisão:** `report_html(repos, prices, now, since, audit)` no `tokred-cli` recebe as portas dos repositórios (uso, requisições do proxy, eventos de hook, roteamento, sugestões, meta) e devolve o HTML como string: sem ingestão de transcripts, sem acesso a arquivo ou rede, sem sincronizar preços. O `tokred metrics` ingere os transcripts e depois grava o que o `report_html` devolve. O proxy o alcança por um trait no `tokred-core` implementado no `tokred-cli`.
+- **Decisão:** `report_html(repos, prices, now, since, audit)` no `tokred-cli` recebe as portas dos repositórios (uso, requisições do proxy, eventos de hook, roteamento, sugestões, meta) e devolve o HTML como string: sem ingestão de transcripts, sem acesso a arquivo ou rede, sem sincronizar preços. O `tokred metrics` ingere os transcripts e depois grava o que o `report_html` devolve. Uma mudança futura pode expô-lo ao proxy por um trait no `tokred-core` implementado no `tokred-cli`.
 - **Consequências:** o arquivo e a página não podem divergir. A rota em si não faz parte desta mudança.

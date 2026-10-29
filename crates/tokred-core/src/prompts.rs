@@ -56,7 +56,8 @@ pub struct SuggestionRecord {
     pub kind: String,
     /// The one-line message shown to the user.
     pub message: String,
-    /// It has been shown (status line, message or stats).
+    /// It has been shown by the one-line message. The status line and `tokred stats` display a
+    /// pending suggestion without marking it, so it can still reach the message channel.
     pub shown: bool,
     /// Extra fields as a JSON object.
     pub detail: String,
