@@ -170,15 +170,14 @@ mod tests {
     #[test]
     fn paths_and_arguments_with_spaces_and_quotes_survive() {
         let args = powershell_args(Path::new("C:\\it's here\\t.exe"), &["--data", "my dir"]);
+        let script = &args[3];
         assert!(
-            args[3].contains("-FilePath 'C:\\it''s here\\t.exe'"),
-            "{}",
-            args[3]
+            script.contains("-FilePath 'C:\\it''s here\\t.exe'"),
+            "{script}"
         );
         assert!(
-            args[3].contains("-ArgumentList '--data','\"my dir\"'"),
-            "{}",
-            args[3]
+            script.contains("-ArgumentList '--data','\"my dir\"'"),
+            "{script}"
         );
     }
 

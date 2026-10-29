@@ -310,6 +310,13 @@ mod tests {
         Uri::from_static("https://api.anthropic.com")
     }
 
+    fn tunnel(route: Route) -> Option<(Uri, Option<HeaderValue>)> {
+        match route {
+            Route::Tunnel { proxy, auth } => Some((proxy, auth)),
+            Route::Direct => None,
+        }
+    }
+
     fn route(vars: &[(&str, &str)]) -> (Route, Option<String>) {
         settings(vars, None).route(&api())
     }
@@ -339,9 +346,7 @@ mod tests {
     fn an_http_proxy_becomes_a_tunnel_without_its_credentials() {
         let (route, warning) = route(&[("HTTPS_PROXY", "http://alice:s3cret@proxy.corp:3128")]);
         assert_eq!(warning, None);
-        let Route::Tunnel { proxy, auth } = route else {
-            panic!("expected a tunnel");
-        };
+        let (proxy, auth) = tunnel(route).unwrap();
         assert_eq!(proxy.to_string(), "http://proxy.corp:3128/");
         let auth = auth.unwrap();
         assert!(auth.is_sensitive());
@@ -351,9 +356,7 @@ mod tests {
     #[test]
     fn a_proxy_without_a_scheme_is_http_and_without_credentials_has_no_auth() {
         let (route, _) = route(&[("https_proxy", "proxy.corp:3128")]);
-        let Route::Tunnel { proxy, auth } = route else {
-            panic!("expected a tunnel");
-        };
+        let (proxy, auth) = tunnel(route).unwrap();
         assert_eq!(proxy.to_string(), "http://proxy.corp:3128/");
         assert!(auth.is_none());
     }
@@ -362,10 +365,9 @@ mod tests {
     fn the_variables_have_a_priority_and_upper_case_wins() {
         let via = |vars: &[(&str, &str)]| {
             let (route, _) = route(vars);
-            match route {
-                Route::Tunnel { proxy, .. } => proxy.authority().unwrap().to_string(),
-                Route::Direct => "direct".to_owned(),
-            }
+            tunnel(route).map_or("direct".to_owned(), |(proxy, _)| {
+                proxy.authority().unwrap().to_string()
+            })
         };
         assert_eq!(via(&[("HTTP_PROXY", "http://c:1")]), "c:1");
         assert_eq!(

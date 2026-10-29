@@ -208,6 +208,9 @@ mod tests {
         assert!(tls_config(true, &none).is_ok());
         let http = Upstream::parse("http://127.0.0.1:1").unwrap();
         assert!(UpstreamClient::build(&http, &none).is_ok());
+        // The operating system's roots are on when the settings come from the environment.
+        let from_env = NetworkSettings::from_lookup(&|_| None, None);
+        assert!(UpstreamClient::build(&https(), &from_env).is_ok());
     }
 
     #[test]
