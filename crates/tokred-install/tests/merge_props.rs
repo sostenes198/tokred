@@ -3,6 +3,7 @@
 
 use proptest::prelude::*;
 use serde_json::{Map, Value, json};
+use tokred_install::base_url::{BASE_URL_KEY, current, remove, set};
 use tokred_install::settings::{hook_entries, merge_settings, remove_tokred};
 
 const EVENTS: [&str; 5] = [
@@ -110,5 +111,38 @@ proptest! {
         let entries = hook_entries("/opt/bin/tokred");
         let merged = merge_settings(input.clone(), &entries).unwrap();
         prop_assert_eq!(foreign_entries(&merged), foreign_entries(&input));
+    }
+
+    /// Setting the base URL twice is setting it once, and it only changes that key.
+    #[test]
+    fn setting_the_base_url_is_idempotent_and_touches_one_key(
+        input in settings(&FOREIGN),
+        port in 1u16..,
+    ) {
+        let url = format!("http://127.0.0.1:{port}");
+        let once = set(input.clone(), &url).unwrap();
+        prop_assert_eq!(set(once.clone(), &url).unwrap(), once.clone());
+        prop_assert_eq!(current(&once), Some(url.as_str()));
+        prop_assert_eq!(remove(once), input);
+    }
+
+    /// A value that is already there (a foreign gateway, an old port) is replaced and removed
+    /// without disturbing the other `env` keys or their order.
+    #[test]
+    fn an_existing_value_is_replaced_in_place(
+        input in settings(&FOREIGN),
+        old in "[a-z]{1,10}",
+        position in 0usize..2,
+    ) {
+        let mut with_old = input.clone();
+        let env = with_old["env"].as_object_mut().unwrap();
+        let mut entries: Vec<(String, Value)> = env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        entries.insert(position.min(entries.len()), (BASE_URL_KEY.to_owned(), json!(old)));
+        *env = entries.into_iter().collect();
+
+        let updated = set(with_old.clone(), "http://127.0.0.1:1029").unwrap();
+        let keys = |v: &Value| v["env"].as_object().unwrap().keys().cloned().collect::<Vec<_>>();
+        prop_assert_eq!(keys(&updated), keys(&with_old));
+        prop_assert_eq!(remove(updated), input);
     }
 }

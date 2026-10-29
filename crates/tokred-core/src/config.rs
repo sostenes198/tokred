@@ -215,14 +215,15 @@ impl TrafficMode {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProxyConfig {
-    /// Whether `configure` set the proxy up.
+    /// The one switch of the proxy features. `false`: `tokred claude` runs `claude` directly,
+    /// `tokred initialize` removes tokred's `ANTHROPIC_BASE_URL` from Claude Code's settings,
+    /// and `tokred proxy start` refuses. `true`: `initialize` keeps that URL set and the proxy
+    /// running.
     pub enabled: bool,
     /// Address the proxy listens on (loopback only unless `--bind` says otherwise).
     pub bind: String,
     /// The only host requests are forwarded to.
     pub upstream: String,
-    /// Write `env.ANTHROPIC_BASE_URL` into Claude Code's settings (needs the user service).
-    pub persist_base_url: bool,
     /// Days of proxy records kept.
     pub retention_days: u32,
     /// Log request bodies (debugging only; never credentials).
@@ -235,7 +236,6 @@ impl Default for ProxyConfig {
             enabled: false,
             bind: "127.0.0.1:8787".to_owned(),
             upstream: "https://api.anthropic.com".to_owned(),
-            persist_base_url: false,
             retention_days: 90,
             log_bodies: false,
         }
@@ -472,6 +472,33 @@ pub fn merge_config(existing: &str, claude_dir: Option<&Path>) -> Result<String,
     }
 }
 
+/// Whether `[proxy] enabled` has a value in `existing` (an unreadable file has none).
+#[must_use]
+pub fn proxy_enabled_is_set(existing: &str) -> bool {
+    toml::from_str::<toml::Table>(existing)
+        .ok()
+        .and_then(|table| table.get("proxy")?.as_table()?.get("enabled").cloned())
+        .is_some()
+}
+
+/// Sets `[<section>] <key>` in `existing` (the text of a `tokred.toml`), keeping every other
+/// key. The file is rewritten by the TOML serializer, so comments are not kept.
+pub fn set_config_value(
+    existing: &str,
+    section: &str,
+    key: &str,
+    value: toml::Value,
+) -> Result<String, ConfigError> {
+    let mut table: toml::Table = toml::from_str(existing)?;
+    table
+        .entry(section)
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()))
+        .as_table_mut()
+        .ok_or_else(|| ConfigError::NotATable(section.to_owned()))?
+        .insert(key.to_owned(), value);
+    Ok(toml::to_string_pretty(&table)?)
+}
+
 /// Stores `dir` in `[claude] dir`; returns whether the value changed.
 fn set_claude_dir(table: &mut toml::Table, dir: &Path) -> Result<bool, ConfigError> {
     let value = toml::Value::String(dir.to_string_lossy().into_owned());
@@ -534,6 +561,40 @@ mod tests {
         let names =
             [TrafficMode::Off, TrafficMode::Observe, TrafficMode::Enforce].map(TrafficMode::as_str);
         assert_eq!(names, ["off", "observe", "enforce"]);
+    }
+
+    #[test]
+    fn the_enabled_switch_is_detected_and_set_in_place() {
+        assert!(!proxy_enabled_is_set(""));
+        assert!(!proxy_enabled_is_set("[proxy]\nbind = \"x:1\"\n"));
+        assert!(!proxy_enabled_is_set("proxy = 3"));
+        assert!(!proxy_enabled_is_set("[[["));
+        assert!(proxy_enabled_is_set("[proxy]\nenabled = false\n"));
+
+        let text = set_config_value(
+            "[proxy]\nbind = \"x:1\"\n",
+            "proxy",
+            "enabled",
+            toml::Value::Boolean(true),
+        )
+        .unwrap();
+        let cfg = Config::from_toml_str(&text).unwrap();
+        assert!(cfg.proxy.enabled);
+        assert_eq!(cfg.proxy.bind, "x:1", "other keys stay");
+        let fresh = set_config_value("", "proxy", "enabled", toml::Value::Boolean(false)).unwrap();
+        assert!(!Config::from_toml_str(&fresh).unwrap().proxy.enabled);
+        assert!(matches!(
+            set_config_value("proxy = 3", "proxy", "enabled", toml::Value::Boolean(true)),
+            Err(ConfigError::NotATable(section)) if section == "proxy"
+        ));
+        assert!(set_config_value("[[[", "proxy", "enabled", toml::Value::Boolean(true)).is_err());
+    }
+
+    #[test]
+    fn a_file_with_the_old_persist_key_still_loads() {
+        let cfg =
+            Config::from_toml_str("[proxy]\nenabled = true\npersist_base_url = true\n").unwrap();
+        assert!(cfg.proxy.enabled);
     }
 
     #[test]

@@ -1,0 +1,11 @@
+{
+  "env": {
+    "FOO": "1",
+    "BAR": "2"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(ls)"
+    ]
+  }
+}

@@ -13,6 +13,9 @@ pub enum MergeError {
     /// `hooks` exists but is not an object.
     #[error("`hooks` must be a JSON object")]
     HooksNotObject,
+    /// `env` exists but is not an object.
+    #[error("`env` must be a JSON object")]
+    EnvNotObject,
     /// An event under `hooks` is not an array of matcher groups.
     #[error("`hooks.{0}` must be an array")]
     EventNotArray(String),
