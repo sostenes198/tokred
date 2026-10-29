@@ -2,84 +2,89 @@
 
 # Configuration
 
+Where tokred keeps its files, which environment variables it reads, and every key of `tokred.toml` with its default.
+
 ## Locations
 
-| Item | Source |
+| Item | Location |
 |---|---|
 | Claude Code folder | `--claude-dir`, then `[claude] dir` in `tokred.toml`, then `$CLAUDE_CONFIG_DIR`, then `~/.claude` (Windows: `%USERPROFILE%\.claude`) |
 | tokred data folder | `$TOKRED_DATA_DIR` if set; otherwise Linux `~/.local/share/tokred`, macOS `~/Library/Application Support/tokred`, Windows `%APPDATA%\tokred` |
 | Database | `<data>/tokred.db` |
 | Config | `<data>/tokred.toml` |
-| Logs | `<data>/logs/` (daily rotation, 7 days kept) |
-| Reports | `<data>/reports/metrics.html` |
+| Logs | `<data>/logs/` (one file per day, 7 days kept) |
+| HTML report | `<data>/reports/metrics.html` |
+| Proxy runtime files | `<data>/proxy/` (pid file, admin secret) |
 
 ## Environment variables
 
 | Variable | Effect |
 |---|---|
-| `TOKRED_DATA_DIR` | Overrides the data folder (also used by the tests) |
+| `TOKRED_DATA_DIR` | Overrides the data folder |
 | `CLAUDE_CONFIG_DIR` | Claude Code folder, as Claude Code itself reads it |
-| `TOKRED_LOG` | Log level written to the log file: `error`, `warn`, `info` (default), `debug`, `trace` |
-| `TOKRED_NO_UPDATE_CHECK` | `1` disables the daily version check |
-| `TOKRED_OFFLINE` | `1` disables every network call (version check, price sync, `update`, `pricing sync`) |
-| `TOKRED_PRICES_URL` | Alternative URL of the LiteLLM price list (mirrors, tests) |
-| `TOKRED_RELEASES_URL` | Alternative URL of the "latest release" API (mirrors, tests) |
+| `TOKRED_LOG` | Level written to the log file: `error`, `warn`, `info` (default), `debug`, `trace` |
+| `TOKRED_OFFLINE` | `1` disables every network call: version check, price sync, `update`, `pricing sync` |
+| `TOKRED_NO_UPDATE_CHECK` | `1` disables the daily version check only |
+| `TOKRED_PORT` | Proxy port for `tokred proxy enable` and the install script (1024 to 65535); the `--port` flag wins |
+| `TOKRED_RECORD_CONTENT` | Answers `tokred proxy enable`'s question about recording conversation content (`true`, `false`, `yes`, `no`, `1`, `0`) without asking; the `--record-content` flag wins |
 | `TOKRED_BENCH_RUNS` | Runs per payload of `tokred doctor --bench` (default 50) |
-| `TOKRED_HOOK_GUARD_MS` | Overrides the 2 s time limit of a hook (used by the tests) |
-| `TOKRED_PROXY_OVERHEAD_REPORT` | Used by the proxy overhead test only: file to write the measured percentiles to |
-| `TOKRED_PORT` | Proxy port for `tokred proxy enable` and the install scripts (1024 to 65535); the `--port` flag wins over it |
-| `TOKRED_RECORD_CONTENT` | Answers `tokred proxy enable`'s question about recording conversation content (`[proxy] log_bodies`) without asking: `true`, `false`, `yes`, `no`, `1` or `0`; the `--record-content` flag wins over it |
-| `TOKRED_HOME` | Where the install script put the binary (`$TOKRED_HOME/bin`; default `~/.tokred`, Windows `%LOCALAPPDATA%\tokred`); `tokred update` only replaces a binary that lives there |
-| `TOKRED_RELEASE_BASE_URL` | Install scripts only: folder or URL (`https://` or `file://`) the release assets are downloaded from (mirrors, offline installs, tests) |
-| `TOKRED_YES`, `TOKRED_NO_MODIFY_PATH`, `TOKRED_NO_ALIAS`, `TOKRED_NO_PROXY`, `TOKRED_NO_CONFIGURE`, `TOKRED_VERSION` | Install and uninstall scripts only: the environment form of their options, see [installation](installation.md) |
-| `NO_COLOR` / `CLICOLOR_FORCE` | Turn terminal colors off / force them on |
+| `TOKRED_PRICES_URL` | Alternative URL of the LiteLLM price list (mirrors) |
+| `TOKRED_RELEASES_URL` | Alternative URL of the "latest release" API (mirrors) |
+| `TOKRED_HOOK_GUARD_MS` | Overrides the 2 s time limit of a hook, in milliseconds (meant for tests) |
+| `TOKRED_HOME` | Where the install script put the binary (`$TOKRED_HOME/bin`; default `~/.tokred`, Windows `%LOCALAPPDATA%\tokred`). `tokred update` only replaces a binary that lives there |
+| `NO_COLOR` | Any non-empty value turns terminal colors off |
+| `CLICOLOR_FORCE` | Any non-empty value other than `0` forces colors on, even when stdout is not a terminal |
 
-## `tokred.toml`
+The install and uninstall scripts also read `TOKRED_VERSION`, `TOKRED_YES`, `TOKRED_NO_MODIFY_PATH`, `TOKRED_NO_ALIAS`, `TOKRED_NO_PROXY`, `TOKRED_NO_CONFIGURE` and `TOKRED_RELEASE_BASE_URL`; they are described in [installation](installation.md). The proxy reads the usual network variables (`HTTPS_PROXY`, `NO_PROXY`, `NODE_EXTRA_CA_CERTS`, ...), described in [proxy](proxy.md).
 
-Created by `configure` with every key below. On update, new keys are added with their default and **existing values are preserved**; the file is only rewritten when a key was missing (so your comments survive otherwise).
+## tokred.toml
+
+`tokred configure` creates the file with every key at its default. The file it writes has no comments and its keys are sorted alphabetically; the order and the comments below are only for reading. Edit it with any editor; a restart of the proxy applies `[proxy]`, `[routing]`, `[suggest]`, `[compression]` and `[shadow]` changes, and hooks read the file on every run.
+
+**How updates merge it.** On `configure` and after an upgrade, keys that are missing are added with their default and every value you set is kept. The file is rewritten only when a key was missing, so your comments survive otherwise. A key that tokred no longer knows is ignored. A `tokred.toml` that cannot be parsed makes the hooks use the defaults.
 
 ```toml
 [claude]
 dir = "/Users/you/.claude"   # saved by `tokred configure`
 
-[modes]
-route = "warn"          # off | warn | enforce
+[modes]                      # off | warn | enforce, one per hook
+route = "warn"
 enforce = "warn"
 guard_read = "enforce"
 guard_search = "warn"
 session_check = "warn"
 
 [guard_read]
-max_read_bytes = 204800
+max_read_bytes = 204800      # larger files need offset/limit
 deny_globs = ["**/package-lock.json", "**/pnpm-lock.yaml", "**/yarn.lock",
               "**/Cargo.lock", "**/poetry.lock", "**/*.min.js", "**/*.map",
               "**/dist/**", "**/build/**", "**/node_modules/**", "**/target/**", "**/.git/**"]
 
 [guard_search]
-large_repo_files = 5000
+large_repo_files = 5000      # a repository with more files counts as large
 
 [session_check]
-context_warn_tokens = 120000
+context_warn_tokens = 120000 # warn the user when the context passes this
 
 [update]
-mode = "notify"         # off | notify | auto
+mode = "notify"              # off | notify | auto (auto currently behaves like notify)
 
 [pricing]
-auto_sync = true
+auto_sync = true             # refresh the price table at most once a day
 
 [cache]
-l1_ttl = "4h"
+l1_ttl = "4h"                # tiered cache, see architecture.md
 l2_ttl = "24h"
-l2_hits = 3
-l3_hits = 10
+l2_hits = 3                  # hits needed to reach L2
+l3_hits = 10                 # hits needed to reach L3
 
 [proxy]
-enabled = false                        # the proxy switch (turned on by `tokred proxy enable`)
+enabled = false                        # the switch of the proxy features
 bind = "127.0.0.1:1029"                # address the proxy listens on
 upstream = "https://api.anthropic.com" # the only host requests are forwarded to
-retention_days = 90                    # days of proxy records and captured dashboard turns kept
-log_bodies = false                     # keep message contents for the dashboard (off: metadata only)
-# ca_bundle = "/etc/ssl/corp-ca.pem"   # optional (not written by default): extra CA certificates (PEM) to trust
+retention_days = 90                    # days of proxy records and captured dashboard turns kept; 0 keeps everything
+log_bodies = false                     # record conversation content for the dashboard (off: metadata only)
+# ca_bundle = "/etc/ssl/corp-ca.pem"   # optional, absent by default: extra CA certificates (PEM) to trust
 
 [routing]
 mode = "observe"                       # off | observe | enforce
@@ -88,7 +93,7 @@ min_saving_usd = 0.005                 # minimum estimated saving of one decisio
 max_rewrite_failure_rate = 0.05        # rejected-rewrite rate that opens the circuit breaker
 cooldown = "30m"                       # how long the circuit breaker stays open
 allowed_models = []                    # empty: any cheaper model of the catalog
-compaction = "keep"                    # keep | cheap (opt-in)
+compaction = "keep"                    # keep | cheap
 
 [routing.tiers]                        # task class -> cheap | mid | keep
 search = "cheap"
@@ -112,19 +117,22 @@ preview_tail_lines = 20
 retention = "7d"                       # how long originals are kept for `tokred_retrieve`
 max_retrievals = 3                     # retrievals of one id before its tool is excluded
 
-[shadow]
+[shadow]                               # measurements that never alter traffic
 compression = true                     # measure what compression would save
 response_cache = true                  # count exact repeated requests
 ```
 
-`tokred proxy enable` is the one command that sets the proxy up: it writes `[proxy] bind`, `[proxy] log_bodies` and `[proxy] enabled = true` for you. It keeps the host of `bind` and changes only the port; in a terminal it asks for the port (default: the saved one, else 1029; the port must be 1024 to 65535 and free, unless it is this installation's own proxy) and whether conversation content may be recorded (default: the value saved by an earlier `enable`, else yes). Without a terminal, or with `--yes`, it changes only what a flag or environment variable says (`--port` / `TOKRED_PORT`, `--record-content` / `TOKRED_RECORD_CONTENT`) and leaves everything else as it is; a first enable without answers gets port 1029 and no content recording. `tokred configure` (hooks and agents) writes no `[proxy]` value beyond the defaults and never changes what you chose. See [installation](installation.md).
+### Notes by section
 
-The `[modes]` values take effect when the corresponding hook gets its real behaviour (phases F3 to F5).
-
-`ca_bundle` in `[proxy]` is optional and absent by default: the path of a PEM file with extra certificate authorities to trust for the upstream, in addition to the built-in roots, the operating system's store and the files named by `NODE_EXTRA_CA_CERTS` and `SSL_CERT_FILE`. The proxy also honours `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` and `NO_PROXY` (and the lower-case names) from its environment; see [behind a corporate proxy](proxy.md#behind-a-corporate-proxy).
-
-`[proxy] enabled` is the single switch of the proxy features, `false` until you run `tokred proxy enable` (`tokred configure` leaves it alone: a value you wrote is kept, either way, and `unconfigure` leaves the file alone). While it is `true`, `tokred initialize` (run by the `claude` shell wrapper before every launch) starts the proxy when needed and keeps `env.ANTHROPIC_BASE_URL` in Claude Code's `settings.json` pointing at it; while it is `false`, tokred removes its own URL from there, `tokred claude` runs `claude` directly, `tokred proxy start` refuses, and `tokred doctor` shows "disabled". `tokred proxy enable` and `tokred proxy disable` change it and apply the effect at once. A value of `ANTHROPIC_BASE_URL` that is not tokred's (your own gateway) is never overwritten or removed. The older `persist_base_url` key no longer exists; an old file that still has it keeps working (the key is ignored). See [proxy](proxy.md).
-
-`retention_days` applies to everything the proxy stores (requests, routing decisions, prompt summaries, suggestions, shadow measurements, kept tool results and compression replacements): it is deleted when the proxy starts and then every hour. `0` keeps everything. The kept tool results and replacements of a conversation that still had a request within the period are kept whatever their age. `log_bodies` is not read yet.
-
-The proxy sections only matter when the [proxy](proxy.md) runs. `tokred routing on|off` and `tokred compression on|off` set `mode` for you (restart the proxy to apply). `routing` and `compression` default to `observe`: they record what they would do and change nothing. `[routing]` never changes the main loop's model, whatever it says; see [routing](routing.md). `channel` in `[suggest]`: `stats` (default) makes them available in `tokred suggest`, `statusline` adds the status line, `message` also allows a one-line message at a safe moment (see [hooks](hooks.md)). `[shadow]` measurements never alter traffic.
+| Section | What to know |
+|---|---|
+| `[modes]` | What each mode does is in [hooks and agents](hooks-and-agents.md). `route` and `session_check` never deny, so `enforce` behaves like `warn` for them. |
+| `[guard_read]`, `[guard_search]`, `[session_check]` | Thresholds of the hooks of the same name. `deny_globs` are matched against the path relative to the session's folder. |
+| `[update]` | `off` never checks for new versions; `notify` prints a notice (at most one request a day). `auto` is accepted and behaves like `notify`: nothing updates itself, run `tokred update`. |
+| `[pricing]` | With `auto_sync = false` prices change only with `tokred pricing sync`. |
+| `[cache]` | Durations take `s`, `m`, `h` or `d` (`90s`, `30m`, `4h`, `7d`). |
+| `[proxy]` | `tokred proxy enable` writes `enabled`, `bind` (it changes the port and keeps the host) and `log_bodies` for you; `configure` never changes them. While `enabled = false`, tokred removes its own `ANTHROPIC_BASE_URL` from Claude Code's settings, `tokred claude` runs `claude` directly, `proxy start` refuses and `doctor` shows `disabled`. `retention_days` applies to everything the proxy stores (requests, routing decisions, summaries, suggestions, measurements, kept tool results) and runs when the proxy starts and then every hour. With `log_bodies = false` only metadata is recorded, never message text. `ca_bundle` is added to the built-in roots, the system store and the files named by `NODE_EXTRA_CA_CERTS` and `SSL_CERT_FILE`. See [proxy](proxy.md). |
+| `[routing]`, `[routing.tiers]` | Never change the main loop's model, whatever they say. `observe` records what routing would do and changes nothing. `tokred routing on` / `off` set `mode` for you. See [routing](routing.md). |
+| `[suggest]` | `off` stops suggestions from being produced. Any other value makes them available in `tokred suggest` and, if you set `tokred statusline` as your status line, there too. `message` also lets a one-line message reach you at a safe moment (see [hooks and agents](hooks-and-agents.md)). Needs the proxy. |
+| `[compression]` | `tokred compression on` / `off` set `mode` for you. With `observe` (the default) tokred only measures. |
+| `[shadow]` | Measurements for the report; they never alter traffic. |
