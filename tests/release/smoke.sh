@@ -367,14 +367,22 @@ assert_same_file "$OUT/wrapper-notokred.out" "$W/expected-args.txt" "with tokred
 # ------------------------------------------------------------------ 3. traffic through the proxy
 
 step "3. traffic through the proxy, the dashboard and the metrics"
-"$PY" -I "$FAKE" --port-file "$W/fake.port" >"$W/fake.log" 2>&1 &
-FAKE_PID=$!
-i=0
-while [ ! -s "$W/fake.port" ] && [ "$i" -lt 150 ]; do
-    i=$((i + 1))
-    sleep 0.2
+# A runner's Python can hang at start-up (it has happened on the macOS Intel runner): one that does
+# not report its port within 20 s is killed and started again, once.
+for attempt in 1 2; do
+    "$PY" -I "$FAKE" --port-file "$W/fake.port" >"$W/fake.log" 2>&1 &
+    FAKE_PID=$!
+    i=0
+    while [ ! -s "$W/fake.port" ] && [ "$i" -lt 100 ]; do
+        i=$((i + 1))
+        sleep 0.2
+    done
+    [ -s "$W/fake.port" ] && break
+    note "the fake upstream did not start in 20 s (attempt $attempt)"
+    kill "$FAKE_PID" 2>/dev/null || true
+    wait "$FAKE_PID" 2>/dev/null || true
 done
-[ -s "$W/fake.port" ] || die "the fake upstream did not start in 30 s ($PY, $("$PY" --version 2>&1)): $(cat "$W/fake.log")"
+[ -s "$W/fake.port" ] || die "the fake upstream did not start twice ($PY, $("$PY" --version 2>&1)): $(cat "$W/fake.log")"
 FAKE_PORT=$(cat "$W/fake.port")
 assert_eq "$(http_code "http://127.0.0.1:$FAKE_PORT/__fake/health")" "200" "the fake upstream answers on port $FAKE_PORT"
 

@@ -6,6 +6,10 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+### Alterado
+
+- A pipeline de release apaga os candidatos a release de uma versão (os pre-releases e as tags) quando o release final dela passa no smoke test, e esse teste agora comprova o `tokred update --version` substituindo o binário de uma segunda instalação por outra versão publicada e voltando.
+
 ## [0.1.0] - 2026-10-29
 
 ### Corrigido
