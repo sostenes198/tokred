@@ -7,15 +7,20 @@ use tokred_core::meta::MetaRepo;
 pub const TOKRED_VERSION: &str = "tokred_version";
 
 /// Whether hooks and agents must be reapplied: tokred was configured by a different version than
-/// the one running now. A machine that was never configured (no recorded version) does not need
-/// it: installing and configuring are separate steps, and `configure` is the user's call. An
-/// unreadable meta store also answers `false`.
+/// the one running now. A machine that was never configured (no recorded version), or where
+/// `unconfigure` took tokred out (an empty one), does not need it: installing and configuring are
+/// separate steps, and `configure` is the user's call, so an upgrade never puts back what the user
+/// removed. An unreadable meta store also answers `false`.
 #[must_use]
 pub fn needs_reconfigure(meta: &dyn MetaRepo, current_version: &str) -> bool {
-    matches!(meta.meta_get(TOKRED_VERSION), Ok(Some(recorded)) if recorded != current_version)
+    matches!(
+        meta.meta_get(TOKRED_VERSION),
+        Ok(Some(recorded)) if !recorded.is_empty() && recorded != current_version
+    )
 }
 
-/// Records that `version` has configured Claude Code (call it after `configure`).
+/// Records that `version` has configured Claude Code (call it after `configure`). An empty
+/// `version` records that tokred is no longer configured (call it after `unconfigure`).
 pub fn mark_configured(meta: &dyn MetaRepo, version: &str) -> Result<(), StoreError> {
     meta.meta_set(TOKRED_VERSION, version)
 }
@@ -61,6 +66,10 @@ mod tests {
         assert!(needs_reconfigure(&meta, "0.3.1"), "downgrades too");
         mark_configured(&meta, "0.4.0").unwrap();
         assert!(!needs_reconfigure(&meta, "0.4.0"));
+        // After `unconfigure` (an empty version) no upgrade puts the configuration back.
+        mark_configured(&meta, "").unwrap();
+        assert!(!needs_reconfigure(&meta, "0.5.0"));
+        mark_configured(&meta, "0.4.0").unwrap();
         assert_eq!(
             meta.meta_get(TOKRED_VERSION).unwrap().as_deref(),
             Some("0.4.0")

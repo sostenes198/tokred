@@ -29,6 +29,8 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ### Corrigido
 
+- O `tokred unconfigure` agora registra que o tokred não está configurado, então a reaplicação que acompanha uma atualização não recoloca mais os hooks e agentes que você removeu (o `tokred configure` os liga de novo).
+
 - `tokred uninstall` (e `tokred proxy status`) agora perguntam ao agendador do Windows se a tarefa de logon do proxy existe; a tarefa não tem arquivo, então era ignorada e ficava para trás.
 
 - No Windows, o `tokred proxy start` executado com a saída capturada (`out=$(tokred proxy start)`) não espera mais o proxy terminar: o proxy em segundo plano é iniciado por `Start-Process`, que não repassa os pipes de quem o chamou.

@@ -58,7 +58,7 @@ Depois que o binário muda de versão, o primeiro comando da CLI que você rodar
 
 ## `tokred unconfigure [--claude-dir <path>] [--purge]`
 
-Remove os hooks do tokred do `settings.json` e os arquivos de agente que o tokred instalou e que você não editou. Agentes editados são mantidos e informados. Arquivos sem o prefixo `tokred-` nunca são tocados, e o que o tokred não entende no `settings.json` fica como está. **Ele não toca no proxy nem no `ANTHROPIC_BASE_URL`:** o proxy só muda com `tokred proxy enable` / `disable`. `--purge` também apaga a pasta de dados; ele se recusa a fazer isso se a pasta não contiver `tokred.db` ou `tokred.toml`.
+Remove os hooks do tokred do `settings.json` e os arquivos de agente que o tokred instalou e que você não editou. Agentes editados são mantidos e informados. Arquivos sem o prefixo `tokred-` nunca são tocados, e o que o tokred não entende no `settings.json` fica como está. Ele também registra que o tokred deixou de estar configurado, então **uma atualização nunca recoloca os hooks e agentes**: o `tokred configure` é o que os liga de novo, e instala a versão do binário que você está usando. **Ele não toca no proxy nem no `ANTHROPIC_BASE_URL`:** o proxy só muda com `tokred proxy enable` / `disable`. `--purge` também apaga a pasta de dados; ele se recusa a fazer isso se a pasta não contiver `tokred.db` ou `tokred.toml`.
 
 ## `tokred uninstall [--claude-dir <path>]`
 

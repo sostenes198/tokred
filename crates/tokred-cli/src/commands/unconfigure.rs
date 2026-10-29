@@ -29,6 +29,11 @@ pub fn apply(env: &Env, io: &mut Io, claude_dir: &Path, purge: bool) -> Result<(
         store.as_ref().map(|s| s as &dyn ManifestRepo),
         claude_dir,
     )?;
+    // No longer configured: an upgrade must not put the hooks and agents back.
+    store
+        .as_ref()
+        .map(|store| tokred_update::mark_configured(store, ""))
+        .transpose()?;
     // Release the database file before a possible purge (required on Windows).
     drop(store);
 

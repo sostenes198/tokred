@@ -326,6 +326,30 @@ mod tests {
     }
 
     #[test]
+    fn an_upgrade_does_not_put_back_what_unconfigure_removed() {
+        let sb = configured();
+        let (mut io, _, _) = scripted_with_err(false, "");
+        super::super::unconfigure::apply(&sb.env, &mut io, &sb.claude, false).unwrap();
+        assert!(!sb.agent("tokred-dev.md").exists());
+
+        // The next run of a newer binary leaves the Claude Code folder alone.
+        reapply_configuration(&sb.env, &mut io, "9.9.9");
+        assert!(!sb.agent("tokred-dev.md").exists(), "still removed");
+
+        // `configure` is what turns it back on, and upgrades follow it again.
+        let (mut quiet, _) = scripted(false, "");
+        super::super::configure::run(&sb.env, &mut quiet, Some(sb.claude.clone()), true, false)
+            .unwrap();
+        assert!(sb.agent("tokred-dev.md").exists());
+        std::fs::remove_file(sb.agent("tokred-dev.md")).unwrap();
+        reapply_configuration(&sb.env, &mut io, "9.9.9");
+        assert!(
+            sb.agent("tokred-dev.md").exists(),
+            "configured again: upgrades re-apply"
+        );
+    }
+
+    #[test]
     fn nothing_is_re_applied_when_the_version_matches_or_there_is_no_database() {
         let sb = Sandbox::new();
         let (mut io, out, err) = scripted_with_err(false, "");

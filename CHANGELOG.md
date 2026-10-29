@@ -29,6 +29,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- `tokred unconfigure` now records that tokred is not configured, so the re-application that follows an upgrade no longer puts back the hooks and agents you removed (`tokred configure` turns them on again).
+
 - `tokred uninstall` (and `tokred proxy status`) now ask the Windows scheduler whether the proxy's logon task exists; the task has no file, so it used to be skipped and left behind.
 
 - On Windows, `tokred proxy start` run with its output captured (`out=$(tokred proxy start)`) no longer waits for the proxy to exit: the background proxy is started through `Start-Process`, which does not pass on the caller's pipes.

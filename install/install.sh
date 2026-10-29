@@ -317,7 +317,7 @@ if [ "$YES" = "1" ]; then
 elif [ -t 0 ]; then
     ASK=stdin
 elif have_tty; then
-    ASK=tty
+    ASK="tty"
 else
     ASK=none
 fi

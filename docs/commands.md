@@ -58,7 +58,7 @@ After the binary changes version, the first CLI command you run re-applies the c
 
 ## `tokred unconfigure [--claude-dir <path>] [--purge]`
 
-Removes the tokred hooks from `settings.json` and the agent files tokred installed and you did not edit. Edited agents are kept and reported. Files without the `tokred-` prefix are never touched, and anything in `settings.json` that tokred does not understand is left as it is. **It does not touch the proxy or its `ANTHROPIC_BASE_URL`:** the proxy changes only with `tokred proxy enable` / `disable`. `--purge` also deletes the data folder; it refuses to do so if the folder does not contain `tokred.db` or `tokred.toml`.
+Removes the tokred hooks from `settings.json` and the agent files tokred installed and you did not edit. Edited agents are kept and reported. Files without the `tokred-` prefix are never touched, and anything in `settings.json` that tokred does not understand is left as it is. It also records that tokred is no longer configured, so **an upgrade never puts the hooks and agents back**: `tokred configure` is what turns them on again, and it installs the version of the binary you are running. **It does not touch the proxy or its `ANTHROPIC_BASE_URL`:** the proxy changes only with `tokred proxy enable` / `disable`. `--purge` also deletes the data folder; it refuses to do so if the folder does not contain `tokred.db` or `tokred.toml`.
 
 ## `tokred uninstall [--claude-dir <path>]`
 
