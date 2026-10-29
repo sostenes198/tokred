@@ -597,17 +597,19 @@ claude 'one' 'two words' 'a`$HOME'
         Assert-True ((((& $exe --version) -join ' ').Trim()).StartsWith('tokred ')) 'the binary still runs after tokred update' 'the binary does not run after tokred update'
     }
 
-    # ---------------------------------------------------------- 6b. update replaces the binary
-    # `tokred update --version` really swaps the running binary (on Windows an .exe in use cannot be
-    # overwritten). A second installation, with folders of its own, goes to another published version
-    # and back, and must run after each move.
-    Step '6b. tokred update --version replaces the binary (to another published version and back)'
+    # ---------------------------------------------------------- 6b. update, every scenario
+    # A second installation, with folders of its own, goes through every way `tokred update` can be asked
+    # to move (on Windows an .exe in use cannot be overwritten), and must run and report the right version
+    # after each one.
+    Step '6b. tokred update in every scenario (same version, unknown version, another version and back, latest)'
     if ($env:SMOKE_SKIP_UPDATE -eq '1') { Skip 'step 6b skipped (SMOKE_SKIP_UPDATE=1)' }
     else {
+        $apiArgs = @('-H', 'User-Agent: tokred-release-smoke')
+        if ($env:GITHUB_TOKEN) { $apiArgs += @('-H', "Authorization: Bearer $($env:GITHUB_TOKEN)") }
         $listFile = Join-Path $out 'releases.json'
-        $listArgs = @('-H', 'User-Agent: tokred-release-smoke')
-        if ($env:GITHUB_TOKEN) { $listArgs += @('-H', "Authorization: Bearer $($env:GITHUB_TOKEN)") }
-        [void](Http-Code ($listArgs + @('-o', $listFile, "https://api.github.com/repos/$Repo/releases?per_page=30")))
+        $latestFile = Join-Path $out 'latest.json'
+        [void](Http-Code ($apiArgs + @('-o', $listFile, "https://api.github.com/repos/$Repo/releases?per_page=30")))
+        [void](Http-Code ($apiArgs + @('-o', $latestFile, $releasesApi)))
         $other = ''
         try {
             # The newest other published version that has binaries (v0.1.0-rc.1 has no `update --version`).
@@ -619,12 +621,37 @@ claude 'one' 'two words' 'a`$HOME'
             }
         }
         catch { $other = '' }
+        # The newest other stable release that has binaries (the one a plain `tokred update` must move on from).
+        $older = ''
+        try {
+            foreach ($release in @([System.IO.File]::ReadAllText($listFile) | ConvertFrom-Json)) {
+                if ($release.draft -or $release.prerelease -or $release.tag_name -eq $tag -or -not $release.assets) { continue }
+                $older = "$($release.tag_name)".TrimStart('v')
+                break
+            }
+        }
+        catch { $older = '' }
+        # What GitHub calls the latest release: the newest stable one (empty when there is none).
+        $latest = ''
+        try { $latest = "$(([System.IO.File]::ReadAllText($latestFile) | ConvertFrom-Json).tag_name)" } catch { $latest = '' }
         if (-not $other) { Skip 'no other published version to switch to (or the GitHub API did not answer): step 6b not checked' }
         else {
             $swap = Join-Path $work 'swap'
             foreach ($name in @('home', 'data', 'claude')) { New-Item -ItemType Directory -Force -Path (Join-Path $swap $name) | Out-Null }
             # `update` re-applies the configuration afterwards, which needs a Claude Code folder to configure.
             [System.IO.File]::WriteAllText((Join-Path $swap 'claude\settings.json'), "{}`n", (New-Object System.Text.UTF8Encoding($false)))
+            $swapExe = Join-Path $swap 'th\bin\tokred.exe'
+            # Swap-Run NAME ARGS...: the second installation's tokred; output in out\NAME.out, status in $script:rc.
+            function Swap-Run([string]$Name, [string[]]$Arguments) { $script:rc = Invoke-Native (Join-Path $out "$Name.out") $swapExe $Arguments }
+            # Swap-Is VERSION LABEL: the binary runs and reports exactly that version.
+            function Swap-Is([string]$Expected, [string]$Label) {
+                $reported = ''
+                try { $reported = (((& $swapExe --version) -join ' ').Trim()) } catch { $reported = "$_" }
+                Assert-True ($reported -eq "tokred $Expected") $Label "${Label}: it reports '$reported', expected 'tokred $Expected'"
+            }
+            function Out-Text([string]$Name) { return [System.IO.File]::ReadAllText((Join-Path $out "$Name.out")) }
+            # GitHub's API refused the question: the scenario is skipped, not failed.
+            function Limited([string]$Text) { return ($Text -match '(?i)rate limit|403|429') }
             $saved = @{}
             foreach ($name in @('TOKRED_HOME', 'TOKRED_DATA_DIR', 'CLAUDE_CONFIG_DIR', 'TOKRED_OFFLINE', 'TOKRED_RELEASES_URL')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
             try {
@@ -635,12 +662,51 @@ claude 'one' 'two words' 'a`$HOME'
                 $env:TOKRED_RELEASES_URL = $releasesApi
                 $script:rc = Invoke-Native (Join-Path $out 'swap-install.out') $psHost @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $dl 'install.ps1'), '-Yes', '-Version', $version, '-NoModifyPath', '-NoAlias', '-NoProxy', '-NoConfigure')
                 Rc-Is 0 'a second install.ps1, with folders of its own, succeeded' 'swap-install'
-                $swapExe = Join-Path $swap 'th\bin\tokred.exe'
-                foreach ($target in @($other, $version)) {
-                    $script:rc = Invoke-Native (Join-Path $out "swap-$target.out") $swapExe @('update', '--version', $target)
-                    Rc-Is 0 "tokred update --version $target succeeds" "swap-$target"
-                    $reported = (((& $swapExe --version) -join ' ').Trim())
-                    Assert-True ($reported -eq "tokred $target") "the replaced binary reports $target" "the replaced binary reports '$reported', expected 'tokred $target'"
+                Swap-Is $version "the second installation starts at $version"
+
+                # The version that is already installed.
+                Swap-Run 'swap-same' @('update', '--version', $version)
+                Rc-Is 0 "tokred update --version $version (already installed) exits 0" 'swap-same'
+                Assert-True ((Out-Text 'swap-same').Contains('is already installed')) "tokred update says that $version is already installed" "tokred update did not say that $version is already installed: $((Out-Text 'swap-same').Trim())"
+                Swap-Is $version 'the binary is untouched after asking for the version it already is'
+
+                # A version nobody published: an error that explains itself, and a binary that still works.
+                Swap-Run 'swap-unknown' @('update', '--version', '9.9.9')
+                Rc-Is 1 'tokred update --version 9.9.9 (not published) exits 1' 'swap-unknown'
+                Assert-True ((Out-Text 'swap-unknown').Contains('Is it a published version')) 'tokred update explains that 9.9.9 is not a published version' "tokred update did not explain the error: $((Out-Text 'swap-unknown').Trim())"
+                Swap-Is $version 'the binary is untouched after an update that failed'
+
+                # Another published version, and back: the binary on disk really is replaced each time.
+                Swap-Run 'swap-other' @('update', '--version', $other)
+                Rc-Is 0 "tokred update --version $other succeeds" 'swap-other'
+                Swap-Is $other "the replaced binary reports $other"
+                Swap-Run 'swap-back' @('update', '--version', $version)
+                Rc-Is 0 "tokred update --version $version succeeds" 'swap-back'
+                Swap-Is $version "the replaced binary reports $version again"
+
+                if ($latest -ne $tag) { Note "$tag is not GitHub's latest release ('$latest'): the scenarios of tokred update without a version are not checked" }
+                else {
+                    # On the newest stable release: nothing newer to move to.
+                    Swap-Run 'swap-current' @('update')
+                    if (Limited (Out-Text 'swap-current')) { Skip 'tokred update was rate limited by the GitHub API' }
+                    else {
+                        Rc-Is 0 'tokred update on the latest release exits 0' 'swap-current'
+                        Assert-True ((Out-Text 'swap-current').Contains('is up to date')) 'tokred update says that the latest release is up to date' "tokred update did not say it is up to date: $((Out-Text 'swap-current').Trim())"
+                        Swap-Is $version 'the latest release stays where it is'
+                    }
+                    # From an older stable release, a plain `tokred update` moves forward to the latest one.
+                    if (-not $older) { Note 'no older stable release is published: the move from an older stable release is not checked' }
+                    else {
+                        Swap-Run 'swap-down' @('update', '--version', $older)
+                        Rc-Is 0 "tokred update --version $older (the older stable release) succeeds" 'swap-down'
+                        Swap-Run 'swap-latest' @('update')
+                        if (Limited (Out-Text 'swap-latest')) { Skip 'tokred update was rate limited by the GitHub API' }
+                        else {
+                            Rc-Is 0 "tokred update from $older exits 0" 'swap-latest'
+                            Assert-True ((Out-Text 'swap-latest').Contains("Updated to tokred $version")) "tokred update from $older reports the move to $version" "tokred update from $older did not report the move: $((Out-Text 'swap-latest').Trim())"
+                            Swap-Is $version "tokred update from $older lands on the latest release"
+                        }
+                    }
                 }
             }
             finally {

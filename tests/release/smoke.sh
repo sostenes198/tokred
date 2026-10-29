@@ -632,21 +632,25 @@ else
     if sb "$TOKRED" --version >"$OUT/version-after-update.out" 2>&1 </dev/null; then ok "the binary still runs after tokred update ($(cat "$OUT/version-after-update.out"))"; else die "the binary does not run after tokred update"; fi
 fi
 
-# ------------------------------------------------------------------ 6b. update replaces the binary
+# ------------------------------------------------------------------ 6b. update, every scenario
 
-# `tokred update --version` really swaps the running binary. A second installation, with folders of
-# its own (so a database migration on the way down cannot disturb the checks above), goes to another
-# published version and back, and must run after each move.
-step "6b. tokred update --version replaces the binary (to another published version and back)"
+# A second installation, with folders of its own (so a database migration on the way down cannot
+# disturb the checks above), goes through every way `tokred update` can be asked to move, and must run
+# and report the right version after each one.
+step "6b. tokred update in every scenario (same version, unknown version, another version and back, latest)"
 if [ "${SMOKE_SKIP_UPDATE:-0}" = "1" ]; then
     skip "step 6b skipped (SMOKE_SKIP_UPDATE=1)"
 else
-    LIST_URL="https://api.github.com/repos/$REPO/releases?per_page=30"
-    if [ -n "${GITHUB_TOKEN:-}" ]; then
-        curl -s --max-time 30 -H "Authorization: Bearer $GITHUB_TOKEN" -o "$OUT/releases.json" "$LIST_URL" || true
-    else
-        curl -s --max-time 30 -o "$OUT/releases.json" "$LIST_URL" || true
-    fi
+    # api_get URL FILE: the body of a GitHub API answer (with the token when there is one).
+    api_get() {
+        if [ -n "${GITHUB_TOKEN:-}" ]; then
+            curl -s --max-time 30 -H "Authorization: Bearer $GITHUB_TOKEN" -o "$2" "$1" || true
+        else
+            curl -s --max-time 30 -o "$2" "$1" || true
+        fi
+    }
+    api_get "https://api.github.com/repos/$REPO/releases?per_page=30" "$OUT/releases.json"
+    api_get "$RELEASES_API" "$OUT/latest.json"
     # The newest other published version that has binaries (v0.1.0-rc.1 has no `update --version`).
     OTHER=$("$PY" -I -c 'import json, sys
 try:
@@ -659,6 +663,24 @@ for release in releases if isinstance(releases, list) else []:
         continue
     print(tag[1:])
     break' "$OUT/releases.json" "$TAG" 2>/dev/null || true)
+    # The newest other stable release that has binaries (the one a plain `tokred update` must move on from).
+    OLDER=$("$PY" -I -c 'import json, sys
+try:
+    releases = json.load(open(sys.argv[1]))
+except (OSError, ValueError):
+    releases = []
+for release in releases if isinstance(releases, list) else []:
+    tag = release.get("tag_name", "")
+    if release.get("draft") or release.get("prerelease") or tag == sys.argv[2] or not release.get("assets"):
+        continue
+    print(tag[1:])
+    break' "$OUT/releases.json" "$TAG" 2>/dev/null || true)
+    # What GitHub calls the latest release: the newest stable one (empty when there is none).
+    LATEST=$("$PY" -I -c 'import json, sys
+try:
+    print(json.load(open(sys.argv[1])).get("tag_name", ""))
+except (OSError, ValueError, AttributeError):
+    pass' "$OUT/latest.json" 2>/dev/null || true)
     if [ -z "$OTHER" ]; then
         skip "no other published version to switch to (or the GitHub API did not answer): step 6b not checked"
     else
@@ -670,18 +692,76 @@ for release in releases if isinstance(releases, list) else []:
             env -i PATH="$BASEPATH" HOME="$S2/home" TOKRED_HOME="$S2/th" TOKRED_DATA_DIR="$S2/data" \
                 CLAUDE_CONFIG_DIR="$S2/claude" LANG=C TERM=dumb NO_COLOR=1 TOKRED_RELEASES_URL="$RELEASES_API" "$@"
         }
+        SWAP="$S2/th/bin/tokred"
+        # swap_run NAME ARGS...: the second installation's tokred, output in out/NAME.out, status in RC.
+        swap_run() {
+            name=$1
+            shift
+            RC=0
+            sb2 "$SWAP" "$@" >"$OUT/$name.out" 2>&1 </dev/null || RC=$?
+        }
+        # swap_is VERSION LABEL: the binary runs and reports exactly that version.
+        swap_is() {
+            got=$(sb2 "$SWAP" --version 2>&1 </dev/null) || die "$2: the binary does not run ($got)"
+            assert_eq "$got" "tokred $1" "$2"
+        }
+        # limited FILE: GitHub's API refused the question (the scenario is skipped, not failed).
+        limited() { grep -qi "rate limit\|403\|429" "$1"; }
+
         RC=0
         sb2 sh "$DL/install.sh" --yes --version "$VERSION" --no-modify-path --no-alias --no-proxy --no-configure \
             >"$OUT/swap-install.out" 2>&1 </dev/null || RC=$?
         rc_is 0 "a second install.sh, with folders of its own, succeeded" swap-install
-        SWAP="$S2/th/bin/tokred"
-        for target in "$OTHER" "$VERSION"; do
-            RC=0
-            sb2 "$SWAP" update --version "$target" >"$OUT/swap-$target.out" 2>&1 </dev/null || RC=$?
-            rc_is 0 "tokred update --version $target succeeds" "swap-$target"
-            sb2 "$SWAP" --version >"$OUT/swap-$target.version" 2>&1 </dev/null || die "the binary does not run after the update to $target"
-            assert_has "$OUT/swap-$target.version" "$target" "the replaced binary reports $target"
-        done
+        swap_is "$VERSION" "the second installation starts at $VERSION"
+
+        # The version that is already installed.
+        swap_run swap-same update --version "$VERSION"
+        rc_is 0 "tokred update --version $VERSION (already installed) exits 0" swap-same
+        assert_has "$OUT/swap-same.out" "is already installed" "tokred update says that $VERSION is already installed"
+        swap_is "$VERSION" "the binary is untouched after asking for the version it already is"
+
+        # A version nobody published: an error that explains itself, and a binary that still works.
+        swap_run swap-unknown update --version 9.9.9
+        rc_is 1 "tokred update --version 9.9.9 (not published) exits 1" swap-unknown
+        assert_has "$OUT/swap-unknown.out" "Is it a published version" "tokred update explains that 9.9.9 is not a published version"
+        swap_is "$VERSION" "the binary is untouched after an update that failed"
+
+        # Another published version, and back: the binary on disk really is replaced each time.
+        swap_run swap-other update --version "$OTHER"
+        rc_is 0 "tokred update --version $OTHER succeeds" swap-other
+        swap_is "$OTHER" "the replaced binary reports $OTHER"
+        swap_run swap-back update --version "$VERSION"
+        rc_is 0 "tokred update --version $VERSION succeeds" swap-back
+        swap_is "$VERSION" "the replaced binary reports $VERSION again"
+
+        if [ "$LATEST" != "$TAG" ]; then
+            note "$TAG is not GitHub's latest release ('${LATEST:-none}'): the scenarios of \`tokred update\` without a version are not checked"
+        else
+            # On the newest stable release: nothing newer to move to.
+            swap_run swap-current update
+            if limited "$OUT/swap-current.out"; then
+                skip "tokred update was rate limited by the GitHub API"
+            else
+                rc_is 0 "tokred update on the latest release exits 0" swap-current
+                assert_has "$OUT/swap-current.out" "is up to date" "tokred update says that the latest release is up to date"
+                swap_is "$VERSION" "the latest release stays where it is"
+            fi
+            # From an older stable release, a plain `tokred update` moves forward to the latest one.
+            if [ -z "$OLDER" ]; then
+                note "no older stable release is published: the move from an older stable release is not checked"
+            else
+                swap_run swap-down update --version "$OLDER"
+                rc_is 0 "tokred update --version $OLDER (the older stable release) succeeds" swap-down
+                swap_run swap-latest update
+                if limited "$OUT/swap-latest.out"; then
+                    skip "tokred update was rate limited by the GitHub API"
+                else
+                    rc_is 0 "tokred update from $OLDER exits 0" swap-latest
+                    assert_has "$OUT/swap-latest.out" "Updated to tokred $VERSION" "tokred update from $OLDER reports the move to $VERSION"
+                    swap_is "$VERSION" "tokred update from $OLDER lands on the latest release"
+                fi
+            fi
+        fi
     fi
 fi
 
