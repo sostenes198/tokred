@@ -165,6 +165,9 @@ Estimates the weight of the context Claude Code loads before you type (`CLAUDE.m
 
 ```sh
 tokred pricing sync
+```
+
+```sh
 tokred pricing show [--json]
 ```
 
@@ -174,6 +177,9 @@ tokred pricing show [--json]
 
 ```sh
 tokred cache stats [--json]
+```
+
+```sh
 tokred cache prune
 ```
 
@@ -183,7 +189,13 @@ tokred cache prune
 
 ```sh
 tokred proxy start [--foreground] [--bind <HOST:PORT>]
+```
+
+```sh
 tokred proxy stop
+```
+
+```sh
 tokred proxy status [--json]
 ```
 
@@ -199,6 +211,9 @@ The optional [local proxy](proxy.md). `start` runs it in the background and retu
 
 ```sh
 tokred proxy enable [--port <PORT>] [--record-content <BOOL>] [--yes]
+```
+
+```sh
 tokred proxy disable
 ```
 
@@ -220,6 +235,9 @@ In a terminal, a value that no flag or variable gave is asked: the port (a busy 
 
 ```sh
 tokred proxy service install
+```
+
+```sh
 tokred proxy service uninstall
 ```
 
@@ -259,8 +277,17 @@ Opens the [live dashboard](dashboard.md) of the running proxy in the browser. It
 
 ```sh
 tokred routing status [--json]
+```
+
+```sh
 tokred routing on
+```
+
+```sh
 tokred routing off
+```
+
+```sh
 tokred routing explain <ID>
 ```
 
@@ -270,7 +297,13 @@ tokred routing explain <ID>
 
 ```sh
 tokred compression on [--claude-dir <PATH>]
+```
+
+```sh
 tokred compression off [--claude-dir <PATH>]
+```
+
+```sh
 tokred compression status
 ```
 

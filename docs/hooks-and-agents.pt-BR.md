@@ -129,6 +129,4 @@ O tokred reconhece as suas entradas pelo comando (um executável chamado `tokred
 
 O `tokred unconfigure` remove as entradas de hook do tokred e os arquivos de agente que o tokred instalou. Ele também grava `settings.json.tokred.bak`, apaga arquivos `.new` pendentes e mantém um agente que você editou ou cuja origem ele não consegue verificar, informando cada um. Deixa o proxy e o `ANTHROPIC_BASE_URL` dele em paz, e uma atualização nunca recoloca os hooks: só o `tokred configure` faz isso. Os dois comandos estão descritos em [comandos](commands.pt-BR.md).
 
-## Usando o tokred com outras ferramentas de hook
-
-O tokred mantém os seus hooks em grupos próprios e nunca altera hooks que pertencem a outras ferramentas ou a você, então pode ser usado junto com ferramentas como o rtk. O `tokred doctor` aponta outras ferramentas de hook que encontrar.
+O tokred mantém os seus hooks em grupos próprios e nunca altera hooks que pertencem a outras ferramentas ou a você, então pode ser usado junto com ferramentas como o rtk; o `tokred doctor` aponta outras ferramentas de hook que encontrar.

@@ -129,6 +129,4 @@ tokred recognizes its entries by their command (an executable named `tokred`, wi
 
 `tokred unconfigure` removes tokred's hook entries and the agent files tokred installed. It also writes `settings.json.tokred.bak`, deletes pending `.new` files, and keeps an agent that you edited or whose origin it cannot verify, reporting each one. It leaves the proxy and its `ANTHROPIC_BASE_URL` alone, and an upgrade never puts the hooks back: only `tokred configure` does. Both commands are described in [commands](commands.md).
 
-## Using tokred with other hook tools
-
-tokred keeps its hooks in groups of their own and never changes hooks that belong to other tools or to you, so it can be used alongside tools such as rtk. `tokred doctor` points out other hook tools it finds.
+tokred keeps its hooks in groups of their own and never changes hooks that belong to other tools or to you, so it can be used alongside tools such as rtk; `tokred doctor` points out other hook tools it finds.
