@@ -26,9 +26,10 @@ use tokred_report::format::{integer, usd};
 /// Decisions shown by `routing status`.
 const RECENT_DECISIONS: usize = 15;
 
-/// Sets `[<section>] <key> = "<value>"` in `tokred.toml` text, leaving other keys as they are.
-/// (The file is rewritten by the TOML serializer, so comments are not kept.)
-pub fn set_mode(existing: &str, section: &str, value: &str) -> Result<String> {
+/// Sets `[<section>] <key> = <value>` in `tokred.toml` text, leaving other keys as they are.
+/// When the key already has that value the text is returned untouched (comments survive);
+/// otherwise the file is rewritten by the TOML serializer, so comments are not kept.
+pub fn set_key(existing: &str, section: &str, key: &str, value: toml::Value) -> Result<String> {
     let mut table: toml::Table =
         toml::from_str(existing).context("tokred.toml is not valid TOML")?;
     let entry = table
@@ -37,8 +38,21 @@ pub fn set_mode(existing: &str, section: &str, value: &str) -> Result<String> {
     let section_table = entry
         .as_table_mut()
         .ok_or_else(|| anyhow!("`[{section}]` in tokred.toml must be a table"))?;
-    section_table.insert("mode".to_owned(), toml::Value::String(value.to_owned()));
+    if section_table.get(key) == Some(&value) {
+        return Ok(existing.to_owned());
+    }
+    section_table.insert(key.to_owned(), value);
     Ok(toml::to_string_pretty(&table)?)
+}
+
+/// Sets `[<section>] mode = "<value>"` in `tokred.toml` text.
+pub fn set_mode(existing: &str, section: &str, value: &str) -> Result<String> {
+    set_key(
+        existing,
+        section,
+        "mode",
+        toml::Value::String(value.to_owned()),
+    )
 }
 
 fn mode_name(mode: TrafficMode) -> &'static str {
@@ -237,6 +251,11 @@ fn mcp_config_path(env: &Env, claude_dir: &std::path::Path) -> Result<std::path:
         .context("could not determine where Claude Code keeps its user configuration")
 }
 
+/// Whether the `tokred_retrieve` MCP server is registered in Claude Code's user config.
+pub fn compression_registered(env: &Env, claude_dir: &std::path::Path) -> bool {
+    mcp_config_path(env, claude_dir).is_ok_and(|path| super::serve::mcp_registered(&[path]))
+}
+
 /// Writes `value` to `path` after saving the previous content next to it (`.tokred.bak`).
 fn write_json_with_backup(path: &std::path::Path, value: &serde_json::Value) -> Result<()> {
     use tokred_core::FileSystem;
@@ -275,8 +294,7 @@ pub fn compression(
         CompressionCommand::Status => {
             let registered = claude_dir
                 .as_deref()
-                .and_then(|dir| mcp_config_path(env, dir).ok())
-                .is_some_and(|path| super::serve::mcp_registered(&[path]));
+                .is_some_and(|dir| compression_registered(env, dir));
             let tripped = existing_store(env)?
                 .and_then(|store| store.meta_get(COMPRESSION_TRIPPED_AT).ok().flatten())
                 // `compression on` clears the mark by storing an empty value.
@@ -382,6 +400,17 @@ mod tests {
         let sb = Sandbox::new();
         sb.configure();
         sb
+    }
+
+    #[test]
+    fn set_key_leaves_the_text_alone_when_the_value_is_already_there() {
+        let text = "# mine\n[proxy]\nlog_bodies = true\n";
+        let same = set_key(text, "proxy", "log_bodies", toml::Value::Boolean(true)).unwrap();
+        assert_eq!(same, text);
+        let changed = set_key(text, "proxy", "log_bodies", toml::Value::Boolean(false)).unwrap();
+        assert!(changed.contains("log_bodies = false"), "{changed}");
+        let added = set_key("", "proxy", "bind", toml::Value::String("h:1".to_owned())).unwrap();
+        assert!(added.contains("bind = \"h:1\""), "{added}");
     }
 
     #[test]

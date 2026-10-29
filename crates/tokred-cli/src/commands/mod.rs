@@ -10,12 +10,14 @@ mod data;
 mod doctor;
 mod housekeeping;
 mod metrics;
+mod port;
 mod pricing;
 mod proxy;
 mod report_data;
 mod serve;
 mod stats;
 mod unconfigure;
+mod uninstall;
 mod update;
 
 pub use bench::BenchReport;
@@ -25,7 +27,7 @@ pub use bench::HookBench;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use tokred_core::paths::{claude_dir_candidates, is_valid_claude_dir};
 use tokred_core::{Clock, Config, FileSystem, Timestamp};
 use tokred_install::StdFileSystem;
@@ -36,7 +38,7 @@ use tokred_update::{StdBinarySwap, current_target};
 
 use tokred_report::SystemOpener;
 
-use crate::args::{Cli, Command, StatsCommand};
+use crate::args::{Cli, Command, ProxyArgs, StatsCommand};
 use crate::env::Env;
 use crate::io::Io;
 
@@ -95,6 +97,43 @@ pub fn run(cli: Cli, io: &mut Io) -> Result<()> {
     result
 }
 
+/// The proxy answers for `configure`: a flag wins over `TOKRED_PORT` / `TOKRED_RECORD_CONTENT`
+/// (read through `var` so tests need no process environment).
+fn proxy_choices(
+    args: ProxyArgs,
+    var: impl Fn(&str) -> Option<String>,
+) -> Result<configure::ProxyChoices> {
+    let port = match (
+        args.proxy_port,
+        var("TOKRED_PORT").filter(|value| !value.is_empty()),
+    ) {
+        (Some(port), _) => Some(port),
+        (None, Some(text)) => {
+            Some(port::parse_port(&text).map_err(|error| anyhow!("TOKRED_PORT: {error}"))?)
+        }
+        (None, None) => None,
+    };
+    let from_env = var("TOKRED_RECORD_CONTENT")
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            !matches!(
+                value.to_ascii_lowercase().as_str(),
+                "0" | "false" | "no" | "off"
+            )
+        });
+    let record_content = if args.record_content {
+        Some(true)
+    } else if args.no_record_content {
+        Some(false)
+    } else {
+        from_env
+    };
+    Ok(configure::ProxyChoices {
+        port,
+        record_content,
+    })
+}
+
 /// A URL override from the environment (mirrors, tests), else the built-in one.
 fn url_from_env(name: &str, default: &str) -> String {
     std::env::var(name)
@@ -113,10 +152,32 @@ fn dispatch(
     version: &str,
 ) -> Result<()> {
     match command {
-        Command::Configure { dir, yes, force } => {
-            configure::run(env, io, dir.claude_dir, yes, force)
+        Command::Configure {
+            dir,
+            yes,
+            force,
+            proxy,
+        } => {
+            let choices = proxy_choices(proxy, |name| std::env::var(name).ok())?;
+            let probe = |port| port::probe(&self::proxy::files(env), port);
+            let options = configure::Options {
+                dir_flag: dir.claude_dir,
+                yes,
+                force,
+                choices,
+                probe: &probe,
+            };
+            configure::run_with(env, io, &options)
         }
         Command::Unconfigure { dir, purge } => unconfigure::run(env, io, dir.claude_dir, purge),
+        Command::Uninstall { dir, yes, purge } => {
+            let request = uninstall::Request {
+                dir_flag: dir.claude_dir,
+                yes,
+                purge,
+            };
+            run_uninstall(env, io, exe, request)
+        }
         Command::Doctor { dir, json, bench } => {
             let runner = if bench {
                 let exe = exe.context("could not locate the running executable")?;
@@ -186,6 +247,26 @@ fn run_proxy(
     exe: Option<&Path>,
     command: &crate::args::ProxyCommand,
 ) -> Result<()> {
+    with_proxy_ctx(env, io, exe, |io, ctx| proxy::run(io, ctx, command))
+}
+
+/// `tokred uninstall`: the proxy commands plus the rest, with the same adapters.
+fn run_uninstall(
+    env: &Env,
+    io: &mut Io,
+    exe: Option<&Path>,
+    request: uninstall::Request,
+) -> Result<()> {
+    with_proxy_ctx(env, io, exe, |io, ctx| uninstall::run(io, ctx, request))
+}
+
+/// Builds the real adapters of the proxy commands and hands them to `then`.
+fn with_proxy_ctx<T>(
+    env: &Env,
+    io: &mut Io,
+    exe: Option<&Path>,
+    then: impl FnOnce(&mut Io, &proxy::ProxyCtx<'_>) -> Result<T>,
+) -> Result<T> {
     let exe = exe.context("could not locate the running executable")?;
     let config = housekeeping::load_config(env);
     let claude_dir = select_claude_dir(&StdFileSystem, env, io, None, false).ok();
@@ -197,7 +278,7 @@ fn run_proxy(
         serve_foreground: &|bind: &str| serve::run(env, &config, claude_dir.as_deref(), bind),
         run_command: &crate::daemon::run_planned,
     };
-    proxy::run(io, &ctx, command)
+    then(io, &ctx)
 }
 
 /// `tokred claude ...`: Claude Code through the proxy for this run, with `claude`'s exit code.
@@ -387,6 +468,28 @@ pub mod testing {
     use tokred_core::DataLayout;
 
     use crate::env::Env;
+
+    /// A local server that answers every request like a healthy proxy and never stops; returns
+    /// its port.
+    pub fn fake_health_server() -> u16 {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut buffer = [0_u8; 1024];
+                let _ = stream.read(&mut buffer);
+                let body = r#"{"ok":true}"#;
+                let reply = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(reply.as_bytes());
+            }
+        });
+        port
+    }
 
     /// A release source with a fixed answer that counts its requests.
     pub struct FakeReleases {
@@ -695,6 +798,74 @@ mod tests {
         assert_eq!(
             url_from_env("TOKRED_TEST_SURELY_UNSET_URL", "https://default"),
             "https://default"
+        );
+    }
+
+    #[test]
+    fn proxy_choices_come_from_flags_then_the_environment() {
+        let none = ProxyArgs {
+            proxy_port: None,
+            record_content: false,
+            no_record_content: false,
+        };
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(key, _)| *key == name)
+                    .map(|(_, value)| (*value).to_owned())
+            }
+        };
+        let nothing = proxy_choices(none, env(&[])).unwrap();
+        assert_eq!(nothing, configure::ProxyChoices::default());
+        let empty = proxy_choices(
+            none,
+            env(&[("TOKRED_PORT", ""), ("TOKRED_RECORD_CONTENT", "")]),
+        );
+        assert_eq!(empty.unwrap(), nothing);
+
+        let from_env = proxy_choices(
+            none,
+            env(&[("TOKRED_PORT", "2222"), ("TOKRED_RECORD_CONTENT", "1")]),
+        )
+        .unwrap();
+        assert_eq!(
+            (from_env.port, from_env.record_content),
+            (Some(2222), Some(true))
+        );
+        for off in ["0", "false", "NO", "off"] {
+            let pairs: &'static [(&str, &str)] =
+                Box::leak(Box::new([("TOKRED_RECORD_CONTENT", off)]));
+            let choices = proxy_choices(none, env(pairs)).unwrap();
+            assert_eq!(choices.record_content, Some(false), "{off}");
+        }
+
+        let flags = ProxyArgs {
+            proxy_port: Some(3333),
+            record_content: false,
+            no_record_content: true,
+        };
+        let both = env(&[("TOKRED_PORT", "2222"), ("TOKRED_RECORD_CONTENT", "1")]);
+        let chosen = proxy_choices(flags, both).unwrap();
+        assert_eq!(
+            (chosen.port, chosen.record_content),
+            (Some(3333), Some(false))
+        );
+        let yes = ProxyArgs {
+            record_content: true,
+            no_record_content: false,
+            ..flags
+        };
+        assert_eq!(
+            proxy_choices(yes, env(&[])).unwrap().record_content,
+            Some(true)
+        );
+
+        let err = proxy_choices(none, env(&[("TOKRED_PORT", "80")])).unwrap_err();
+        assert!(
+            err.to_string()
+                .starts_with("TOKRED_PORT: `80` is not a port"),
+            "{err}"
         );
     }
 

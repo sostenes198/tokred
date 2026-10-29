@@ -58,7 +58,9 @@ impl Sandbox {
             .env("CLAUDE_CONFIG_DIR", self.claude())
             .env("TOKRED_DATA_DIR", self.data())
             .env("TOKRED_OFFLINE", "1")
-            .env_remove("TOKRED_LOG");
+            .env_remove("TOKRED_LOG")
+            .env_remove("TOKRED_PORT")
+            .env_remove("TOKRED_RECORD_CONTENT");
         cmd
     }
 }
@@ -718,4 +720,76 @@ fn the_time_guard_ends_a_stuck_hook_with_exit_zero_and_records_it() {
         tokred_core::hook_event::Outcome::TimeoutGuard
     );
     assert!(events[0].duration_us >= 300_000);
+}
+
+/// `configure` takes the proxy port and content recording from flags or the environment, and a
+/// quiet re-run (as after every upgrade) keeps them.
+#[test]
+fn configure_writes_the_proxy_port_and_content_choice() {
+    let sb = Sandbox::new();
+    sb.tokred()
+        .args([
+            "configure",
+            "--yes",
+            "--proxy-port",
+            "2345",
+            "--record-content",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Proxy address: 127.0.0.1:2345"))
+        .stdout(predicate::str::contains("recorded for the dashboard"));
+    sb.tokred().args(["configure", "--yes"]).assert().success();
+    let toml = std::fs::read_to_string(sb.data().join("tokred.toml")).unwrap();
+    assert!(toml.contains("bind = \"127.0.0.1:2345\""), "{toml}");
+    assert!(toml.contains("log_bodies = true"), "{toml}");
+
+    sb.tokred()
+        .env("TOKRED_PORT", "2346")
+        .env("TOKRED_RECORD_CONTENT", "0")
+        .args(["configure", "--yes"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Proxy address: 127.0.0.1:2346"))
+        .stdout(predicate::str::contains(
+            "Conversation content: not recorded",
+        ));
+
+    sb.tokred()
+        .env("TOKRED_PORT", "80")
+        .args(["configure", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("TOKRED_PORT"));
+}
+
+/// `tokred uninstall --yes --purge` takes everything out and says what the script has left.
+#[test]
+fn uninstall_removes_hooks_agents_and_data() {
+    let sb = Sandbox::new();
+    // A port nothing listens on, so `uninstall` never talks to a proxy of the real machine.
+    let free = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+        .to_string();
+    sb.tokred()
+        .args(["configure", "--yes", "--proxy-port", &free])
+        .assert()
+        .success();
+    assert!(sb.claude().join("agents/tokred-dev.md").exists());
+
+    sb.tokred()
+        .args(["uninstall", "--yes", "--purge"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("The tokred proxy is not running."))
+        .stdout(predicate::str::contains(
+            "hooks removed from settings.json: 6",
+        ))
+        .stdout(predicate::str::contains("data folder deleted"))
+        .stdout(predicate::str::contains("Left for the uninstall script"));
+    assert!(!sb.claude().join("agents/tokred-dev.md").exists());
+    assert!(!sb.data().exists());
 }

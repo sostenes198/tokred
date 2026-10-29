@@ -128,7 +128,8 @@ fn stop(io: &mut Io, ctx: &ProxyCtx<'_>) -> Result<()> {
     Ok(())
 }
 
-fn service_installed(kind: Option<ServiceKind>, ctx: &ProxyCtx<'_>) -> bool {
+/// Whether the user service file of `kind` exists for this home folder.
+pub fn service_installed(kind: Option<ServiceKind>, ctx: &ProxyCtx<'_>) -> bool {
     match (kind, &ctx.env.home_dir) {
         (Some(kind), Some(home)) => install_plan(kind, ctx.exe, home)
             .file
