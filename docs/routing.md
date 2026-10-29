@@ -2,27 +2,27 @@
 
 # Model routing
 
-With the [proxy](proxy.md) running, tokred can move work that does not need an expensive model to a cheaper one. The rule that shapes everything below:
+With the [proxy](proxy.md) running, tokred can move work that does not need an expensive model to a cheaper one. One rule shapes everything below:
 
-> **The main loop's model is never changed.** The model you chose for your conversation is always the one that answers it. tokred only routes requests you did not choose a model for, and only to a cheaper model.
+> **The main loop's model is never changed.** The model you chose for your conversation always answers it. tokred only routes requests you did not choose a model for, and only to a cheaper model.
 
 ## Who decides what
 
 | Request | Can tokred change the model? |
 |---|---|
 | Main loop (your conversation) | **Never.** tokred only measures and [suggests](#suggestions-for-the-main-loop) |
-| Subagent that inherited your model | Yes, once, on its first turn, and the choice is kept for the rest of that subagent |
+| Subagent that inherited your model | Yes, once, on its first turn; the choice is kept for the rest of that subagent |
 | Subagent with its own model (frontmatter, `CLAUDE_CODE_SUBAGENT_MODEL`, a `tokred-*` agent) | No: that model was chosen on purpose |
-| Auxiliary request (e.g. the session title) | Yes, when it is cheaper, including the cost of the prompt cache |
-| Compaction | No (summary quality affects the rest of the session) |
+| Auxiliary request (for example the session title) | Yes, when it is cheaper, prompt-cache cost included |
+| Compaction | No by default (`[routing] compaction = "keep"`) |
 
-How tokred tells them apart: subagent requests carry the `x-claude-code-agent-id` header. Auxiliary requests have no tools, no thinking and a single message, a shape the main loop never has. When a future Claude Code sends the documented `x-claude-code-request-class` header, it is used too.
+Requests are told apart by what they carry. Subagent requests have the `x-claude-code-agent-id` header. Auxiliary requests have no agent id, no tools, no thinking and a single message, a shape the main loop never has. The `x-claude-code-request-class` header is used too when Claude Code sends it.
 
 ## How a subagent is classified
 
 The first layer that is confident enough decides; when in doubt the model is kept.
 
-1. Headers, when present (agent type).
+1. Headers, when present.
 2. Explicit choice: a subagent whose model differs from the main loop's was pinned on purpose and is kept.
 3. Tool set: only read and search tools means a search-like task.
 4. Keywords of the subagent's task, in English and Portuguese.
@@ -32,25 +32,21 @@ The decision is made on the subagent's first turn and reused for all its turns: 
 
 ## Safety
 
-- **Only downgrades**, only to a model listed in the catalog with every capability the request uses (thinking mode, effort, context management, 1M context). Otherwise the model is kept.
-- **Fallback:** if the API rejects a rewritten request before anything reached Claude Code, the original is sent instead.
-- **Circuit breaker:** too many rejected rewrites turn routing off for a while; `tokred routing status` shows it.
+- **Only downgrades**, only to a model of the catalog that supports everything the request uses (thinking mode, effort, context management, 1M context). Otherwise the model is kept.
+- **Fallback.** If the API rejects a rewritten request (400, 404 or 422) before anything reached Claude Code, the original request is sent instead.
+- **Circuit breaker.** When too many rewrites are rejected, routing turns itself off for a while (`[routing] cooldown`); `tokred routing status` shows it.
 
-## Modes
+## Modes and commands
 
-```sh
-tokred routing status            # mode, circuit breaker, recent decisions
-tokred routing explain <id>      # why a decision was taken
-tokred routing on                # enforce: change the model of eligible requests
-tokred routing off               # observe: keep recording what routing would do
-```
+| Command | Effect |
+|---|---|
+| `tokred routing status` | Mode, circuit breaker and recent decisions |
+| `tokred routing explain <id>` | Why a decision was taken |
+| `tokred routing on` | `enforce`: change the model of eligible requests |
+| `tokred routing off` | `observe`: keep recording what routing would do |
 
-The default is `observe`: decisions are recorded with their estimated saving and nothing changes, so you can check them before turning routing on.
+The default is `observe`: decisions are recorded with their estimated saving and nothing changes, so you can check them before turning routing on. Restart the proxy to apply a mode change. Keys: `[routing]` and `[routing.tiers]` in [configuration](configuration.md).
 
 ## Suggestions for the main loop
 
-tokred never changes your main model, but it tells you when a cheaper one would have done the job: after several simple prompts in a row (few turns, small output, little or no editing), it estimates what the cheaper model would have cost, including rebuilding the prompt cache, and shows the suggestion in `tokred suggest` and in `tokred stats` (the latest one not shown yet; `stats` never marks it as shown) and, if you choose, in the status line or as a one-line message at a moment when the cache is already cold. Switching is always your call (`/model`).
-
-## Configuration
-
-`[routing]`, `[routing.tiers]` and `[suggest]` in `tokred.toml`; see [configuration](configuration.md).
+tokred never changes your main model, but it tells you when a cheaper one would have done the job: after several simple prompts in a row (few turns, small output, little or no editing) it estimates what the cheaper model would have cost, including rebuilding the prompt cache. The suggestion appears in `tokred suggest` and `tokred stats` and, if you choose in `[suggest] channel`, in the status line or as a one-line message at a moment when the cache is already cold. `stats` never marks a suggestion as shown. Switching is always your call (`/model`).
