@@ -5,16 +5,16 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use tokred_core::FileSystem;
 use tokred_core::release::ReleaseSource;
-use tokred_update::{
-    BinarySwap, Downloader, InstallMethod, detect, is_newer, self_update, upgrade_command,
-};
+use tokred_update::{BinarySwap, Downloader, InstallMethod, is_newer, self_update};
 
 use crate::io::Io;
 
 /// Everything `update` needs from the outside world.
 pub struct UpdateContext<'a> {
-    /// The running executable (resolved, so a package-manager symlink shows its real home).
+    /// The running executable (resolved, so a symlink shows its real home).
     pub exe: &'a Path,
+    /// Whether the install script put it there (only then can it replace itself).
+    pub method: InstallMethod,
     /// This version.
     pub current: &'a str,
     /// Release information.
@@ -32,7 +32,6 @@ pub struct UpdateContext<'a> {
 }
 
 pub fn run(io: &mut Io, ctx: &UpdateContext<'_>) -> Result<()> {
-    let method = detect(&ctx.exe.to_string_lossy());
     let latest = ctx
         .releases
         .latest()
@@ -42,10 +41,9 @@ pub fn run(io: &mut Io, ctx: &UpdateContext<'_>) -> Result<()> {
         return Ok(());
     }
 
-    if method != InstallMethod::Script {
-        let command = upgrade_command(method).unwrap_or("reinstall tokred");
+    if ctx.method != InstallMethod::Script {
         let message = format!(
-            "tokred {} is available (current {}). Update with: {command}",
+            "tokred {} is available (current {}). This copy was not put here by the install script, so it cannot replace itself: reinstall with the install script (see the README).",
             latest.version, ctx.current
         );
         writeln!(io.out(), "{message}")?;
@@ -53,7 +51,7 @@ pub fn run(io: &mut Io, ctx: &UpdateContext<'_>) -> Result<()> {
     }
 
     let Some(target) = ctx.target else {
-        bail!("no prebuilt tokred binary for this platform; reinstall with the method you used");
+        bail!("no prebuilt tokred binary for this platform; build it from source");
     };
     let message = format!("Updating tokred {} -> {} ...", ctx.current, latest.version);
     writeln!(io.out(), "{message}")?;
@@ -162,7 +160,7 @@ mod tests {
     #[test]
     fn an_up_to_date_install_says_so() {
         let (mut io, out) = scripted(false, "");
-        let exe = Path::new("/home/u/.cargo/bin/tokred");
+        let exe = Path::new("/home/u/.tokred/bin/tokred");
         let downloads = Downloads {
             archive: vec![],
             bad_checksum: false,
@@ -188,6 +186,7 @@ mod tests {
     ) -> UpdateContext<'a> {
         UpdateContext {
             exe,
+            method: InstallMethod::Script,
             current: "0.1.0",
             releases,
             downloader,
@@ -199,48 +198,33 @@ mod tests {
     }
 
     #[test]
-    fn package_managers_are_told_which_command_to_run() {
-        for (path, command) in [
-            (
-                "/opt/homebrew/Cellar/tokred/0.1.0/bin/tokred",
-                "brew upgrade tokred",
-            ),
-            (
-                "C:\\Users\\u\\AppData\\Local\\Microsoft\\WinGet\\Packages\\x\\tokred.exe",
-                "winget upgrade tokred",
-            ),
-            (
-                "C:\\Users\\u\\scoop\\apps\\tokred\\current\\tokred.exe",
-                "scoop update tokred",
-            ),
-            ("/home/u/.cargo/bin/tokred", "cargo install tokred --force"),
-        ] {
-            let (mut io, out) = scripted(false, "");
-            let downloads = Downloads {
-                archive: vec![],
-                bad_checksum: false,
-                requested: RefCell::default(),
-            };
-            let exe = Path::new(path);
-            let ctx = ctx_with(
-                &Releases(Ok("0.2.0")),
-                &downloads,
-                exe,
-                Some(TARGET),
-                &no_reapply,
-            );
-            run(&mut io, &ctx).unwrap();
-            assert!(
-                out.text()
-                    .contains("tokred 0.2.0 is available (current 0.1.0)"),
-                "{path}"
-            );
-            assert!(out.text().contains(command), "{path}: {}", out.text());
-            assert!(
-                downloads.requested.borrow().is_empty(),
-                "package managers never self-update"
-            );
-        }
+    fn a_binary_the_script_did_not_install_is_told_to_reinstall() {
+        let (mut io, out) = scripted(false, "");
+        let downloads = Downloads {
+            archive: vec![],
+            bad_checksum: false,
+            requested: RefCell::default(),
+        };
+        let exe = Path::new("/work/tokred/target/debug/tokred");
+        let mut ctx = ctx_with(
+            &Releases(Ok("0.2.0")),
+            &downloads,
+            exe,
+            Some(TARGET),
+            &no_reapply,
+        );
+        ctx.method = InstallMethod::Other;
+        run(&mut io, &ctx).unwrap();
+        let text = out.text();
+        assert!(
+            text.contains("tokred 0.2.0 is available (current 0.1.0)"),
+            "{text}"
+        );
+        assert!(text.contains("reinstall with the install script"), "{text}");
+        assert!(
+            downloads.requested.borrow().is_empty(),
+            "only the script's own copy is replaced"
+        );
     }
 
     #[test]
@@ -345,7 +329,7 @@ mod tests {
             bad_checksum: false,
             requested: RefCell::default(),
         };
-        let exe = Path::new("/home/u/.cargo/bin/tokred");
+        let exe = Path::new("/home/u/.tokred/bin/tokred");
         let ctx = ctx_with(
             &Releases(Err(())),
             &downloads,

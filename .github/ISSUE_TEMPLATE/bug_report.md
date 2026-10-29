@@ -17,7 +17,7 @@ labels: bug
 
 - tokred version (`tokred --version`):
 - OS:
-- Install method (brew, winget, scoop, script, cargo):
+- Install method (install script, built from source):
 - Output of `tokred doctor --json` (remove anything private):
 
 Please read [CONTRIBUTING.md](../../CONTRIBUTING.md) before opening a pull request.

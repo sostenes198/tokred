@@ -2,6 +2,8 @@
 
 # tokred — Especificação (v3, final)
 
+> **Atualização 2026-10-29:** a distribuição mudou. O tokred é instalado por scripts que baixam a release do GitHub (estilo rustup); Homebrew, Scoop, winget e crates.io não são mais usados, e o `configure` agora roda no fim da instalação. Veja as entradas de 2026-10-29 em [decisões](decisions.pt-BR.md).
+
 **Repositório:** https://github.com/sostenes198/tokred
 
 **Descrição curta (GitHub "About"):** *Token and cost reducer for Claude Code — local proxy with model policy, context guards and metrics. Works alongside rtk.*
@@ -91,14 +93,14 @@ Tudo abaixo está em `main` (repositório publicado). Os comportamentos exatos e
 | Métricas: ingestão incremental de transcripts, custo, economia, projeção, latência | Feito | `docs/metrics.md` |
 | Painéis coloridos no terminal (`stats`, `stats latency`, `metrics`) e relatório HTML offline | Feito | `docs/commands.md` |
 | `audit` (contexto fixo e MCPs sem uso), `cache`, `pricing`, `update` com self-update verificado, `doctor --bench` | Feito | `docs/commands.md` |
-| Pipeline de release (`dist`, Homebrew, Scoop, winget, crates.io) | Escrito, **nunca executado** | `docs/installation.md` |
+| Pipeline de release (`dist`, Homebrew, Scoop, winget, crates.io) _(substituído em 2026-10-29: só scripts de instalação e a release do GitHub, veja [decisões](decisions.pt-BR.md))_ | Escrito, **nunca executado** | `docs/installation.md` |
 | Qualidade | 655 testes; 100% de linhas cobertas; fmt, clippy, doc, deny e MSRV limpos no macOS | `docs/development.md` |
 
 ### 2.2 Problemas conhecidos (a corrigir antes do proxy)
 
 1. **CI no Windows está vermelho.** O teste `ingestion_resumes_and_waits_for_partial_lines` (`tokred-metrics`) falha: com o arquivo aberto para escrita, o tamanho lido via metadados do diretório fica defasado no Windows. Além disso, o `cargo test --workspace` para no primeiro binário que falha, então **outras falhas do Windows podem estar escondidas** (caminhos, globs com `\`, testes de ponta a ponta). Correção: obter o tamanho pelo handle do arquivo (`File::open(..).metadata()`), rodar o CI com `--no-fail-fast` e tratar o que aparecer.
 2. **Preços e famílias de modelo.** `Family` só conhece opus, sonnet e haiku; faltam Fable e Mythos. O multiplicador de leitura de cache é derivado como 0,1× quando falta no dado, o que está errado para modelos novos (0,05× e 0,025×). Falta o preço de escrita de 1 hora (2×).
-3. **Pipeline de release não foi exercitado** (precisa de 4 secrets e de uma tag; o primeiro manifest do winget é manual).
+3. **Pipeline de release não foi exercitado** (precisa de 4 secrets e de uma tag; o primeiro manifest do winget é manual). _Substituído em 2026-10-29: o pipeline agora precisa só de uma tag, veja [decisões](decisions.pt-BR.md)._
 4. **`route` usa palavras-chave** e não os cabeçalhos de classe da requisição (que só o proxy vê).
 
 ---
@@ -488,6 +490,6 @@ Cada fase termina com testes verdes nos 3 SOs, clippy limpo, cobertura mantida e
 
 ## 14. Distribuição e documentação
 
-- **Distribuição:** inalterada (`dist`, Homebrew, Scoop, winget, crates.io; instalar e configurar são passos separados). Novo: o proxy como serviço do usuário é sempre **opt-in**; nenhum canal de instalação ativa o proxy.
+- **Distribuição:** inalterada (`dist`, Homebrew, Scoop, winget, crates.io; instalar e configurar são passos separados) _(substituído em 2026-10-29, veja [decisões](decisions.pt-BR.md))_. Novo: o proxy como serviço do usuário é sempre **opt-in**; nenhum canal de instalação ativa o proxy.
 - **Documentação:** continua bilíngue. Novos: `docs/proxy.md` (como funciona, segurança, compatibilidade), `docs/routing.md` (política de modelo e como auditar decisões), e atualizações de `commands`, `configuration`, `hooks`, `metrics`, `architecture`, `installation` e `decisions`. Exemplos de comandos devem funcionar como escritos; os da seção de início rápido têm teste de ponta a ponta.
 - **Privacidade (README):** tudo local; as únicas chamadas de rede do tokred são a sincronização de preços, a verificação de versão e `update` (só a partir de comandos da CLI) e o repasse do proxy ao host da API; `TOKRED_OFFLINE=1` desliga as três primeiras.

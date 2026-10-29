@@ -2,7 +2,7 @@
 
 # Running locally and publishing a release
 
-Two parts: [run tokred on your machine](#1-run-it-locally), then [ship a binary people can install with Homebrew, Scoop, winget, `cargo install` or a script](#2-publish-a-release). Contributor checks (tests, coverage, lints) are in [development](development.md).
+Two parts: [run tokred on your machine](#1-run-it-locally), then [ship a binary people install with one command](#2-publish-a-release). Contributor checks (tests, coverage, lints) are in [development](development.md).
 
 ## 1. Run it locally
 
@@ -12,10 +12,9 @@ Two parts: [run tokred on your machine](#1-run-it-locally), then [ship a binary 
 cargo build                       # debug build
 cargo run -q -- doctor            # run any command: cargo run -q -- <command>
 cargo build --release             # optimised binary at target/release/tokred
-cargo install --path crates/tokred-cli   # install it as `tokred` in ~/.cargo/bin
 ```
 
-Requirements: Rust stable (MSRV 1.89; `rust-toolchain.toml` installs `rustfmt` and `clippy`).
+Requirements: Rust stable (MSRV 1.89; `rust-toolchain.toml` installs `rustfmt` and `clippy`). A binary built this way works from wherever it is, but `tokred update` will say to reinstall with the script (only a binary in the install folder updates itself).
 
 ### Try it without touching your real setup
 
@@ -26,10 +25,28 @@ export TOKRED_DATA_DIR=$(mktemp -d) CLAUDE_CONFIG_DIR=$(mktemp -d) TOKRED_OFFLIN
 mkdir "$CLAUDE_CONFIG_DIR/projects"
 cargo run -q -- configure --yes   # hooks, agents and the database go to the sandbox
 cargo run -q -- doctor            # check the result
-cargo run -q -- unconfigure --purge
+cargo run -q -- uninstall --yes --purge
 ```
 
 `TOKRED_OFFLINE=1` turns off the version check and the price sync.
+
+### Try the install scripts without a release
+
+The scripts download from `TOKRED_RELEASE_BASE_URL`, which accepts a `file://` folder. Build the archive the way `dist` lays it out and install from it into a throwaway home:
+
+```sh
+cargo build
+sh tests/installer/install_test.sh      # does exactly that, in a sandbox, and checks the result
+```
+
+By hand: put `tokred-<target>/tokred` in `tokred-<target>.tar.gz`, write `<sha256>  tokred-<target>.tar.gz` to `tokred-<target>.tar.gz.sha256`, then
+
+```sh
+HOME=$(mktemp -d) TOKRED_HOME=$(mktemp -d) TOKRED_DATA_DIR=$(mktemp -d) CLAUDE_CONFIG_DIR=$(mktemp -d) \
+  TOKRED_RELEASE_BASE_URL=file:///path/to/folder sh install/install.sh --yes --port 23456
+```
+
+On Windows, `tests\installer\install_test.ps1` does the same (it edits your user PATH and PowerShell profile and restores them; it asks for `-AllowRealProfile` outside CI).
 
 ### Run the proxy
 
@@ -53,53 +70,34 @@ To start the proxy at login: `tokred proxy service install` (undo with `uninstal
 This is what the release pipeline does, without publishing anything:
 
 ```sh
-dist plan                          # what a release would contain (archives, installers, checksums)
+dist plan                          # what a release would contain (archives, checksums, install scripts)
 dist build --artifacts=local       # build the archives for this machine's target
+dist build --artifacts=global      # the checksums and the install scripts
 ```
 
-`dist` is installed with `cargo install cargo-dist --locked` (or `brew install cargo-dist`); the version used in CI is pinned in `dist-workspace.toml`.
+`dist` is installed with `cargo install cargo-dist --locked` (or `brew install cargo-dist`, a developer tool; users never need it); the version used in CI is pinned in `dist-workspace.toml`.
 
 ## 2. Publish a release
 
 ### How delivery works
 
-One tag push does everything. The `dist`-generated `.github/workflows/release.yml` builds, for macOS, Linux (musl) and Windows on x86_64 and aarch64, an archive plus its `.sha256`, a shell installer, a PowerShell installer and a Homebrew formula. Then `publish-package-managers.yml` updates the other channels:
+One tag push does everything. The `dist`-generated `.github/workflows/release.yml` builds, for macOS, Linux (musl) and Windows on x86_64 and aarch64, an archive plus its `.sha256`, and uploads them to a GitHub Release together with the four install scripts copied from `install/`:
 
-| Channel | What gets published | Where | Secret used |
-|---|---|---|---|
-| GitHub Release | archives, checksums, installers | `sostenes198/tokred` releases | `GITHUB_TOKEN` (automatic) |
-| Homebrew | formula `tokred.rb`, plus the `tokred configure` caveat | repo `sostenes198/homebrew-tap` | `HOMEBREW_TAP_TOKEN` |
-| Scoop | manifest `bucket/tokred.json` | repo `sostenes198/scoop-bucket` | `SCOOP_BUCKET_TOKEN` |
-| winget | pull request to `microsoft/winget-pkgs` | package `sostenes198.tokred` | `WINGET_TOKEN` |
-| crates.io | every crate of the workspace (`cargo publish --workspace`) | crates.io | `CARGO_REGISTRY_TOKEN` |
-| Script | `tokred-installer.sh` / `tokred-installer.ps1` | attached to the GitHub Release | none |
+| Asset | What it is |
+|---|---|
+| `tokred-<target>.tar.gz` / `.zip` | The binary with the README, licences and changelog |
+| `tokred-<target>.tar.gz.sha256` / `.zip.sha256` | `<sha256>  <file name>`; the install scripts and `tokred update` verify it |
+| `install.sh`, `install.ps1`, `uninstall.sh`, `uninstall.ps1` | The scripts users run (`extra-artifacts` in `dist-workspace.toml`) |
+| `source.tar.gz`, `sha256.sum` | Added by `dist` |
 
-Users then run:
+That is all: **no tokens, no secrets, no tap or bucket repositories, no package registry.** The pipeline needs nothing but the repository's own `GITHUB_TOKEN`. Users then run:
 
 ```sh
-brew install sostenes198/tap/tokred
-scoop bucket add sostenes198 https://github.com/sostenes198/scoop-bucket && scoop install sostenes198/tokred
-winget install sostenes198.tokred
-cargo install tokred
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sostenes198/tokred/releases/latest/download/tokred-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sostenes198/tokred/releases/latest/download/install.sh | sh
+irm https://github.com/sostenes198/tokred/releases/latest/download/install.ps1 | iex
 ```
 
-None of these touches Claude Code; the user still runs `tokred configure`.
-
-### One-time setup
-
-The pipeline has never run yet, and none of this exists until you create it. Do it once:
-
-1. **GitHub account.** The `gh` CLI on this machine may be logged into the work account; the repositories below belong to the personal one (`sostenes198`). Check with `gh auth status`, switch with `gh auth switch`.
-2. **Homebrew tap.** Create the public repo `sostenes198/homebrew-tap` (it may be empty; `dist` creates `Formula/tokred.rb`). The `homebrew-` prefix is what makes `brew install sostenes198/tap/tokred` work.
-3. **Scoop bucket.** Create the public repo `sostenes198/scoop-bucket`.
-4. **Tokens** (GitHub → Settings → Developer settings → Personal access tokens), stored as repository secrets of `sostenes198/tokred` (Settings → Secrets and variables → Actions):
-   - `HOMEBREW_TAP_TOKEN`: fine-grained token, repository `homebrew-tap`, permission *Contents: read and write*.
-   - `SCOOP_BUCKET_TOKEN`: the same, for `scoop-bucket`.
-   - `WINGET_TOKEN`: classic token with the `public_repo` scope.
-   - `CARGO_REGISTRY_TOKEN`: create at <https://crates.io/settings/tokens> (needs a crates.io account linked to GitHub; scope *publish-new* and *publish-update*).
-5. **winget, first time only.** Submit the first manifest to `microsoft/winget-pkgs` by hand (for example with `wingetcreate new <url of the Windows zip>`). After it is merged, the pipeline opens the update pull requests. Skip winget until you want it: remove the `winget` job from `publish-package-managers.yml` or the run will fail on that job (the other channels are not affected).
-6. **crates.io names.** `tokred`, `tokred-core`, `tokred-proxy` and the rest are free today. Publishing is permanent: a version can be yanked but never deleted or reused. Check `cargo publish --workspace --dry-run` first.
+(`releases/latest/download/` always points at the newest stable release; `releases/download/vX.Y.Z/` at a fixed one. The scripts also exist on the `main` branch at `https://raw.githubusercontent.com/sostenes198/tokred/main/install/`.) See [installation](installation.md) for what they do.
 
 ### Every release
 
@@ -127,25 +125,30 @@ git push && git push origin v0.2.0
 
 Watch the run in the repository's **Actions** tab (workflow *Release*). It takes about 10 to 20 minutes.
 
-**Dry run first.** Push a pre-release tag such as `v0.2.0-rc.1`: `dist` builds everything and creates a GitHub *pre-release*, and by default does not run the publish jobs for pre-releases, so Homebrew, Scoop, winget and crates.io stay untouched. Confirm in the run that the publish jobs were skipped, download an archive from the pre-release and try it. Only then push the real tag.
+**Dry run first.** Push a pre-release tag such as `v0.2.0-rc.1`: `dist` builds everything and creates a GitHub *pre-release*. It is not "latest", so `releases/latest/download/` does not point at it and nobody gets it by accident. Try it with a fixed version:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sostenes198/tokred/releases/download/v0.2.0-rc.1/install.sh | sh -s -- --version 0.2.0-rc.1
+```
+
+Check `tokred --version`, `tokred doctor` and the uninstall script, then push the real tag (delete the pre-release if you want it gone).
 
 ### Check the result
 
 ```sh
-brew update && brew install sostenes198/tap/tokred
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sostenes198/tokred/releases/latest/download/install.sh | sh
 tokred --version && tokred doctor
-tokred update                     # shows the right command for how it was installed
+tokred update                     # "up to date", or it replaces itself
 ```
 
-On Windows: `scoop install sostenes198/tokred` or `winget install sostenes198.tokred`, then `tokred --version`.
+On Windows: `irm https://github.com/sostenes198/tokred/releases/latest/download/install.ps1 | iex`, then `tokred --version`.
 
 ### When something goes wrong
 
-- **A build job fails:** fix, delete the tag (`git push origin :refs/tags/v0.2.0` and `git tag -d v0.2.0`) and tag again. Nothing was published if the failure was before the publish jobs.
-- **Only one channel failed** (for example winget): re-run just the failed job from the Actions tab; the others are already out.
-- **A bad release is out:** publish a new patch version. Yank a crates.io version with `cargo yank --version 0.2.0 tokred`; for Homebrew and Scoop, revert the commit in the tap or bucket.
-- **Formula not found right after the release:** `brew update`; the caveat job waits up to 10 minutes for the formula to land in the tap.
+- **A build job fails:** fix, delete the tag (`git push origin :refs/tags/v0.2.0` and `git tag -d v0.2.0`) and tag again. Nothing was published if the failure was before the `host` job.
+- **A bad release is out:** publish a new patch version; `latest` then points to it. To pull the bad one, delete the GitHub release (the tag can stay or go).
+- **An install script has a bug:** fix it on `main` and cut a new patch release; the raw `main` URL serves the fix at once for people who use it.
 
 ### What to update when `dist-workspace.toml` changes
 
-Run `dist generate` and commit the changed `.github/workflows/release.yml`; do not edit that file by hand. Dependabot does bump action versions inside it (for example `actions/checkout`); `allow-dirty = ["ci"]` in `dist-workspace.toml` makes `dist plan` accept that instead of failing with "out of date contents", so such pull requests can be merged. See also [installation](installation.md) and [decisions](decisions.md).
+Run `dist generate` and commit the changed `.github/workflows/release.yml`; do not edit that file by hand. Dependabot does bump action versions inside it (for example `actions/checkout`); `allow-dirty = ["ci"]` in `dist-workspace.toml` makes `dist plan` accept that instead of failing with "out of date contents", so such pull requests can be merged (but it also makes `dist generate` refuse to run: comment the line out while you regenerate, then put it back). See also [installation](installation.md) and [decisions](decisions.md).

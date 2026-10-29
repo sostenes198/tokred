@@ -12,7 +12,6 @@
 ```sh
 cargo build                          # debug build of every crate
 cargo run -- doctor                  # run the CLI
-cargo install --path crates/tokred-cli
 ```
 
 ## Checks (the same ones CI runs)
@@ -33,6 +32,7 @@ cargo +1.89 check --workspace --all-targets --locked    # MSRV
 | Unit | `#[cfg(test)]` inside each module | Pure functions: settings merge, agent install decision, config merge, hook name parsing |
 | Integration | `crates/<crate>/tests/` | `tokred-store` on a real SQLite file; `tokred-install` configure/unconfigure/doctor against fixtures on real temp directories |
 | End to end | `crates/tokred-cli/tests/` | The real binary via `assert_cmd`: `configure` → hooks → `doctor` → `unconfigure`, in a sandbox |
+| Installer | `tests/installer/` | `install/*.sh` and `install/*.ps1` against a fake release served from disk, in a throwaway `HOME` (CI: ubuntu, macOS, Windows, plus `shellcheck`) |
 | Snapshot | alongside the above (`insta`) | Merged `settings.json`, `doctor --json` hooks |
 | Property | `crates/tokred-install/tests/merge_props.rs` (`proptest`) | configure twice = once; configure + unconfigure = original; foreign hooks survive |
 
@@ -86,4 +86,6 @@ Before implementing a hook, read the official docs (<https://code.claude.com/doc
 
 ## Releases
 
-Releases are built by `dist` (`dist-workspace.toml`, generated `.github/workflows/release.yml`) when a tag `vX.Y.Z` is pushed; `publish-package-managers.yml` handles Scoop, winget, the Homebrew caveat and crates.io. The full step-by-step (one-time setup, every release, rollback) is in [release](release.md); running and testing by hand is in [testing](testing.md). See also [installation](installation.md). After changing `dist-workspace.toml`, run `dist generate` and commit the result; `dist plan` shows what a release would contain. The agent templates live inside the `tokred-install` crate (`crates/tokred-install/templates/`) so the published crate contains them.
+Releases are built by `dist` (`dist-workspace.toml`, generated `.github/workflows/release.yml`) when a tag `vX.Y.Z` is pushed; the workflow uploads the archives, their `.sha256` files and the install scripts (`install/*.sh`, `install/*.ps1`) to the GitHub release, and nothing else (no package managers, no secrets). The full step-by-step (every release, dry run, rollback) is in [release](release.md); running and testing by hand is in [testing](testing.md). See also [installation](installation.md). After changing `dist-workspace.toml`, run `dist generate` and commit the result; `dist plan` shows what a release would contain. The agent templates live inside the `tokred-install` crate (`crates/tokred-install/templates/`).
+
+The install scripts are plain POSIX `sh` and PowerShell, kept thin on purpose: every prompt (port, content recording, confirmations) lives in Rust (`tokred configure`, `tokred uninstall`) where it is unit-tested through the `Io` seam. Change a script and run `sh tests/installer/install_test.sh`.

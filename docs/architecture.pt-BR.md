@@ -33,7 +33,7 @@ Os quatro crates do proxy seguem a mesma direção do resto: `tokred-routing`, `
 
 Dentro do binário, o I/O de terminal passa por uma pequena abstração `Io` (flag interativa, entrada, saída) e a saída dos comandos é montada por funções puras, então prompts e relatórios são testados por unidade sem TTY.
 
-O pacote do binário se chama `tokred` para que `cargo install tokred` funcione; o diretório mantém o nome `tokred-cli`.
+O pacote do binário se chama `tokred`; o diretório mantém o nome `tokred-cli`.
 
 ## Regras
 

@@ -12,7 +12,6 @@
 ```sh
 cargo build                          # build debug de todos os crates
 cargo run -- doctor                  # executa a CLI
-cargo install --path crates/tokred-cli
 ```
 
 ## Verificações (as mesmas do CI)
@@ -86,4 +85,6 @@ Antes de implementar um hook, leia a documentação oficial (<https://code.claud
 
 ## Releases
 
-As releases são construídas pelo `dist` (`dist-workspace.toml`, `.github/workflows/release.yml` gerado) quando uma tag `vX.Y.Z` é enviada; o `publish-package-managers.yml` cuida do Scoop, do winget, do aviso do Homebrew e do crates.io. O passo a passo completo (preparação única, cada release, reversão) está em [release](release.pt-BR.md); rodar e testar à mão está em [testes](testing.pt-BR.md). Veja também [instalação](installation.pt-BR.md). Depois de mudar o `dist-workspace.toml`, rode `dist generate` e comite o resultado; `dist plan` mostra o que uma release conteria. Os templates dos agentes ficam dentro do crate `tokred-install` (`crates/tokred-install/templates/`) para que o crate publicado os contenha.
+As releases são construídas pelo `dist` (`dist-workspace.toml`, `.github/workflows/release.yml` gerado) quando uma tag `vX.Y.Z` é enviada; o workflow envia para a release do GitHub os arquivos, seus `.sha256` e os scripts de instalação (`install/*.sh`, `install/*.ps1`), e mais nada (sem gerenciadores de pacotes, sem segredos). O passo a passo completo (cada release, ensaio, reversão) está em [release](release.pt-BR.md); rodar e testar à mão está em [testes](testing.pt-BR.md). Veja também [instalação](installation.pt-BR.md). Depois de mudar o `dist-workspace.toml`, rode `dist generate` e comite o resultado; `dist plan` mostra o que uma release conteria. Os templates dos agentes ficam dentro do crate `tokred-install` (`crates/tokred-install/templates/`).
+
+Os scripts de instalação são `sh` POSIX e PowerShell simples, finos de propósito: todo prompt (porta, gravação de conteúdo, confirmações) vive em Rust (`tokred configure`, `tokred uninstall`), onde é testado por unidade através da costura `Io`. Mudou um script? Rode `sh tests/installer/install_test.sh`.

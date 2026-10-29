@@ -22,6 +22,20 @@ pub struct ClaudeDirArg {
     pub claude_dir: Option<PathBuf>,
 }
 
+/// The proxy answers `tokred configure` can take up front instead of asking.
+#[derive(Debug, Clone, Copy, Args)]
+pub struct ProxyArgs {
+    /// Port the proxy listens on (1024-65535; default: the saved one, else 1029).
+    #[arg(long, value_name = "PORT")]
+    pub proxy_port: Option<u16>,
+    /// Let the dashboard show what was sent and returned (stored on this machine only).
+    #[arg(long, conflicts_with = "no_record_content")]
+    pub record_content: bool,
+    /// Do not record conversation content.
+    #[arg(long)]
+    pub no_record_content: bool,
+}
+
 /// Grouping of `tokred stats`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum StatsBy {
@@ -206,6 +220,9 @@ pub enum Command {
         /// Overwrite agent files even if you edited them.
         #[arg(long)]
         force: bool,
+        /// Proxy port and content recording, when you do not want to be asked.
+        #[command(flatten)]
+        proxy: ProxyArgs,
     },
     /// Update tokred according to how it was installed, then re-apply the configuration.
     Update {
@@ -219,6 +236,19 @@ pub enum Command {
         #[command(flatten)]
         dir: ClaudeDirArg,
         /// Also delete tokred's data folder (database, config, logs, reports).
+        #[arg(long)]
+        purge: bool,
+    },
+    /// Remove tokred from this machine: stop the proxy and its service, take the hooks and
+    /// agents out of Claude Code, and optionally delete the data folder.
+    Uninstall {
+        /// Folder selection.
+        #[command(flatten)]
+        dir: ClaudeDirArg,
+        /// Do not ask for confirmation (keeps the data folder unless `--purge`).
+        #[arg(long, short = 'y')]
+        yes: bool,
+        /// Also delete tokred's data folder (database, config, logs, reports), without asking.
         #[arg(long)]
         purge: bool,
     },
@@ -378,6 +408,73 @@ mod tests {
             parse(&["stats", "latency", "--by", "session"]),
             Command::Stats { command: Some(StatsCommand::Latency(ref latency)), .. }
                 if latency.by == Some(LatencyBy::Session) && latency.since == "7d"
+        ));
+    }
+
+    #[test]
+    fn configure_takes_the_proxy_answers_up_front() {
+        assert!(matches!(
+            parse(&["configure", "--yes"]),
+            Command::Configure {
+                yes: true,
+                proxy: ProxyArgs {
+                    proxy_port: None,
+                    record_content: false,
+                    no_record_content: false
+                },
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse(&["configure", "--proxy-port", "2000", "--record-content"]),
+            Command::Configure {
+                proxy: ProxyArgs {
+                    proxy_port: Some(2000),
+                    record_content: true,
+                    no_record_content: false
+                },
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse(&["configure", "--no-record-content"]),
+            Command::Configure {
+                proxy: ProxyArgs {
+                    no_record_content: true,
+                    ..
+                },
+                ..
+            }
+        ));
+        assert!(
+            Cli::try_parse_from([
+                "tokred",
+                "configure",
+                "--record-content",
+                "--no-record-content"
+            ])
+            .is_err()
+        );
+        assert!(Cli::try_parse_from(["tokred", "configure", "--proxy-port", "99999"]).is_err());
+    }
+
+    #[test]
+    fn uninstall_parses() {
+        assert!(matches!(
+            parse(&["uninstall"]),
+            Command::Uninstall {
+                yes: false,
+                purge: false,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse(&["uninstall", "-y", "--purge", "--claude-dir", "/c"]),
+            Command::Uninstall {
+                yes: true,
+                purge: true,
+                ..
+            }
         ));
     }
 

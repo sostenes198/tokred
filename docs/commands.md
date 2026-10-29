@@ -7,8 +7,9 @@ Every command that prints a report accepts `--json` for machine-readable output.
 | Command | What it does |
 |---|---|
 | `tokred configure` | Integrate with Claude Code |
-| `tokred update` | Update according to how tokred was installed |
+| `tokred update` | Replace the binary when the install script put it there; otherwise say to reinstall |
 | `tokred unconfigure` | Remove tokred's parts from Claude Code |
+| `tokred uninstall` | Stop the proxy and its service, remove hooks and agents; the uninstall script then removes the binary |
 | `tokred doctor` | Show what is installed and what needs attention |
 | `tokred stats` | Tokens, cost, savings and projection, in the terminal |
 | `tokred stats latency` | Time the hooks added to Claude Code |
@@ -30,31 +31,44 @@ Every command that prints a report accepts `--json` for machine-readable output.
 
 The folder of Claude Code can be given with `--claude-dir <path>` on every command that needs it.
 
-## `tokred configure [--claude-dir <path>] [--yes] [--force]`
+## `tokred configure [--claude-dir <path>] [--yes] [--force] [--proxy-port <n>] [--record-content | --no-record-content]`
 
-Integrates tokred with Claude Code.
+Integrates tokred with Claude Code. The install script runs it for you; run it again any time.
 
 1. Finds the Claude Code folder, in this order: `--claude-dir`, the value saved in `tokred.toml` (`[claude] dir`), `$CLAUDE_CONFIG_DIR`, `~/.claude` (`%USERPROFILE%\.claude` on Windows). A folder is valid when it exists and contains `settings.json` or `projects/`. An explicit `--claude-dir` that is not valid is an error. If nothing is found, an interactive terminal is asked for the path; otherwise the command fails and suggests `--claude-dir`.
 2. Detects rtk and tells you the two will coexist.
 3. Prints the **plan**: hooks to add (`+`), update (`~`) or keep (`=`), agents to create, update or leave alone, and the backup it will make. It asks for confirmation; `--yes` skips the question (required when stdin is not a terminal).
-4. Applies it: creates the data folder, database and `tokred.toml`, merges `settings.json` (backup in `settings.json.tokred.bak`, only the last one is kept), and installs the agents.
+4. In a terminal, asks the two proxy questions (see below), unless a flag or variable already answered them.
+5. Applies it: creates the data folder, database and `tokred.toml`, merges `settings.json` (backup in `settings.json.tokred.bak`, only the last one is kept), and installs the agents.
 
 Running it again is safe: the result is the same. If `settings.json` is not valid JSON the command aborts and **writes nothing**. `--force` overwrites agent files even if you edited them (otherwise your version is kept and the new one is written to `tokred-x.md.new`).
 
+**The proxy port.** `--proxy-port <n>` (or `TOKRED_PORT`) sets `[proxy] bind` to `<host>:<n>` (the host of an existing value is kept, default `127.0.0.1`). Without it, a terminal is asked: "Port for the tokred proxy [1029]" (the default is the saved port, else 1029). A non-number, a port below 1024 and a port above 65535 are rejected; the command tries to bind `127.0.0.1:<port>` to see that it is free, and when it is busy it says so and asks again. A port the proxy of this installation already listens on is accepted. A port given by flag is not asked about; if something else listens on it you get a warning (the proxy will not start until it is free).
+
+**Content recording.** `--record-content` / `--no-record-content` (or `TOKRED_RECORD_CONTENT=1|0`) set `[proxy] log_bodies`. Without them, a terminal is asked "Record conversation content so the dashboard can show it? [Y/n]" with the explanation that the text stays in tokred's own database on this machine and headers and credentials are never recorded (the default is the saved value, else yes).
+
+**Without a terminal** (or with `--yes`) nothing is asked: a flag, else the environment variable, else the value already in `tokred.toml`, else the default (port 1029, content **not** recorded). Choices that were not given are never changed, so the quiet re-run after every upgrade keeps yours.
+
 ## `tokred update [--claude-dir <path>]`
 
-Checks the latest release and acts according to how tokred was installed (detected from the path of the executable):
+Checks the latest release and acts according to where the running binary lives:
 
-| Installed with | `tokred update` |
+| The binary is | `tokred update` |
 |---|---|
-| Homebrew, winget, scoop, cargo | Prints the command to run (`brew upgrade tokred`, `winget upgrade tokred`, `scoop update tokred`, `cargo install tokred --force`) |
-| Install script | Downloads the archive for this platform, **verifies its SHA-256**, replaces the binary atomically and re-applies the configuration with the new binary |
+| In the install folder (`$TOKRED_HOME/bin`, where the install script puts it) | Downloads the archive for this platform from the GitHub release, **verifies its SHA-256**, replaces the binary atomically (on Windows the running `.exe` is renamed to `.exe.old` and removed on the next start) and re-applies the configuration with the new binary |
+| Anywhere else (built from source, copied by hand) | Says a new version exists and to reinstall with the install script |
 
-After the binary changes version, the first CLI command you run re-applies the configuration quietly (hooks never do this), so a package-manager upgrade needs no extra step. Needs the network; refuses to run when `TOKRED_OFFLINE` is set.
+After the binary changes version, the first CLI command you run re-applies the configuration quietly (hooks never do this), keeping your choices. Needs the network; refuses to run when `TOKRED_OFFLINE` is set. See [installation](installation.md).
 
 ## `tokred unconfigure [--claude-dir <path>] [--purge]`
 
 Removes the tokred hooks from `settings.json` (and tokred's `ANTHROPIC_BASE_URL` when it was set there; your own gateway stays) and the agent files tokred installed and you did not edit. Edited agents are kept and reported. Files without the `tokred-` prefix are never touched, and anything in `settings.json` that tokred does not understand is left as it is. `--purge` also deletes the data folder; it refuses to do so if the folder does not contain `tokred.db` or `tokred.toml`.
+
+## `tokred uninstall [--claude-dir <path>] [--yes] [--purge]`
+
+Takes tokred off the machine, except its own binary and shell setup, which the [uninstall script](installation.md#uninstalling) removes once this process has ended. In order: stops the proxy (`proxy stop`), removes the proxy user service (`proxy service uninstall`, only if installed), `compression off` (only if the MCP server is registered), and `unconfigure` (hooks and agents; with no Claude Code folder this step is skipped). Every step is best effort: a failure is printed and the next step still runs. It then prints what is left for the script (the binary, the `PATH` entry, the `claude` wrapper).
+
+It asks "Remove tokred from this machine? [y/N]" and then whether to delete the data folder; `--yes` asks nothing and **keeps** the data, `--purge` deletes it without asking (it refuses a folder that does not look like tokred's). Without a terminal it needs `--yes`. Answering no exits with code 2 and changes nothing (the script stops there).
 
 ## `tokred doctor [--claude-dir <path>] [--json] [--bench]`
 

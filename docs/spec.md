@@ -2,6 +2,8 @@
 
 # tokred — Specification (v3, final)
 
+> **Update 2026-10-29:** distribution changed. tokred is installed by scripts that download the GitHub release (rustup style); Homebrew, Scoop, winget and crates.io are no longer used, and `configure` now runs at the end of the install. See the 2026-10-29 entries in [decisions](decisions.md).
+
 **Repository:** https://github.com/sostenes198/tokred
 
 **Short description (GitHub "About"):** *Token and cost reducer for Claude Code — local proxy with model policy, context guards and metrics. Works alongside rtk.*
@@ -91,14 +93,14 @@ Everything below is on `main` (published repository). The exact behaviors are in
 | Metrics: incremental transcript ingestion, cost, savings, projection, latency | Done | `docs/metrics.md` |
 | Colored terminal dashboards (`stats`, `stats latency`, `metrics`) and offline HTML report | Done | `docs/commands.md` |
 | `audit` (fixed context and unused MCPs), `cache`, `pricing`, `update` with verified self-update, `doctor --bench` | Done | `docs/commands.md` |
-| Release pipeline (`dist`, Homebrew, Scoop, winget, crates.io) | Written, **never executed** | `docs/installation.md` |
+| Release pipeline (`dist`, Homebrew, Scoop, winget, crates.io) _(superseded 2026-10-29: install scripts and GitHub release only, see [decisions](decisions.md))_ | Written, **never executed** | `docs/installation.md` |
 | Quality | 655 tests; 100% of lines covered; fmt, clippy, doc, deny and MSRV clean on macOS | `docs/development.md` |
 
 ### 2.2 Known problems (to fix before the proxy)
 
 1. **CI on Windows is red.** The test `ingestion_resumes_and_waits_for_partial_lines` (`tokred-metrics`) fails: with the file open for writing, the size read through directory metadata is stale on Windows. In addition, `cargo test --workspace` stops at the first binary that fails, so **other Windows failures may be hidden** (paths, globs with `\`, end-to-end tests). Fix: get the size from the file handle (`File::open(..).metadata()`), run CI with `--no-fail-fast` and handle whatever shows up.
 2. **Prices and model families.** `Family` only knows opus, sonnet and haiku; Fable and Mythos are missing. The cache read multiplier is derived as 0.1× when it is missing from the data, which is wrong for new models (0.05× and 0.025×). The 1-hour write price (2×) is missing.
-3. **The release pipeline has not been exercised** (it needs 4 secrets and a tag; the first winget manifest is manual).
+3. **The release pipeline has not been exercised** (it needs 4 secrets and a tag; the first winget manifest is manual). _Superseded 2026-10-29: the pipeline now needs only a tag, see [decisions](decisions.md)._
 4. **`route` uses keywords** and not the request class headers (which only the proxy sees).
 
 ---
@@ -488,6 +490,6 @@ Each phase ends with green tests on all 3 OSes, clean clippy, coverage maintaine
 
 ## 14. Distribution and documentation
 
-- **Distribution:** unchanged (`dist`, Homebrew, Scoop, winget, crates.io; installing and configuring are separate steps). New: the proxy as a user service is always **opt-in**; no installation channel activates the proxy.
+- **Distribution:** unchanged (`dist`, Homebrew, Scoop, winget, crates.io; installing and configuring are separate steps) _(superseded 2026-10-29, see [decisions](decisions.md))_. New: the proxy as a user service is always **opt-in**; no installation channel activates the proxy.
 - **Documentation:** remains bilingual. New: `docs/proxy.md` (how it works, security, compatibility), `docs/routing.md` (model policy and how to audit decisions), and updates to `commands`, `configuration`, `hooks`, `metrics`, `architecture`, `installation` and `decisions`. Command examples must work as written; those in the quick start section have an end-to-end test.
 - **Privacy (README):** everything local; tokred's only network calls are price synchronization, the version check and `update` (only from CLI commands) and the proxy's forwarding to the API host; `TOKRED_OFFLINE=1` turns off the first three.

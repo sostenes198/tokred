@@ -11,30 +11,41 @@ use super::{existing_store, select_claude_dir, show};
 use crate::env::Env;
 use crate::io::Io;
 
-const FOOTER: &str =
-    "The tokred binary itself is removed with your package manager (brew, winget, scoop, cargo).";
+const FOOTER: &str = "The tokred binary and its shell setup stay: `tokred uninstall` removes the proxy and its service as well, and the uninstall script removes the binary (see docs/installation).";
 
 pub fn run(env: &Env, io: &mut Io, dir_flag: Option<PathBuf>, purge: bool) -> Result<()> {
+    let claude_dir = select_claude_dir(&StdFileSystem, env, io, dir_flag, false)?;
+    apply(env, io, &claude_dir, purge)?;
+    writeln!(io.out(), "\n{FOOTER}")?;
+    Ok(())
+}
+
+/// Takes tokred out of `claude_dir` and, with `purge`, deletes the data folder.
+pub fn apply(env: &Env, io: &mut Io, claude_dir: &Path, purge: bool) -> Result<()> {
     let fs = StdFileSystem;
-    let claude_dir = select_claude_dir(&fs, env, io, dir_flag, false)?;
     let store = existing_store(env)?;
     let report = unconfigure(
         &fs,
         store.as_ref().map(|s| s as &dyn ManifestRepo),
-        &claude_dir,
+        claude_dir,
     )?;
     // Release the database file before a possible purge (required on Windows).
     drop(store);
     let config = super::housekeeping::load_config(env);
     let url = super::initialize::remove_own_url(env, &config, &claude_dir)?;
 
-    let shown = render_report(&claude_dir, &report, url.as_deref());
+    let shown = render_report(claude_dir, &report, url.as_deref());
     write!(io.out(), "{shown}")?;
     if purge {
-        let outcome = purge_data_folder(&fs, env)?;
-        writeln!(io.out(), "  {outcome}")?;
+        purge_data(env, io)?;
     }
-    writeln!(io.out(), "\n{FOOTER}")?;
+    Ok(())
+}
+
+/// Deletes the data folder (when it is tokred's) and says so.
+pub fn purge_data(env: &Env, io: &mut Io) -> Result<()> {
+    let outcome = purge_data_folder(&StdFileSystem, env)?;
+    writeln!(io.out(), "  {outcome}")?;
     Ok(())
 }
 

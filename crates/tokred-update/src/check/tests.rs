@@ -114,14 +114,7 @@ fn auto_mode_self_updates_script_installs_only() {
         InstallMethod::Script
     ));
     assert!(!should_self_update(UpdateMode::Off, InstallMethod::Script));
-    for method in [
-        InstallMethod::Homebrew,
-        InstallMethod::Winget,
-        InstallMethod::Scoop,
-        InstallMethod::Cargo,
-    ] {
-        assert!(!should_self_update(UpdateMode::Auto, method), "{method:?}");
-    }
+    assert!(!should_self_update(UpdateMode::Auto, InstallMethod::Other));
 }
 
 #[test]
@@ -251,11 +244,11 @@ fn the_notice_names_the_upgrade_command() {
         version: "0.4.0".to_owned(),
     };
     assert_eq!(
-        notice(&new, "0.3.2", InstallMethod::Homebrew),
-        "new version 0.4.0 available (current 0.3.2) \u{2192} run: brew upgrade tokred"
+        notice(&new, "0.3.2", InstallMethod::Script),
+        "new version 0.4.0 available (current 0.3.2) \u{2192} run: tokred update"
     );
-    assert!(notice(&new, "0.3.2", InstallMethod::Winget).ends_with("winget upgrade tokred"));
-    assert!(notice(&new, "0.3.2", InstallMethod::Scoop).ends_with("scoop update tokred"));
-    assert!(notice(&new, "0.3.2", InstallMethod::Cargo).ends_with("cargo install tokred --force"));
-    assert!(notice(&new, "0.3.2", InstallMethod::Script).ends_with("run: tokred update"));
+    assert!(
+        notice(&new, "0.3.2", InstallMethod::Other)
+            .ends_with("reinstall with the install script (see the README)")
+    );
 }

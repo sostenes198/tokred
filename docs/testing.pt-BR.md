@@ -20,9 +20,10 @@ cargo test -p tokred -- --nocapture          # mostra o que os testes imprimem
 |---|---|
 | módulos `#[cfg(test)]` | Lógica pura: classificação, preços, decisões de roteamento, compressão, configuração |
 | `crates/<crate>/tests/` | Arquivos SQLite reais, pastas temporárias reais, o proxy contra um upstream falso (repasse, streaming, gzip) |
-| `crates/tokred-cli/tests/e2e.rs` | O binário `tokred` real: `configure`, hooks, `doctor`, `unconfigure` num sandbox |
+| `crates/tokred-cli/tests/e2e.rs` | O binário `tokred` real: `configure` (flags de porta e conteúdo), hooks, `doctor`, `unconfigure`, `uninstall` num sandbox |
 | `crates/tokred-proxy/tests/network.rs` | O caminho da rede corporativa: um proxy HTTP falso que responde `CONNECT` na frente de um upstream HTTPS falso assinado por uma autoridade descartável (`rcgen`), `NO_PROXY`, túneis recusados, valores inválidos; o `network_logs.rs` confere que credenciais nunca chegam aos logs |
 | `crates/tokred-cli/tests/proxy_e2e.rs` | O binário real rodando o proxy: repasse, registro, checagem do `Host`, `tokred claude`, comandos de conselho, o processo terminando após `proxy stop`, `proxy start` com a saída capturada (no Windows um proxy destacado fazia quem o chamava esperar; a primeira execução do CI no Windows é a verificação da partida por `Start-Process`) |
+| `tests/installer/install_test.sh`, `install_test.ps1` | Os scripts de instalação e desinstalação contra uma release falsa (veja abaixo) |
 
 ### O gate completo (o que o CI roda)
 
@@ -53,6 +54,19 @@ cargo llvm-cov --workspace --no-fail-fast --lcov --output-path lcov.info   # `DA
 
 O CI roda a suíte em Linux, macOS e Windows; um teste que passa só no seu sistema não está pronto.
 
+### Os scripts de instalação
+
+`tests/installer/` testa `install/install.sh` e `install/uninstall.sh` (CI: ubuntu e macOS) e o par de PowerShell (CI: Windows). Eles montam uma **release falsa**: o binário recém-compilado empacotado como o `dist` empacota (`tokred-<target>/tokred` dentro de `tokred-<target>.tar.gz`, ou `.zip` com `tokred.exe`) mais o `.sha256`, servida por `TOKRED_RELEASE_BASE_URL=file://...`, com `HOME`, `TOKRED_HOME`, pasta de dados e pasta do Claude descartáveis. Sem rede e sem tocar em nada real.
+
+```sh
+cargo build -p tokred && sh tests/installer/install_test.sh
+shellcheck install/*.sh tests/installer/*.sh        # o que o job `shellcheck` do CI roda
+```
+
+O teste em shell cobre: instalação, o bloco de `PATH`/`claude` gravado uma vez e idêntico byte a byte na segunda execução, um shell novo encontrando `tokred --version`, o wrapper de ponta a ponta em `sh`, `bash`, `dash` e `zsh` quando existem (um `claude` falso que registra os argumentos e um `tokred` falso que registra que `initialize` rodou antes; argumentos com espaços, aspas, string vazia, `*` e `$HOME` chegam intactos; o `claude` ainda roda sem o `tokred`; `command claude` o ignora), um `alias claude` já existente no zsh, `--no-alias`, `--no-modify-path`, `TOKRED_NO_ALIAS=1`, arquivos do fish e do zsh, a desinstalação (tudo removido, outras linhas mantidas, `--purge`), checksum errado, release inexistente, porta inválida e flags desconhecidas. O teste do wrapper usa um `tokred` falso; o próprio `tokred initialize` é testado no crate dele.
+
+O `install_test.ps1` conta a mesma história para o Windows; ele edita o `PATH` do usuário e o perfil do PowerShell do runner e os restaura, então fora do CI exige `-AllowRealProfile`. Para experimentar os scripts à mão sem uma release, veja [release](release.pt-BR.md).
+
 ## 2. Experimentar à mão
 
 Use um sandbox para que nada seja gravado no seu `~/.claude` nem na pasta de dados reais. Rode isto em cada terminal novo que usar para testar:
@@ -65,7 +79,7 @@ mkdir "$CLAUDE_CONFIG_DIR/projects"
 tokred configure --yes && tokred doctor
 ```
 
-O `doctor` deve mostrar os hooks e os agentes instalados no sandbox. Ao terminar: `tokred unconfigure --purge` e feche o terminal (os `export` morrem com ele).
+O `doctor` deve mostrar os hooks e os agentes instalados no sandbox. Ao terminar: `tokred uninstall --yes --purge` e feche o terminal (os `export` morrem com ele).
 
 ### Um hook
 
@@ -155,6 +169,6 @@ echo '{"session_id":"s1"}' | tokred statusline     # a sugestão pendente, ou os
 ### Limpeza
 
 ```sh
-tokred proxy stop; tokred unconfigure --purge
+tokred proxy stop; tokred uninstall --yes --purge
 # e pare a API falsa com Ctrl-C no terminal A
 ```

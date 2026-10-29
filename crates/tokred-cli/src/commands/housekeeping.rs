@@ -9,7 +9,7 @@ use tokred_core::release::ReleaseSource;
 use tokred_core::{Config, FileSystem};
 use tokred_install::StdFileSystem;
 use tokred_pricing::{sync_due, sync_prices};
-use tokred_update::{detect, needs_reconfigure, notice, run_check, should_check};
+use tokred_update::{InstallMethod, needs_reconfigure, notice, run_check, should_check};
 
 use super::{SystemClock, configure, existing_store};
 use crate::env::Env;
@@ -85,7 +85,7 @@ pub fn background_chores(
     io: &mut Io,
     net: &Network<'_>,
     switches: Switches,
-    exe: &str,
+    method: InstallMethod,
     version: &str,
 ) {
     if switches.offline {
@@ -104,7 +104,7 @@ pub fn background_chores(
     if should_check(config.update.mode, switches.no_update_check)
         && let Some(new) = run_check(net.releases, &store, &clock, version)
     {
-        let _ = writeln!(io.err(), "{}", notice(&new, version, detect(exe)));
+        let _ = writeln!(io.err(), "{}", notice(&new, version, method));
     }
 }
 
@@ -166,7 +166,13 @@ mod tests {
         sb
     }
 
-    fn chores(sb: &Sandbox, p: &Prices, r: &FakeReleases, switches: Switches) -> String {
+    fn chores_as(
+        sb: &Sandbox,
+        p: &Prices,
+        r: &FakeReleases,
+        switches: Switches,
+        method: InstallMethod,
+    ) -> String {
         let (mut io, out, err) = scripted_with_err(false, "");
         background_chores(
             &sb.env,
@@ -176,11 +182,23 @@ mod tests {
                 releases: r,
             },
             switches,
-            "/usr/local/bin/tokred",
+            method,
             "0.1.0",
         );
         assert_eq!(out.text(), "", "chores never write to stdout");
         err.text()
+    }
+
+    fn chores(sb: &Sandbox, p: &Prices, r: &FakeReleases, switches: Switches) -> String {
+        chores_as(sb, p, r, switches, InstallMethod::Script)
+    }
+
+    #[test]
+    fn a_copy_the_script_did_not_install_is_told_to_reinstall() {
+        let sb = configured();
+        let (p, r) = sources("9.9.9");
+        let text = chores_as(&sb, &p, &r, Switches::default(), InstallMethod::Other);
+        assert!(text.contains("reinstall with the install script"), "{text}");
     }
 
     #[test]

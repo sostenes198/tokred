@@ -6,11 +6,22 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- Install like rustup: `install/install.sh` (macOS, Linux) and `install/install.ps1` (Windows) download the release archive from GitHub, verify its checksum, install it in `~/.tokred/bin` (`%LOCALAPPDATA%\tokred\bin`), add it to `PATH` and run `tokred configure`. `uninstall.sh` / `uninstall.ps1` undo it. Options: `--yes`, `--port`, `--version`, `--no-modify-path`, `--no-alias`, `--no-configure`, and `TOKRED_HOME`, `TOKRED_RELEASE_BASE_URL`.
+- The installer defines a `claude` wrapper (bash, zsh, fish, PowerShell) that runs `tokred initialize` first and then the real Claude Code; fail-open, skipped with `--no-alias` / `TOKRED_NO_ALIAS=1`, bypassed with `command claude`.
+- `tokred configure` asks for the proxy port (default 1029, 1024 to 65535, must be free) and whether conversation content may be recorded for the dashboard; new flags `--proxy-port`, `--record-content`, `--no-record-content` and variables `TOKRED_PORT`, `TOKRED_RECORD_CONTENT`. A quiet re-run never changes a choice you made.
+- `tokred uninstall [--yes] [--purge]`: stops the proxy, removes its user service, turns compression off, removes the hooks and agents and optionally the data folder.
+- Tests for the install scripts (`tests/installer/`) in CI on Linux, macOS and Windows, and `shellcheck`.
+
 ### Changed
 
 - `tokred stats`, `tokred metrics` and the HTML report read the proxy's exact per-request data as their primary source and the transcripts for what the proxy did not see, merged so no request is counted twice ([metrics](docs/metrics.md)). Without the proxy nothing changes.
 - Upgrading: installations configured before this have `enabled = false` written in `tokred.toml` and it is kept, so the proxy features stay off until you run `tokred proxy enable` once. An installed user service stops starting the proxy while it is disabled (`tokred proxy service uninstall` removes it).
 - The `persist_base_url` key of `[proxy]` no longer exists (an old file that still has it keeps working): `enabled` now does what it was meant for.
+- Distribution is the GitHub release only: the install scripts and the archives are release assets. Homebrew, Scoop, winget and crates.io publishing, `publish-package-managers.yml` and their secrets are gone.
+- `tokred update` replaces the binary only when the install script put it in the install folder; any other copy is told to reinstall with the script. The daily version notice follows the same rule.
+
 - `unconfigure` leaves settings it does not understand untouched instead of failing.
 
 ### Fixed
