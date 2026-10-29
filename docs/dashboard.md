@@ -57,7 +57,7 @@ For people who script it. All routes are `GET`, answered by the proxy and never 
 
 Session `S`: `id`, `started_at`, `last_activity_at` (unix seconds), `status`, `requests`, `models`, `cost_usd`, `input`, `output`, `cache_read`, `cache_write`, `subagents_running`, `content_recorded`, `title` and `project` (the folder name; both `null` when the transcript is not found).
 
-Turn `T` (one request and its response): `id`, `session_id`, `ts` (unix seconds), `origin` (`main`, `subagent` or `auxiliary`), `agent_id`, `agent_type`, `model_requested`, `model_effective`, `status`, `stop_reason`, `usage` (`input`, `output`, `cache_write`, `cache_read`), `cost_usd`, `duration_ms`, `ttfb_ms`, `tools`, `routing` (`outcome`, `reason`), `in_flight`, `sent` (`[{role, text}]` or `null`), `response` (`{text, thinking, tool_uses: [{name, input_summary}]}` or `null`).
+Turn `T` (one request and its response): `id`, `session_id`, `ts` (unix seconds), `origin` (`main`, `subagent` or `auxiliary`), `agent_id`, `agent_type`, `model_requested`, `model_effective`, `status`, `stop_reason`, `usage` (`input`, `output`, `cache_write`, `cache_read`), `cost_usd`, `duration_ms`, `ttfb_ms`, `tools`, `routing` (`outcome`, `reason`), `miss_cause` (why the prompt cache missed, when it did), `series` (the start of the hash of the system prompt: requests of one model with one system prompt share a cache), `in_flight`, `sent` (`[{role, text}]` or `null`), `response` (`{text, thinking, tool_uses: [{name, input_summary}]}` or `null`).
 
 Events:
 

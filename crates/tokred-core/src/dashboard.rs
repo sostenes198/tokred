@@ -290,6 +290,13 @@ pub struct ResponseView {
     pub tool_uses: Vec<ToolUseView>,
 }
 
+/// The series of a request: the first characters of the hash of its system prompt (`None` when the
+/// request had none recorded).
+#[must_use]
+pub fn series_of(system_hash: &str) -> Option<String> {
+    (!system_hash.is_empty()).then(|| system_hash.chars().take(8).collect())
+}
+
 /// One request and its response (`T` of the API).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TurnView {
@@ -325,6 +332,14 @@ pub struct TurnView {
     pub tools: Vec<String>,
     /// What the routing hook decided.
     pub routing: Option<RoutingView>,
+    /// Why the prompt cache missed (`compaction`, `idle_ttl`, ...), for a main-loop request whose
+    /// cache read collapsed.
+    #[serde(default)]
+    pub miss_cause: Option<String>,
+    /// The first characters of the hash of the system prompt: requests of the same model with the
+    /// same system prompt are one series, and each series has a cache of its own.
+    #[serde(default)]
+    pub series: Option<String>,
     /// The response has not ended.
     pub in_flight: bool,
     /// New messages of the request; `None` when contents are not recorded.
@@ -716,5 +731,12 @@ mod tests {
             serde_json::to_string(&SubagentState::Running).unwrap(),
             "\"running\""
         );
+    }
+
+    #[test]
+    fn a_series_is_the_start_of_the_system_hash() {
+        assert_eq!(series_of(""), None);
+        assert_eq!(series_of("abc").as_deref(), Some("abc"));
+        assert_eq!(series_of("0123456789abcdef").as_deref(), Some("01234567"));
     }
 }

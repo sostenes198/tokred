@@ -183,6 +183,8 @@ impl Dashboard {
             ttfb_ms: None,
             tools: Vec::new(),
             routing,
+            miss_cause: None,
+            series: None,
             in_flight: true,
             sent,
             response: self.capture.then(ResponseView::default),
@@ -242,6 +244,8 @@ impl Dashboard {
         turn.duration_ms = Some(summary.total_ms);
         turn.ttfb_ms = Some(summary.ttfb_ms);
         turn.tools.clone_from(&summary.tool_uses);
+        turn.miss_cause.clone_from(&record.miss_cause);
+        turn.series = tokred_core::dashboard::series_of(&record.system_hash);
         turn.in_flight = false;
         turn.response = content;
         sink.record(ProxyRecord::Captured(Box::new(CapturedTurn {
@@ -434,6 +438,25 @@ mod tests {
             ts: Timestamp(100),
             ..ProxyRequestRecord::default()
         }
+    }
+
+    #[test]
+    fn an_ended_turn_names_its_series_and_the_cause_of_a_cache_miss() {
+        let dash = dashboard(false, None);
+        let sink = Collect::default();
+        let tracked = dash
+            .begin("r1", Timestamp(100), &prepared(Some("s"), None, BODY, None))
+            .unwrap();
+        assert_eq!(dash.live.session("s").unwrap().turns[0].series, None);
+        let missed = ProxyRequestRecord {
+            miss_cause: Some("compaction".to_owned()),
+            system_hash: "0123456789abcdef".to_owned(),
+            ..record("r1")
+        };
+        dash.end(tracked, &missed, &summary(200, None), None, &sink);
+        let turn = &dash.live.session("s").unwrap().turns[0];
+        assert_eq!(turn.miss_cause.as_deref(), Some("compaction"));
+        assert_eq!(turn.series.as_deref(), Some("01234567"));
     }
 
     #[test]

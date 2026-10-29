@@ -181,6 +181,8 @@ mod tests {
             ttfb_ms: None,
             tools: vec![],
             routing: None,
+            miss_cause: None,
+            series: None,
             in_flight,
             sent: None,
             response: None,

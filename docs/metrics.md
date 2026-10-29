@@ -67,7 +67,7 @@ When the proxy recorded something in the period, `stats` adds a **Proxy** sectio
 | Overhead | p50, p95, p99 and max of the time the proxy added, against its 10 ms budget; an alert when the p95 passes it |
 | Routing | Decisions of the period (applied, observed, kept, fallback) with the **estimated** saving of the applied ones, and of the observed ones had they been applied |
 | Model routing | The model asked for against the model that answered, per pair: messages, tokens and cost |
-| Cache misses | How many main-loop messages missed the prompt cache out of all of them, then a table by likely cause with the tokens each cause wrote to the cache again |
+| Cache misses | How many main-loop messages missed the prompt cache out of all of them, then a table by likely cause with the tokens each cause wrote to the cache again. A session can interleave several kinds of request that the proxy sees as the main loop (the conversation and side queries that reuse its context), each with its own cache, so every request is compared with the previous one of its own series (same model and same system prompt); the first request of a series counts as a miss, with the cause `model_changed` or `system_changed` |
 | Suggestion | The latest cheaper-model suggestion not shown yet (see `tokred suggest`); `stats` never marks it as shown |
 
 ## Latency added by tokred
