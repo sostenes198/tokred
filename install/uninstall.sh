@@ -38,6 +38,8 @@ EOF
 
 YES=0
 PURGE=0
+case "${TOKRED_YES:-}" in "" | 0) ;; *) YES=1 ;; esac
+case "${TOKRED_PURGE:-}" in "" | 0) ;; *) PURGE=1 ;; esac
 [ -n "${HOME:-}" ] || { printf 'error: HOME is not set\n' >&2; exit 1; }
 TOKRED_HOME="${TOKRED_HOME:-$HOME/.tokred}"
 

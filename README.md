@@ -27,20 +27,22 @@ Everything runs on your machine, with its own SQLite database and no external se
 
 ## Installation
 
-Installing the binary never touches Claude Code; that is a separate step (`tokred configure`).
+Like rustup: one command downloads tokred from the GitHub release, checks its checksum, installs it in `~/.tokred/bin`, adds that folder to your `PATH` and runs `tokred configure`, which asks which port the proxy uses (default 1029) and whether the dashboard may record conversation content. No sudo, no package manager.
 
-| OS | Command |
-|---|---|
-| macOS / Linux | `brew install sostenes198/tap/tokred` |
-| Windows | `winget install tokred` or `scoop bucket add sostenes198 https://github.com/sostenes198/scoop-bucket` then `scoop install sostenes198/tokred` |
-| Any | `cargo install tokred` or the shell / PowerShell installer from the releases page |
+```sh
+# macOS and Linux
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sostenes198/tokred/releases/latest/download/install.sh | sh
 
-Until the first release is published, build from source (`cargo install --path crates/tokred-cli`). Details in [installation](docs/installation.md).
+# Windows (PowerShell)
+irm https://github.com/sostenes198/tokred/releases/latest/download/install.ps1 | iex
+```
+
+It also defines a `claude` wrapper in your shell profile (bash, zsh, fish, PowerShell): `claude` runs `tokred initialize` first, then the real Claude Code. `tokred proxy disable` / `enable` is the switch, `command claude` always runs the real binary, and `--no-alias` skips the wrapper. Options (`--yes`, `--port`, `--version`, `--no-modify-path`, `--no-alias`, `--no-configure`), the uninstall command and the details are in [installation](docs/installation.md). Before the first release exists, the same scripts are served from the `main` branch: `https://raw.githubusercontent.com/sostenes198/tokred/main/install/install.sh` (and `install.ps1`).
 
 ## Quick start
 
 ```sh
-tokred configure    # integrate with Claude Code (shows a plan, asks to confirm)
+tokred configure    # integrate with Claude Code (the installer already ran it; run it again any time)
 tokred doctor       # check what is installed
 tokred stats        # tokens, cost and savings, right in the terminal
 tokred metrics      # the same, plus the HTML report
@@ -50,14 +52,15 @@ tokred metrics      # the same, plus the HTML report
 
 | Command | What it does |
 |---|---|
-| `tokred configure [--claude-dir <path>] [--yes] [--force]` | Merge hooks into `settings.json`, install agents, create the database and config |
-| `tokred unconfigure [--purge]` | Remove only tokred's parts; `--purge` also deletes the data folder |
+| `tokred configure [--claude-dir <path>] [--yes] [--force] [--proxy-port <n>] [--record-content\|--no-record-content]` | Merge hooks into `settings.json`, install agents, create the database and config; asks for the proxy port and content recording |
+| `tokred unconfigure [--purge]` | Remove only tokred's parts from Claude Code; `--purge` also deletes the data folder |
+| `tokred uninstall [--yes] [--purge]` | Stop the proxy and its service, remove hooks and agents; the uninstall script then removes the binary |
 | `tokred doctor [--json] [--bench]` | Show what is installed and what needs attention; measure hook latency |
 | `tokred stats [--since 7d] [--by model\|day\|project]` | Dashboard of tokens, cost, savings and projection |
 | `tokred stats latency` | Time the hooks added to Claude Code |
 | `tokred metrics [--since 30d] [--no-open]` | The dashboard plus an HTML report |
 | `tokred audit [--project <path>]` | Weight of the fixed context and unused MCP servers |
-| `tokred update` | Update according to how tokred was installed |
+| `tokred update` | Update itself when it was installed by the script; otherwise say to reinstall |
 | `tokred pricing sync\|show`, `tokred cache stats\|prune` | Price table and cache |
 | `tokred claude [args...]` | Run Claude Code through the optional proxy, for this run only |
 | `tokred proxy start\|stop\|status`, `tokred proxy service install\|uninstall` | Run and inspect the proxy; start it at login |
@@ -81,13 +84,18 @@ Everything stays on your machine. The only network calls (the daily price sync a
 ## Uninstall
 
 ```sh
-tokred unconfigure --purge   # remove hooks, agents and tokred's data
-brew uninstall tokred        # or: winget uninstall tokred / scoop uninstall tokred / cargo uninstall tokred
+# macOS and Linux
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sostenes198/tokred/releases/latest/download/uninstall.sh | sh
+
+# Windows (PowerShell)
+irm https://github.com/sostenes198/tokred/releases/latest/download/uninstall.ps1 | iex
 ```
+
+It runs `tokred uninstall` (stops the proxy, removes its user service, takes the hooks and agents out of Claude Code, asks whether to delete tokred's data), then removes the binary, the `PATH` entry and the `claude` wrapper.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). To run and test it locally, see [testing](docs/testing.md); to publish a release (Homebrew, Scoop, winget, crates.io), see [release](docs/release.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). To run and test it locally, see [testing](docs/testing.md); to publish a release (a tag; the install scripts and archives are GitHub release assets), see [release](docs/release.md).
 
 ## License
 

@@ -20,8 +20,9 @@ cargo test -p tokred -- --nocapture          # show what tests print
 |---|---|
 | `#[cfg(test)]` modules | Pure logic: classification, pricing, routing decisions, compression, config |
 | `crates/<crate>/tests/` | Real SQLite files, real temp folders, the proxy against a fake upstream (forwarding, streaming, gzip) |
-| `crates/tokred-cli/tests/e2e.rs` | The real `tokred` binary: `configure`, hooks, `doctor`, `unconfigure` in a sandbox |
+| `crates/tokred-cli/tests/e2e.rs` | The real `tokred` binary: `configure` (port and content flags), hooks, `doctor`, `unconfigure`, `uninstall` in a sandbox |
 | `crates/tokred-cli/tests/proxy_e2e.rs` | The real binary running the proxy: forwarding, recording, `Host` check, `tokred claude`, advice commands, the process exiting after `proxy stop` |
+| `tests/installer/install_test.sh`, `install_test.ps1` | The install and uninstall scripts against a fake release (see below) |
 
 ### The full gate (what CI runs)
 
@@ -52,6 +53,19 @@ cargo llvm-cov --workspace --no-fail-fast --lcov --output-path lcov.info   # `DA
 
 CI runs the suite on Linux, macOS and Windows; a test that passes only on your OS is not done.
 
+### The install scripts
+
+`tests/installer/` tests `install/install.sh` and `install/uninstall.sh` (CI: ubuntu and macOS) and the PowerShell pair (CI: Windows). They build a **fake release**: the just-built binary packed the way `dist` packs it (`tokred-<target>/tokred` inside `tokred-<target>.tar.gz`, or `.zip` with `tokred.exe`) plus its `.sha256`, served through `TOKRED_RELEASE_BASE_URL=file://...`, with a throwaway `HOME`, `TOKRED_HOME`, data folder and Claude folder. No network, nothing real is touched.
+
+```sh
+cargo build -p tokred && sh tests/installer/install_test.sh
+shellcheck install/*.sh tests/installer/*.sh        # what the CI `shellcheck` job runs
+```
+
+The shell test covers: install, the `PATH`/`claude` block written once and byte-identical on a second run, a new shell finding `tokred --version`, the wrapper end to end in `sh`, `bash`, `dash` and `zsh` when present (a fake `claude` that records its arguments and a fake `tokred` that records that `initialize` ran first; arguments with spaces, quotes, an empty string, `*` and `$HOME` arrive intact; `claude` still runs without `tokred`; `command claude` bypasses it), an existing `alias claude` in zsh, `--no-alias`, `--no-modify-path`, `TOKRED_NO_ALIAS=1`, fish and zsh files, uninstall (everything gone, other lines kept, `--purge`), a wrong checksum, a missing release, a bad port and unknown flags. The wrapper test uses a fake `tokred`; `tokred initialize` itself is tested in its own crate.
+
+`install_test.ps1` is the same story for Windows; it edits the runner's user `PATH` and PowerShell profile and restores them, so outside CI it needs `-AllowRealProfile`. To try the scripts by hand without a release, see [release](release.md).
+
 ## 2. Try it by hand
 
 Use a sandbox so nothing is written to your real `~/.claude` or data folder. Run this in every new terminal you use for testing:
@@ -64,7 +78,7 @@ mkdir "$CLAUDE_CONFIG_DIR/projects"
 tokred configure --yes && tokred doctor
 ```
 
-`doctor` should show the hooks and agents installed in the sandbox. When you are done: `tokred unconfigure --purge`, then close the terminal (the exports die with it).
+`doctor` should show the hooks and agents installed in the sandbox. When you are done: `tokred uninstall --yes --purge`, then close the terminal (the exports die with it).
 
 ### A hook
 
@@ -152,6 +166,6 @@ echo '{"session_id":"s1"}' | tokred statusline     # the pending suggestion, or 
 ### Clean up
 
 ```sh
-tokred proxy stop; tokred unconfigure --purge
+tokred proxy stop; tokred uninstall --yes --purge
 # and stop the fake API with Ctrl-C in terminal A
 ```

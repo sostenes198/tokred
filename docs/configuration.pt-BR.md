@@ -27,6 +27,11 @@
 | `TOKRED_BENCH_RUNS` | Execuções por payload do `tokred doctor --bench` (padrão 50) |
 | `TOKRED_HOOK_GUARD_MS` | Substitui o limite de 2 s de um hook (usado pelos testes) |
 | `TOKRED_PROXY_OVERHEAD_REPORT` | Só para o teste de overhead do proxy: arquivo onde gravar os percentis medidos |
+| `TOKRED_PORT` | Porta do proxy para o `tokred configure` e os scripts de instalação (1024 a 65535); a flag `--proxy-port` / `--port` vale mais que ela |
+| `TOKRED_RECORD_CONTENT` | `1` deixa o `tokred configure` ativar `[proxy] log_bodies`, `0` o desativa, sem perguntar; as flags `--record-content` / `--no-record-content` valem mais que ela |
+| `TOKRED_HOME` | Onde o script de instalação colocou o binário (`$TOKRED_HOME/bin`; padrão `~/.tokred`, Windows `%LOCALAPPDATA%\tokred`); o `tokred update` só substitui um binário que esteja ali |
+| `TOKRED_RELEASE_BASE_URL` | Só nos scripts de instalação: pasta ou URL (`https://` ou `file://`) de onde baixar os assets da release (espelhos, instalação offline, testes) |
+| `TOKRED_YES`, `TOKRED_NO_MODIFY_PATH`, `TOKRED_NO_ALIAS`, `TOKRED_NO_CONFIGURE`, `TOKRED_VERSION`, `TOKRED_PURGE` | Só nos scripts de instalação e desinstalação: a forma por variável de ambiente das opções deles, veja [instalação](installation.pt-BR.md) |
 | `NO_COLOR` / `CLICOLOR_FORCE` | Desligam as cores do terminal / as forçam |
 
 ## `tokred.toml`
@@ -111,6 +116,8 @@ max_retrievals = 3                     # leituras de volta de um id antes de exc
 compression = true                     # mede o que a compressão economizaria
 response_cache = true                  # conta requisições idênticas repetidas
 ```
+
+O `tokred configure` é o único comando que grava `[proxy] bind` e `[proxy] log_bodies` para você. Ele mantém o host de `bind` e troca só a porta; num terminal, pergunta a porta (padrão: a salva, senão 1029; a porta precisa estar entre 1024 e 65535 e livre, a menos que seja o proxy desta mesma instalação) e se o conteúdo das conversas pode ser gravado (padrão: o valor salvo, senão sim). Sem terminal, ou com `--yes`, aplica só o que uma flag ou variável de ambiente disser (`--proxy-port` / `TOKRED_PORT`, `--record-content` / `--no-record-content` / `TOKRED_RECORD_CONTENT`) e deixa o resto como está, de modo que a reexecução silenciosa depois de uma atualização nunca muda as suas escolhas; uma primeira instalação sem respostas fica com a porta 1029 e sem gravar conteúdo. Veja [instalação](installation.pt-BR.md).
 
 Os valores de `[modes]` passam a valer quando o hook correspondente ganhar o comportamento real (fases F3 a F5).
 

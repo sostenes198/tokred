@@ -6,7 +6,18 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+### Adicionado
+
+- Instalação como a do rustup: `install/install.sh` (macOS, Linux) e `install/install.ps1` (Windows) baixam o arquivo da release no GitHub, conferem o checksum, instalam em `~/.tokred/bin` (`%LOCALAPPDATA%\tokred\bin`), adicionam ao `PATH` e executam `tokred configure`. `uninstall.sh` / `uninstall.ps1` desfazem. Opções: `--yes`, `--port`, `--version`, `--no-modify-path`, `--no-alias`, `--no-configure`, e `TOKRED_HOME`, `TOKRED_RELEASE_BASE_URL`.
+- O instalador define um wrapper `claude` (bash, zsh, fish, PowerShell) que executa `tokred initialize` primeiro e depois o Claude Code de verdade; fail-open, dispensado com `--no-alias` / `TOKRED_NO_ALIAS=1`, ignorado com `command claude`.
+- O `tokred configure` pergunta a porta do proxy (padrão 1029, de 1024 a 65535, precisa estar livre) e se o conteúdo das conversas pode ser gravado para o painel; novas flags `--proxy-port`, `--record-content`, `--no-record-content` e variáveis `TOKRED_PORT`, `TOKRED_RECORD_CONTENT`. Uma reexecução silenciosa nunca muda uma escolha sua.
+- `tokred uninstall [--yes] [--purge]`: para o proxy, remove o serviço de usuário dele, desliga a compressão, remove os hooks e agentes e, opcionalmente, a pasta de dados.
+- Testes dos scripts de instalação (`tests/installer/`) no CI em Linux, macOS e Windows, e `shellcheck`.
+
 ### Alterado
+
+- A distribuição é só a release do GitHub: os scripts de instalação e os arquivos compactados são assets da release. A publicação em Homebrew, Scoop, winget e crates.io, o `publish-package-managers.yml` e os segredos deles acabaram.
+- O `tokred update` troca o binário só quando o script de instalação o colocou na pasta de instalação; qualquer outra cópia é orientada a reinstalar com o script. O aviso diário de versão segue a mesma regra.
 
 - O `unconfigure` deixa intocado o que não entende nas configurações, em vez de falhar.
 

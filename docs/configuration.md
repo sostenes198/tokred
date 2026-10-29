@@ -27,6 +27,11 @@
 | `TOKRED_BENCH_RUNS` | Runs per payload of `tokred doctor --bench` (default 50) |
 | `TOKRED_HOOK_GUARD_MS` | Overrides the 2 s time limit of a hook (used by the tests) |
 | `TOKRED_PROXY_OVERHEAD_REPORT` | Used by the proxy overhead test only: file to write the measured percentiles to |
+| `TOKRED_PORT` | Proxy port for `tokred configure` and the install scripts (1024 to 65535); the `--proxy-port` / `--port` flag wins over it |
+| `TOKRED_RECORD_CONTENT` | `1` lets `tokred configure` enable `[proxy] log_bodies`, `0` disables it, without asking; the `--record-content` / `--no-record-content` flags win over it |
+| `TOKRED_HOME` | Where the install script put the binary (`$TOKRED_HOME/bin`; default `~/.tokred`, Windows `%LOCALAPPDATA%\tokred`); `tokred update` only replaces a binary that lives there |
+| `TOKRED_RELEASE_BASE_URL` | Install scripts only: folder or URL (`https://` or `file://`) the release assets are downloaded from (mirrors, offline installs, tests) |
+| `TOKRED_YES`, `TOKRED_NO_MODIFY_PATH`, `TOKRED_NO_ALIAS`, `TOKRED_NO_CONFIGURE`, `TOKRED_VERSION`, `TOKRED_PURGE` | Install and uninstall scripts only: the environment form of their options, see [installation](installation.md) |
 | `NO_COLOR` / `CLICOLOR_FORCE` | Turn terminal colors off / force them on |
 
 ## `tokred.toml`
@@ -111,6 +116,8 @@ max_retrievals = 3                     # retrievals of one id before its tool is
 compression = true                     # measure what compression would save
 response_cache = true                  # count exact repeated requests
 ```
+
+`tokred configure` is the one command that writes `[proxy] bind` and `[proxy] log_bodies` for you. It keeps the host of `bind` and changes only the port; in a terminal it asks for the port (default: the saved one, else 1029; the port must be 1024 to 65535 and free, unless it is this installation's own proxy) and whether conversation content may be recorded (default: the saved value, else yes). Without a terminal, or with `--yes`, it applies only what a flag or environment variable says (`--proxy-port` / `TOKRED_PORT`, `--record-content` / `--no-record-content` / `TOKRED_RECORD_CONTENT`) and leaves everything else as it is, so the quiet re-run after an upgrade never changes your choices; a first install without answers gets port 1029 and no content recording. See [installation](installation.md).
 
 The `[modes]` values take effect when the corresponding hook gets its real behaviour (phases F3 to F5).
 
