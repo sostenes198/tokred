@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.1.0-rc.4] - 2026-10-29
+
 ### Fixed
 
 - `tokred uninstall` no longer refuses to delete a data folder that holds only the proxy's files (no database or `tokred.toml` yet).

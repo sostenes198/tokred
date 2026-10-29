@@ -6,6 +6,8 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+## [0.1.0-rc.4] - 2026-10-29
+
 ### Corrigido
 
 - O `tokred uninstall` não se recusa mais a apagar uma pasta de dados que só tem os arquivos do proxy (ainda sem banco de dados nem `tokred.toml`).
