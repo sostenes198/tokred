@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- `tokred doctor` and `tokred compression status` say whether turning routing and compression on is worth it, from the last 7 days of measurements (an estimate): for routing, the requests it would have changed and the saving; for compression, the share of the input tokens it would have kept out. `doctor --json` carries it as `proxy.savings`.
+- A savings hint: when the measurements show that turning routing or compression on is clearly worth it (routing: more than about $1 in 7 days; compression: more than 5% of the input tokens), tokred says so once a week in one line in your chat that only you see and that never reaches the model. Nothing is shown when the figures are small, for a feature that is already on, while `[suggest] channel = "off"`, or with `[suggest] savings_hint = false`.
+
 ## [1.1.0] - 2026-10-29
 
 ### Added

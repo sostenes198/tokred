@@ -4,12 +4,14 @@ use tokred_core::cache::{TierPolicy, cache_get, cache_put, content_key};
 use tokred_core::config::Mode;
 use tokred_core::hook_event::{decision, reason};
 use tokred_core::prompts::SuggestionRepo;
+use tokred_core::savings::SavingsRepo;
 use tokred_core::session::{Classification, TaskClass};
 
 use crate::classify::{Rules, classify, suggestion};
 use crate::error::HookError;
 use crate::io::{HookInput, context, deny, prompt_answer};
 use crate::ports::{EventNote, HookDeps, HookResponse};
+use crate::savings_hint::savings_hint_message;
 use crate::suggest::suggestion_message;
 
 /// `route`, the `UserPromptSubmit` hook: classifies the prompt and, when the class
@@ -23,16 +25,23 @@ use crate::suggest::suggestion_message;
 /// With `suggestions` (and `[suggest] channel = "message"`), it also shows the user, once and
 /// only at a safe moment, a pending suggestion of a cheaper main model (see
 /// [`crate::suggest`]). That part is independent of the route mode and never fails the hook.
+///
+/// With `savings` it may instead show, at most once a week, that turning routing or compression
+/// on is worth it (see [`crate::savings_hint`]). A prompt gets one message at most: a model
+/// suggestion goes first and leaves the week of the hint free.
 pub fn route(
     input: &HookInput,
     deps: &HookDeps<'_>,
     suggestions: Option<&dyn SuggestionRepo>,
+    savings: Option<&dyn SavingsRepo>,
 ) -> Result<HookResponse, HookError> {
     let Some(prompt) = input.prompt.as_deref() else {
         return Ok(HookResponse::silent());
     };
     let (line, note) = classify_prompt(input, prompt, deps)?;
-    let message = suggestions.and_then(|repo| suggestion_message(input, deps, repo));
+    let message = suggestions
+        .and_then(|repo| suggestion_message(input, deps, repo))
+        .or_else(|| savings.and_then(|repo| savings_hint_message(input, deps, repo)));
     Ok(HookResponse {
         stdout: prompt_answer(line.as_deref(), message.as_deref()),
         note,

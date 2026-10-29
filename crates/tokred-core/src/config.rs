@@ -354,6 +354,9 @@ pub struct SuggestConfig {
     pub min_simple_prompts: u32,
     /// Minimum time between two suggestions in a session.
     pub cooldown: String,
+    /// Tell the user, at most once a week, when turning routing or compression on is worth it
+    /// (never while `channel` is `off`).
+    pub savings_hint: bool,
 }
 
 impl Default for SuggestConfig {
@@ -362,6 +365,7 @@ impl Default for SuggestConfig {
             channel: SuggestChannel::Stats,
             min_simple_prompts: 3,
             cooldown: "6h".to_owned(),
+            savings_hint: true,
         }
     }
 }

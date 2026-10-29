@@ -229,6 +229,48 @@ pub struct ProxyInfo {
     pub compression_mode: String,
     /// The corporate-network settings in effect (HTTP proxy, extra certificate authorities).
     pub network: tokred_proxy::NetworkSummary,
+    /// Whether turning routing and compression on is worth it, from the last 7 days of
+    /// measurements (only features still in `observe`; `None` when there is nothing to judge).
+    pub savings: Option<SavingsInfo>,
+}
+
+/// One feature's verdict and the sentence that says it.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct Judgement {
+    /// How the figures read.
+    pub verdict: tokred_core::savings::Verdict,
+    /// The sentence.
+    pub text: String,
+}
+
+/// The savings verdicts of `doctor`; a feature that is not in `observe` has none.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct SavingsInfo {
+    /// Routing.
+    pub routing: Option<Judgement>,
+    /// Compression.
+    pub compression: Option<Judgement>,
+}
+
+/// The savings view of the proxy, when the proxy features are on and something is in `observe`.
+fn savings_info(env: &Env, config: &Config) -> Option<SavingsInfo> {
+    if !config.proxy.enabled {
+        return None;
+    }
+    let figures = super::advice::recent_savings(env)?;
+    let observing = |mode| mode == tokred_core::config::TrafficMode::Observe;
+    let routing = observing(config.routing.mode).then(|| Judgement {
+        verdict: figures.routing_verdict(),
+        text: figures.routing_line(),
+    });
+    let compression = observing(config.compression.mode).then(|| Judgement {
+        verdict: figures.compression_verdict(),
+        text: figures.compression_line(),
+    });
+    (routing.is_some() || compression.is_some()).then_some(SavingsInfo {
+        routing,
+        compression,
+    })
 }
 
 fn mode_text(mode: tokred_core::config::TrafficMode) -> String {
@@ -253,6 +295,7 @@ fn proxy_info(env: &Env, config: &Config, claude_dir: &Path) -> ProxyInfo {
         compression_mode: mode_text(config.compression.mode),
         network: tokred_proxy::NetworkSettings::from_env(config.proxy.ca_bundle.as_deref())
             .summary(&config.proxy.upstream),
+        savings: savings_info(env, config),
     }
 }
 
@@ -316,6 +359,16 @@ fn proxy_lines(proxy: &ProxyInfo) -> String {
     for line in proxy.network.lines() {
         let _ = writeln!(out, "               network: {line}");
     }
+    if let Some(savings) = &proxy.savings {
+        for (name, judgement) in [
+            ("routing", &savings.routing),
+            ("compression", &savings.compression),
+        ] {
+            if let Some(judgement) = judgement {
+                let _ = writeln!(out, "               {name} {}", judgement.text);
+            }
+        }
+    }
     if proxy.routing_mode == "enforce" {
         let _ = writeln!(
             out,
@@ -327,6 +380,7 @@ fn proxy_lines(proxy: &ProxyInfo) -> String {
 
 #[cfg(test)]
 mod tests {
+    use tokred_core::savings::Verdict;
     use tokred_install::doctor::{AgentStatus, HookStatus};
 
     use super::super::testing::Sandbox;
@@ -509,6 +563,7 @@ mod tests {
             routing_mode: "observe".to_owned(),
             compression_mode: "observe".to_owned(),
             network: tokred_proxy::NetworkSummary::default(),
+            savings: None,
         }
     }
 
@@ -682,5 +737,66 @@ mod tests {
         assert_eq!(value["proxy"]["settings_base_url"], serde_json::Value::Null);
         assert_eq!(value["proxy"]["routing_mode"], "observe");
         assert_eq!(value["proxy"]["compression_mode"], "observe");
+    }
+
+    /// A judgement as the `Option` the savings view holds.
+    #[allow(clippy::unnecessary_wraps)] // the field it fills is an `Option`
+    fn judged(verdict: Verdict, text: &str) -> Option<Judgement> {
+        let text = text.to_owned();
+        Some(Judgement { verdict, text })
+    }
+
+    #[test]
+    fn the_proxy_section_says_whether_routing_and_compression_are_worth_turning_on() {
+        let mut proxy = sample_proxy();
+        proxy.savings = Some(SavingsInfo {
+            routing: judged(
+                Verdict::NotWorthIt,
+                "none of 120 requests would have been rerouted",
+            ),
+            compression: judged(Verdict::Worth, "would have kept about 12.00M tokens"),
+        });
+        let text = proxy_lines(&proxy);
+        assert!(
+            text.contains("routing none of 120 requests would have been rerouted"),
+            "{text}"
+        );
+        assert!(
+            text.contains("compression would have kept about 12.00M tokens"),
+            "{text}"
+        );
+
+        // A feature that is already on has no verdict to show.
+        proxy.savings = Some(SavingsInfo {
+            routing: None,
+            compression: judged(Verdict::NoData, "nothing measured"),
+        });
+        let text = proxy_lines(&proxy);
+        assert!(!text.contains("routing none"), "{text}");
+        assert!(text.contains("compression nothing measured"), "{text}");
+    }
+
+    #[test]
+    fn the_savings_view_exists_only_while_the_proxy_is_on_and_something_is_in_observe() {
+        let sb = crate::commands::testing::Sandbox::new();
+        sb.configure();
+        let mut config = Config::default();
+        // Proxy features off: no view.
+        assert_eq!(savings_info(&sb.env, &config), None);
+
+        config.proxy.enabled = true;
+        let info = savings_info(&sb.env, &config).unwrap();
+        assert_eq!(info.routing.as_ref().unwrap().verdict, Verdict::NoData);
+        assert_eq!(info.compression.as_ref().unwrap().verdict, Verdict::NoData);
+
+        // Both on: nothing left to judge.
+        config.routing.mode = tokred_core::config::TrafficMode::Enforce;
+        config.compression.mode = tokred_core::config::TrafficMode::Enforce;
+        assert_eq!(savings_info(&sb.env, &config), None);
+
+        // Only compression measuring.
+        config.compression.mode = tokred_core::config::TrafficMode::Observe;
+        let info = savings_info(&sb.env, &config).unwrap();
+        assert!(info.routing.is_none() && info.compression.is_some());
     }
 }

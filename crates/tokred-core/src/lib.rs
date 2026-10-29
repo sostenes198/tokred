@@ -22,6 +22,7 @@ pub mod prompts;
 pub mod proxy;
 pub mod release;
 pub mod routing;
+pub mod savings;
 pub mod session;
 pub mod types;
 pub mod usage;

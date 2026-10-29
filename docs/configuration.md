@@ -118,6 +118,7 @@ auxiliary = "cheap"
 channel = "stats"                      # off | stats | statusline | message
 min_simple_prompts = 3                 # simple prompts in a row before a suggestion
 cooldown = "6h"                        # minimum time between two suggestions in a session
+savings_hint = true                    # at most once a week, say when turning routing or compression on is worth it
 
 [compression]
 mode = "observe"                       # off | observe | enforce
@@ -143,6 +144,6 @@ response_cache = true                  # count exact repeated requests
 | `[cache]` | Durations take `s`, `m`, `h` or `d` (`90s`, `30m`, `4h`, `7d`). |
 | `[proxy]` | `tokred proxy enable` writes `enabled`, `bind` (it changes the port and keeps the host) and `log_bodies` for you; `configure` never changes them. While `enabled = false`, tokred removes its own `ANTHROPIC_BASE_URL` from Claude Code's settings, `tokred claude` runs `claude` directly, `proxy start` refuses and `doctor` shows `disabled`. `retention_days` applies to everything the proxy stores (requests, routing decisions, summaries, suggestions, measurements, kept tool results) and runs when the proxy starts and then every hour. With `log_bodies = false` only metadata is recorded, never message text. `bind` accepts loopback addresses only. `ca_bundle` is added to the built-in roots, the system store and the files named by `NODE_EXTRA_CA_CERTS` and `SSL_CERT_FILE`. See [proxy](proxy.md). |
 | `[routing]`, `[routing.tiers]` | Never change the main loop's model, whatever they say. `observe` records what routing would do and changes nothing. `tokred routing on` / `off` set `mode` for you. See [routing](routing.md). |
-| `[suggest]` | `off` stops suggestions from being produced. `stats` (the default) shows them in `tokred suggest` only. `statusline` also shows them in the line printed by `tokred statusline`, if you set it as your status line. `message` adds a one-line message that reaches you at a safe moment (see [hooks and agents](hooks-and-agents.md)). Needs the proxy. |
+| `[suggest]` | `off` stops suggestions from being produced. `stats` (the default) shows them in `tokred suggest` only. `statusline` also shows them in the line printed by `tokred statusline`, if you set it as your status line. `message` adds a one-line message that reaches you at a safe moment (see [hooks and agents](hooks-and-agents.md)). Needs the proxy. `savings_hint` is separate: with it `true` (the default) and the proxy on, a one-line message shows once a week, in your chat, when the measurements say turning routing or compression on is worth it (routing: more than about $1 of estimated saving in 7 days; compression: more than 5% of the input tokens). It is shown only to you (it never reaches the model), only for a feature still in `observe`, and never while `channel = "off"`. |
 | `[compression]` | `tokred compression on` / `off` set `mode` for you. With `observe` (the default) tokred only measures. |
 | `[shadow]` | Measurements for the report; they never alter traffic. |

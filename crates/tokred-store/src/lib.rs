@@ -15,6 +15,7 @@ mod prompts;
 mod proxy;
 mod retention;
 mod routing;
+mod savings;
 mod session;
 mod usage;
 

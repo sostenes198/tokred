@@ -51,7 +51,7 @@ Routing does not turn itself on and does not learn: it stays in `observe` until 
 tokred routing status --since 14d
 ```
 
-The answer says how many requests routing would have changed, how much that would have saved and what that comes to in a month. When none would change, turning it on changes nothing yet.
+The answer says how many requests routing would have changed, how much that would have saved and what that comes to in a month. When none would change, turning it on changes nothing yet. `tokred doctor` and `tokred compression status` give the same kind of answer for routing and for compression while they are in `observe`, from the last 7 days of measurements (all of them estimates). When one of them is clearly worth it (routing: more than about $1 in 7 days; compression: more than 5% of the input tokens), tokred also says so once a week, in a single line in your chat that only you see; `[suggest] savings_hint = false` turns that line off.
 
 ## Applying a change to the proxy
 

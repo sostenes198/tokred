@@ -109,7 +109,7 @@ Every step is best effort: a failure is printed and the next step still runs. If
 tokred doctor [--claude-dir <PATH>] [--json] [--bench]
 ```
 
-Prints the version, binary path, Claude Code and data folders, database schema, config status and whether other hook tools are present. Then a table of hooks (`ok`, `missing`, `outdated`, or `ok, but binary path is gone`), a table of agents (`current`, `outdated`, `edited by you`, `missing`, with `.new file pending` when one waits) and the list of problems and notes. A proxy section shows whether the [proxy](proxy.md) is running (or `disabled`), its routing and compression modes, the `ANTHROPIC_BASE_URL` in Claude Code's `settings.json` and in this terminal, and warns when `settings.json` points at a proxy that is not running. The HTTP proxy (host and port only) and extra CA files are shown when configured.
+Prints the version, binary path, Claude Code and data folders, database schema, config status and whether other hook tools are present. Then a table of hooks (`ok`, `missing`, `outdated`, or `ok, but binary path is gone`), a table of agents (`current`, `outdated`, `edited by you`, `missing`, with `.new file pending` when one waits) and the list of problems and notes. A proxy section shows whether the [proxy](proxy.md) is running (or `disabled`), its routing and compression modes, the `ANTHROPIC_BASE_URL` in Claude Code's `settings.json` and in this terminal, and warns when `settings.json` points at a proxy that is not running. The HTTP proxy (host and port only) and extra CA files are shown when configured. For routing and compression still in `observe`, one line each says whether turning it on is worth it, from the last 7 days of measurements (an estimate; `--json` carries it as `proxy.savings`).
 
 | Flag | Effect |
 |---|---|
@@ -311,7 +311,7 @@ tokred compression off [--claude-dir <PATH>]
 tokred compression status
 ```
 
-`on` registers the `tokred_retrieve` MCP server in Claude Code's user config (`.claude.json` in the Claude Code folder if it exists there, else `~/.claude.json`; the previous file is saved next to it as `.tokred.bak`) and sets `[compression] mode = "enforce"`: large tool results are replaced by a preview and the model reads the original back with `tokred_retrieve`. `off` unregisters the server and sets `"observe"` (measure only). Restart the proxy and Claude Code to apply `on`. `status` shows the mode, whether the server is registered and whether the circuit breaker tripped. Nothing is edited unless you run `on` or `off`.
+`on` registers the `tokred_retrieve` MCP server in Claude Code's user config (`.claude.json` in the Claude Code folder if it exists there, else `~/.claude.json`; the previous file is saved next to it as `.tokred.bak`) and sets `[compression] mode = "enforce"`: large tool results are replaced by a preview and the model reads the original back with `tokred_retrieve`. `off` unregisters the server and sets `"observe"` (measure only). Restart the proxy and Claude Code to apply `on`. `status` shows the mode, whether the server is registered, whether the circuit breaker tripped and, while it is still in `observe`, what compression would have kept out of the requests in the last 7 days (the share of the input tokens, so you can tell whether it is worth turning on). Nothing is edited unless you run `on` or `off`.
 
 ## suggest
 

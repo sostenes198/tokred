@@ -10,6 +10,7 @@ use serde_json::json;
 use tokred_core::config::TrafficMode;
 use tokred_core::prompts::{PromptRepo, SuggestionRepo};
 use tokred_core::routing::RoutingRepo;
+use tokred_core::savings::{PERIOD_DAYS, SavingsFigures, SavingsRepo};
 use tokred_core::{Clock, Timestamp};
 use tokred_metrics::range_from_span;
 use tokred_routing::{explain, summarize_decisions, summarize_period, verdict};
@@ -61,6 +62,17 @@ fn mode_name(mode: TrafficMode) -> &'static str {
         TrafficMode::Observe => "observe",
         TrafficMode::Enforce => "enforce",
     }
+}
+
+/// What the last [`PERIOD_DAYS`] days say about turning routing and compression on; `None` without
+/// a database or when it cannot be read.
+pub(super) fn recent_savings(env: &Env) -> Option<SavingsFigures> {
+    let store = existing_store(env).ok().flatten()?;
+    let now = SystemClock.now().0;
+    // The range is open at its end: one second more counts what happened in this very second.
+    store
+        .savings_figures(Timestamp(now - PERIOD_DAYS * 86_400), Timestamp(now + 1))
+        .ok()
 }
 
 pub fn routing(env: &Env, io: &mut Io, command: &RoutingCommand) -> Result<()> {
@@ -350,8 +362,14 @@ pub fn compression(
                 || "not tripped".to_owned(),
                 |at| format!("tripped at {at}; the proxy starts in observe mode until `tokred compression on`"),
             );
+            // Only while it is measuring: once it is on, the question is answered.
+            let potential = recent_savings(env)
+                .filter(|_| config.compression.mode == TrafficMode::Observe)
+                .map_or_else(String::new, |figures| {
+                    format!("potential:          {}\n", figures.compression_line())
+                });
             let text = format!(
-                "compression mode:   {mode}\ntokred_retrieve:    {retrieve}\ncircuit breaker:    {breaker}\n"
+                "compression mode:   {mode}\ntokred_retrieve:    {retrieve}\ncircuit breaker:    {breaker}\n{potential}"
             );
             write!(io.out(), "{text}")?;
             Ok(())
@@ -936,5 +954,57 @@ mod tests {
         compression(&sb.env, &mut io, &CompressionCommand::Status, None, "x").unwrap();
         let text = out.text();
         assert!(text.contains("tripped at 1800000000"), "{text}");
+    }
+
+    #[test]
+    fn compression_status_says_what_turning_it_on_would_save_only_while_measuring() {
+        let sb = configured();
+        let (mut io, out) = scripted(false, "");
+        compression(&sb.env, &mut io, &CompressionCommand::Status, None, "x").unwrap();
+        let text = out.text();
+        assert!(text.contains("compression mode:   observe"), "{text}");
+        assert!(
+            text.contains("potential:          nothing measured"),
+            "{text}"
+        );
+
+        // With real measurements: a small share is "not worth it yet".
+        let store = sb.store();
+        store
+            .insert_shadow_records(&[tokred_core::compression::ShadowRecord {
+                ts: now(),
+                session_id: "s".to_owned(),
+                kind: "compression".to_owned(),
+                key: "Read".to_owned(),
+                bytes_saved: 4_000,
+                est_tokens_saved: 1_000,
+                rules_version: "r".to_owned(),
+            }])
+            .unwrap();
+        store
+            .insert_proxy_request(&tokred_core::proxy::ProxyRequestRecord {
+                id: "r1".to_owned(),
+                ts: now(),
+                usage: tokred_core::pricing::Usage {
+                    input: 1_000_000,
+                    ..tokred_core::pricing::Usage::default()
+                },
+                ..tokred_core::proxy::ProxyRequestRecord::default()
+            })
+            .unwrap();
+        let (mut io, out) = scripted(false, "");
+        compression(&sb.env, &mut io, &CompressionCommand::Status, None, "x").unwrap();
+        let text = out.text();
+        assert!(text.contains("not worth turning on yet"), "{text}");
+
+        // Turned on, the question is answered and the line goes away.
+        std::fs::write(
+            sb.env.data.config_path(),
+            "[compression]\nmode = \"enforce\"\n",
+        )
+        .unwrap();
+        let (mut io, out) = scripted(false, "");
+        compression(&sb.env, &mut io, &CompressionCommand::Status, None, "x").unwrap();
+        assert!(!out.text().contains("potential:"), "{}", out.text());
     }
 }

@@ -114,6 +114,9 @@ fn compose_and_run_hook(name: Option<&str>, start: Instant) {
         store
             .as_ref()
             .map(|store| store as &dyn tokred_core::prompts::SuggestionRepo),
+        store
+            .as_ref()
+            .map(|store| store as &dyn tokred_core::savings::SavingsRepo),
     );
     // After the answer was written: bring a dead proxy back before Claude Code needs it.
     if event == HookEvent::SessionStart {

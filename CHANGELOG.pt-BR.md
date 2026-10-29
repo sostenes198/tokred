@@ -6,6 +6,11 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+### Adicionado
+
+- O `tokred doctor` e o `tokred compression status` dizem se vale a pena ligar o roteamento e a compressão, com base nos últimos 7 dias de medições (uma estimativa): para o roteamento, as requisições que ele teria alterado e a economia; para a compressão, a parcela dos tokens de entrada que ela teria tirado. O `doctor --json` traz isso em `proxy.savings`.
+- Um aviso de economia: quando as medições mostram que ligar o roteamento ou a compressão claramente vale a pena (roteamento: mais de cerca de US$ 1 em 7 dias; compressão: mais de 5% dos tokens de entrada), o tokred diz isso uma vez por semana, numa linha no seu chat que só você vê e que nunca chega ao modelo. Nada aparece quando os números são pequenos, para uma funcionalidade que já está ligada, com `[suggest] channel = "off"` ou com `[suggest] savings_hint = false`.
+
 ## [1.1.0] - 2026-10-29
 
 ### Adicionado

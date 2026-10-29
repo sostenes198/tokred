@@ -51,7 +51,7 @@ O roteamento não se liga sozinho e não aprende: fica em `observe` até você r
 tokred routing status --since 14d
 ```
 
-A resposta diz quantas requisições o roteamento teria alterado, quanto isso teria economizado e quanto dá em um mês. Quando nenhuma seria alterada, ligar não muda nada por enquanto.
+A resposta diz quantas requisições o roteamento teria alterado, quanto isso teria economizado e quanto dá em um mês. Quando nenhuma seria alterada, ligar não muda nada por enquanto. O `tokred doctor` e o `tokred compression status` dão o mesmo tipo de resposta para o roteamento e para a compressão enquanto estão em `observe`, com base nos últimos 7 dias de medições (todas estimativas). Quando uma delas claramente vale a pena (roteamento: mais de cerca de US$ 1 em 7 dias; compressão: mais de 5% dos tokens de entrada), o tokred também avisa uma vez por semana, numa única linha no seu chat que só você vê; `[suggest] savings_hint = false` desliga essa linha.
 
 ## Aplicar uma mudança no proxy
 

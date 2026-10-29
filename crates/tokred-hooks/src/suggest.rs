@@ -103,7 +103,7 @@ pub(crate) fn safe_moment(
 }
 
 /// Line breaks become spaces: a `systemMessage` from tokred is one line.
-fn one_line(text: &str) -> String {
+pub(crate) fn one_line(text: &str) -> String {
     text.replace(['\r', '\n'], " ")
 }
 
@@ -265,6 +265,7 @@ mod tests {
                 bytes.as_bytes(),
                 &self.deps(),
                 Some(&self.repo),
+                None,
             )
             .unwrap()
         }
@@ -463,6 +464,7 @@ mod tests {
             &mut out,
             &run,
             Some(&env.repo),
+            None,
         );
         let value: Value = serde_json::from_slice(&out).unwrap();
         assert_eq!(value, json!({"systemMessage": MESSAGE}));

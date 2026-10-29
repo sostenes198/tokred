@@ -16,6 +16,7 @@ use tokred_core::Clock;
 use tokred_core::HookEvent;
 use tokred_core::hook_event::{HookEventRecord, HookEventRepo, Outcome};
 use tokred_core::prompts::SuggestionRepo;
+use tokred_core::savings::SavingsRepo;
 
 use crate::error::HookError;
 use crate::guard::{guard_read, guard_search};
@@ -34,20 +35,22 @@ pub fn handle(
     payload: &[u8],
     deps: &HookDeps<'_>,
 ) -> Result<HookResponse, HookError> {
-    handle_with(event, payload, deps, None)
+    handle_with(event, payload, deps, None, None)
 }
 
 /// Like [`handle`], with the repository `UserPromptSubmit` (`route`) reads pending model
-/// suggestions from. `None` never shows one.
+/// suggestions from and the one the weekly savings hint reads its figures from. `None` never
+/// shows the corresponding message.
 pub fn handle_with(
     event: HookEvent,
     payload: &[u8],
     deps: &HookDeps<'_>,
     suggestions: Option<&dyn SuggestionRepo>,
+    savings: Option<&dyn SavingsRepo>,
 ) -> Result<HookResponse, HookError> {
     let input = HookInput::parse(payload)?;
     match event {
-        HookEvent::Route => route(&input, deps, suggestions),
+        HookEvent::Route => route(&input, deps, suggestions, savings),
         HookEvent::Enforce => enforce(&input, deps),
         HookEvent::GuardRead => guard_read(&input, deps),
         HookEvent::GuardSearch => guard_search(&input, deps),
@@ -154,17 +157,18 @@ pub fn run_hook(
     stdout: &mut dyn Write,
     run: &HookRun<'_>,
 ) {
-    run_hook_with(name, stdin, stdout, run, None);
+    run_hook_with(name, stdin, stdout, run, None, None);
 }
 
-/// Like [`run_hook`], with the repository `UserPromptSubmit` reads pending model suggestions
-/// from (the `tokred` binary passes its store).
+/// Like [`run_hook`], with the repositories `UserPromptSubmit` reads pending model suggestions
+/// and the savings figures from (the `tokred` binary passes its store for both).
 pub fn run_hook_with(
     name: Option<&str>,
     stdin: &mut dyn Read,
     stdout: &mut dyn Write,
     run: &HookRun<'_>,
     suggestions: Option<&dyn SuggestionRepo>,
+    savings: Option<&dyn SavingsRepo>,
 ) {
     let Some(event) = name.and_then(HookEvent::from_arg) else {
         return;
@@ -190,7 +194,7 @@ pub fn run_hook_with(
     };
 
     match catch_unwind(AssertUnwindSafe(|| {
-        handle_with(event, &payload, deps, suggestions)
+        handle_with(event, &payload, deps, suggestions, savings)
     })) {
         Ok(Ok(response)) => {
             if let Some(text) = &response.stdout {

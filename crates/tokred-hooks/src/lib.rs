@@ -19,6 +19,7 @@ mod io;
 pub mod ports;
 mod route;
 mod runtime;
+mod savings_hint;
 mod session;
 mod suggest;
 pub mod watchdog;

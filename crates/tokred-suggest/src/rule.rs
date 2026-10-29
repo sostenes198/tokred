@@ -275,6 +275,7 @@ mod tests {
             channel: SuggestChannel::Off,
             min_simple_prompts: 0,
             cooldown: "soon".to_owned(),
+            ..SuggestConfig::default()
         };
         let r = SuggestRule::from_config(&odd);
         assert!(!r.enabled);
