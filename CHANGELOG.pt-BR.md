@@ -8,6 +8,7 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ### Alterado
 
+- Ao atualizar: instalações configuradas antes disto têm `enabled = false` gravado no `tokred.toml` e ele é mantido, então os recursos do proxy continuam desligados até você executar `tokred proxy enable` uma vez. Um serviço de usuário instalado deixa de iniciar o proxy enquanto ele está desabilitado (`tokred proxy service uninstall` o remove).
 - A chave `persist_base_url` de `[proxy]` não existe mais (um arquivo antigo que ainda a tenha continua funcionando): o `enabled` agora faz o que ele deveria fazer.
 - O `unconfigure` deixa intocado o que não entende nas configurações, em vez de falhar.
 

@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Changed
 
+- Upgrading: installations configured before this have `enabled = false` written in `tokred.toml` and it is kept, so the proxy features stay off until you run `tokred proxy enable` once. An installed user service stops starting the proxy while it is disabled (`tokred proxy service uninstall` removes it).
 - The `persist_base_url` key of `[proxy]` no longer exists (an old file that still has it keeps working): `enabled` now does what it was meant for.
 - `unconfigure` leaves settings it does not understand untouched instead of failing.
 

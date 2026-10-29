@@ -102,15 +102,25 @@ fn set_enabled(io: &mut Io, ctx: &ProxyCtx<'_>, enabled: bool) -> Result<()> {
             "The tokred proxy is on. Claude Code started from now on goes through {}.\n",
             base_url(port_of(&ctx.config.proxy.bind)?)
         ),
-        initialize::State::Disabled => {
-            "The proxy features are off. A running proxy keeps running until `tokred proxy stop`.\n"
-                .to_owned()
-        }
-        _ => "The setting is saved; see the warnings above.\n".to_owned(),
+        initialize::State::Disabled => disabled_summary(service_state(ctx.env) == Some(true)),
+        _ => "The setting is saved; see the warnings printed on stderr.\n".to_owned(),
     };
     write!(io.out(), "{text}{summary}")?;
     write!(io.err(), "{}", report.warning_text())?;
     Ok(())
+}
+
+/// What `proxy disable` ends with. An installed user service would keep trying to start a proxy
+/// that now refuses to run, so it is pointed out.
+fn disabled_summary(service_installed: bool) -> String {
+    let service = if service_installed {
+        "The user service is still installed and will keep failing to start the proxy: remove it with `tokred proxy service uninstall`.\n"
+    } else {
+        ""
+    };
+    format!(
+        "The proxy features are off. A running proxy keeps running until `tokred proxy stop`.\n{service}"
+    )
 }
 
 /// Starts `tokred proxy start --foreground` in the background (detached, no standard streams),
@@ -712,6 +722,30 @@ mod tests {
         assert!(!enabled_in_file(&sb));
         assert!(!settings_text(&sb).contains("ANTHROPIC_BASE_URL"));
         assert!(settings_text(&sb).contains("opus"));
+    }
+
+    #[test]
+    fn disabling_with_a_user_service_installed_says_to_remove_it() {
+        assert!(!disabled_summary(false).contains("service"));
+        assert!(disabled_summary(true).contains("tokred proxy service uninstall"));
+
+        let sb = claude_sandbox("{}");
+        let config = config_on(1);
+        let kind = ServiceKind::for_os(std::env::consts::OS).unwrap();
+        let home = sb.env.home_dir.clone().unwrap();
+        // Where the service has a file (not on Windows), put one in place.
+        if let Some((path, content)) = install_plan(kind, Path::new("tokred"), &home).file {
+            write_service_file(&path, &content).unwrap();
+            let (mut io, out) = scripted(false, "");
+            run(
+                &mut io,
+                &ctx(&sb, &config, &no_serve),
+                &ProxyCommand::Disable,
+            )
+            .unwrap();
+            let text = out.text();
+            assert!(text.contains("tokred proxy service uninstall"), "{text}");
+        }
     }
 
     #[test]

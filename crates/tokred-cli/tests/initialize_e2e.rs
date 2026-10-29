@@ -53,6 +53,11 @@ impl Sandbox {
             .replace(
                 "bind = \"127.0.0.1:8787\"",
                 &format!("bind = \"127.0.0.1:{}\"", sb.port),
+            )
+            // No request is ever sent, but nothing may point at the real API.
+            .replace(
+                "upstream = \"https://api.anthropic.com\"",
+                &format!("upstream = \"http://127.0.0.1:{}\"", free_port()),
             );
         std::fs::write(path, toml).unwrap();
         sb
