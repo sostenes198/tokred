@@ -340,6 +340,25 @@ async fn methods_other_origins_and_unknown_paths_are_refused() {
     proxy.stop().await;
 }
 
+#[test]
+fn a_proxy_with_a_dashboard_can_be_printed() {
+    let proxy = tokred_proxy::Proxy::bind(config("https://api.anthropic.com"))
+        .unwrap()
+        .with_dashboard(Arc::new(FakeSource::default()), true);
+    let text = format!("{proxy:?}");
+    assert!(
+        text.contains("DashboardSetup") && text.contains("capture: true"),
+        "{text}"
+    );
+    // Decisions need a dashboard to show them in; without one the tap is ignored.
+    let bare = tokred_proxy::Proxy::bind(config("https://api.anthropic.com"))
+        .unwrap()
+        .with_decisions(tokred_proxy::DecisionTap::new(Arc::new(
+            support::MemorySink::default(),
+        )));
+    assert!(!format!("{bare:?}").contains("DashboardSetup"));
+}
+
 #[tokio::test]
 async fn without_a_dashboard_the_paths_are_forwarded_and_the_token_endpoint_is_absent() {
     let upstream = quiet_upstream().await;

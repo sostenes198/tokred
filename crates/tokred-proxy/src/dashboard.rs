@@ -358,6 +358,18 @@ mod tests {
     #[derive(Default)]
     struct Collect(Mutex<Vec<ProxyRecord>>);
 
+    impl Collect {
+        fn captured(&self) -> Vec<CapturedTurn> {
+            let mut out = Vec::new();
+            for record in self.0.lock().unwrap().iter() {
+                if let ProxyRecord::Captured(turn) = record {
+                    out.push((**turn).clone());
+                }
+            }
+            out
+        }
+    }
+
     impl RecordSink for Collect {
         fn record(&self, record: ProxyRecord) {
             self.0.lock().unwrap().push(record);
@@ -422,6 +434,13 @@ mod tests {
             ts: Timestamp(100),
             ..ProxyRequestRecord::default()
         }
+    }
+
+    #[test]
+    fn the_test_source_answers() {
+        assert_eq!(Source.sessions().unwrap(), SessionList::default());
+        assert!(Source.session("x").unwrap().is_none());
+        assert!(Source.metrics_html().is_err());
     }
 
     #[test]
@@ -507,10 +526,7 @@ mod tests {
             "the request time plus the whole seconds it took"
         );
 
-        let records = sink.0.lock().unwrap();
-        let ProxyRecord::Captured(captured) = &records[0] else {
-            panic!("expected a captured turn");
-        };
+        let captured = sink.captured().remove(0);
         assert_eq!(
             (captured.request_id.as_str(), captured.session_id.as_str()),
             ("r1", "s")
@@ -540,13 +556,12 @@ mod tests {
                 .iter()
                 .all(|t| t.cost_usd.is_none() && t.sent.is_none() && t.response.is_none())
         );
-        let records = sink.0.lock().unwrap();
-        for record in records.iter() {
-            let ProxyRecord::Captured(captured) = record else {
-                panic!()
-            };
-            assert!(captured.sent_json.is_none() && captured.response_json.is_none());
-        }
+        let all = sink.captured();
+        assert_eq!(all.len(), 2);
+        assert!(
+            all.iter()
+                .all(|c| c.sent_json.is_none() && c.response_json.is_none())
+        );
     }
 
     #[test]

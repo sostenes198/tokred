@@ -202,9 +202,6 @@ pub(crate) async fn handle(
     if from_another_site(asked.headers) {
         return text(StatusCode::FORBIDDEN, "cross-site requests are refused");
     }
-    if route == Route::Missing {
-        return text(StatusCode::NOT_FOUND, "not found");
-    }
     let favicon = route == Route::Favicon;
     let allowed = *asked.method == Method::GET || (favicon && *asked.method == Method::HEAD);
     if !allowed {

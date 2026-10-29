@@ -59,28 +59,30 @@ fn fold_sessions(
     prices: &PriceTable,
     now: Timestamp,
 ) -> Vec<SessionView> {
-    let mut sessions: Vec<SessionView> = Vec::new();
-    for row in rows {
-        if sessions.last().is_none_or(|last| last.id != row.session_id) {
-            sessions.push(SessionView {
-                id: row.session_id.clone(),
-                started_at: row.first_ts.0,
-                last_activity_at: row.last_ts.0,
-                status: session_status(now, row.last_ts, false),
-                requests: 0,
-                models: Vec::new(),
-                cost_usd: 0.0,
-                input: 0,
-                output: 0,
-                cache_read: 0,
-                cache_write: 0,
-                subagents_running: 0,
-                content_recorded: row.content_turns > 0,
-            });
-        }
-        let Some(session) = sessions.last_mut() else {
-            continue;
-        };
+    rows.chunk_by(|a, b| a.session_id == b.session_id)
+        .map(|group| fold_session(group, prices, now))
+        .collect()
+}
+
+/// The session the rows (one per model, all with the same session id, at least one) describe.
+fn fold_session(group: &[SessionModelRow], prices: &PriceTable, now: Timestamp) -> SessionView {
+    let first = &group[0];
+    let mut session = SessionView {
+        id: first.session_id.clone(),
+        started_at: first.first_ts.0,
+        last_activity_at: first.last_ts.0,
+        status: session_status(now, first.last_ts, false),
+        requests: 0,
+        models: Vec::new(),
+        cost_usd: 0.0,
+        input: 0,
+        output: 0,
+        cache_read: 0,
+        cache_write: 0,
+        subagents_running: 0,
+        content_recorded: first.content_turns > 0,
+    };
+    for row in group {
         session.requests += row.requests;
         session.input += row.usage.input;
         session.output += row.usage.output;
@@ -91,7 +93,7 @@ fn fold_sessions(
             session.models.push(row.model.clone());
         }
     }
-    sessions
+    session
 }
 
 /// A stored turn in the API's shape. Contents that cannot be read back read as absent.

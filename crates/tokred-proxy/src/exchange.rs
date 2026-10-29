@@ -545,6 +545,15 @@ struct TapBody {
 }
 
 impl TapBody {
+    /// Feeds a chunk to the tap and passes on the response text it completed.
+    fn observe(&mut self, data: &Bytes) {
+        let Some(tap) = self.tap.as_mut() else { return };
+        tap.feed(data);
+        if let (Some(text), Some(finish)) = (tap.take_delta(), self.finish.as_ref()) {
+            finish.delta(text);
+        }
+    }
+
     fn end(&mut self, complete: bool) {
         if let (Some(tap), Some(finish)) = (self.tap.take(), self.finish.take()) {
             finish.complete(tap.finish(complete));
@@ -563,11 +572,8 @@ impl Body for TapBody {
         let polled = Pin::new(&mut self.inner).poll_frame(cx);
         match &polled {
             Poll::Ready(Some(Ok(frame))) => {
-                if let (Some(tap), Some(data)) = (self.tap.as_mut(), frame.data_ref()) {
-                    tap.feed(data);
-                    if let (Some(text), Some(finish)) = (tap.take_delta(), self.finish.as_ref()) {
-                        finish.delta(text);
-                    }
+                if let Some(data) = frame.data_ref() {
+                    self.observe(data);
                 }
             }
             Poll::Ready(Some(Err(_))) => self.end(false),
