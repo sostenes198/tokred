@@ -2,7 +2,7 @@
 
 # Testing tokred locally
 
-Two ways to test: [run the automated tests](#1-automated-tests), and [try the tool by hand](#2-try-it-by-hand) without touching your real Claude Code setup. How the tests are organised and what they must follow is in [development](development.md); how to ship a release is in [release](release.md).
+Two ways to test: [run the automated tests](#1-automated-tests), and [try the tool by hand](#2-try-it-by-hand) without touching your real Claude Code setup. A third check runs against a published release: the [release smoke test](#3-release-smoke-test). How the tests are organised and what they must follow is in [development](development.md); how to ship a release is in [release](release.md).
 
 ## 1. Automated tests
 
@@ -24,6 +24,7 @@ cargo test -p tokred -- --nocapture          # show what tests print
 | `crates/tokred-proxy/tests/network.rs` | The corporate-network path: a fake HTTP proxy answering `CONNECT` in front of a fake HTTPS upstream signed by a throwaway authority (`rcgen`), `NO_PROXY`, refused tunnels, bad values; `network_logs.rs` checks that credentials never reach the logs |
 | `crates/tokred-cli/tests/proxy_e2e.rs` | The real binary running the proxy: forwarding, recording, `Host` check, `tokred claude`, advice commands, the process exiting after `proxy stop`, `proxy start` with captured output (on Windows a detached proxy used to keep the caller waiting; the first CI run on Windows is the check of the `Start-Process` launch) |
 | `tests/installer/install_test.sh`, `install_test.ps1` | The install and uninstall scripts against a fake release (see below) |
+| `tests/release/smoke.sh`, `smoke.ps1` | The whole product installed from a **published** release, on real state ([release smoke test](#3-release-smoke-test); CI: `Release smoke`, after each release) |
 
 ### The full gate (what CI runs)
 
@@ -173,3 +174,48 @@ echo '{"session_id":"s1"}' | tokred statusline     # the pending suggestion, or 
 tokred proxy stop; tokred uninstall
 # and stop the fake API with Ctrl-C in terminal A
 ```
+
+## 3. Release smoke test
+
+The tests above run against code built from the working tree. The **release smoke test** is the one that proves what a user gets: it installs tokred from a **published GitHub release** (the release's own `install.sh` / `install.ps1`, which download the real binary) and checks every feature against real state, not "it ran". The release is not announced until it is green for the tag (see [release](release.md)).
+
+Files: `tests/release/smoke.sh` (POSIX sh, runs under dash, ash/busybox, bash and macOS sh), `smoke.ps1` (Windows PowerShell 5.1 and PowerShell 7), `check.py` (JSON, TOML and SQLite assertions) and `fake_upstream.py` (a fake Anthropic API that streams an SSE message slowly, with a unique `msg_` id per reply and a non-streaming JSON mode; it keeps nothing sensitive). Python 3.7+ is the only extra requirement besides `curl`. The workflow is `.github/workflows/release-smoke.yml`.
+
+### What it checks
+
+Everything runs in a throwaway directory (`HOME`, `TOKRED_HOME`, `TOKRED_DATA_DIR`, `CLAUDE_CONFIG_DIR`; `TOKRED_OFFLINE=1` except for the update step), starting from a user's own `settings.json` (a model, an `env` key and a `PreToolUse` hook) and shell profiles with the user's own lines. Each step asserts the state it names:
+
+1. **Install**: `tokred --version` equals the tag; the binary is in `$TOKRED_HOME/bin`; one marked block (PATH and the `claude` function) in each existing profile with the user's lines intact; `settings.json` has the six tokred hooks and still has the user's keys and hook; six `agents/tokred-*.md`; `tokred.toml` (`enabled`, `bind` with the port, `log_bodies`); the proxy answers `GET /__tokred/health`; `ANTHROPIC_BASE_URL` points at it; the database marker `tokred_version` is the version.
+2. **The `claude` wrapper**: in fresh `sh`, `bash`, `dash` and `zsh` (those present) `claude` is a function, `tokred initialize` really ran (a stopped proxy is running again and the URL is back), arguments with spaces, quotes, `$HOME`, `*` and an empty string arrive intact, and without tokred on `PATH` `claude` still runs.
+3. **Traffic through the proxy**, against the fake upstream: a streamed main-loop request and a subagent request (`x-claude-code-agent-id`) come back as the fake's bytes, streamed (not buffered); `tokred dashboard --no-open` prints a one-time URL that answers 303 with a cookie once and 401 the second time; the sessions API lists the session active with 2 requests and both models; the session detail has both turns (origin `main` / `subagent`, `sent` with only the new messages, the streamed `response.text`, stop reason, tokens); `/metrics` is HTML; a wrong `Host` is 421; the dashboard API without a cookie is 401; `tokred stats --json` has the Proxy section with 2 requests and an overhead p95 under 10 ms; `routing status` and `proxy status --json` run; after `proxy enable --record-content false` a new session has `sent` and `response` null (and again after a restart of the proxy).
+4. **`unconfigure` / `configure`**: unconfigure removes the six hooks and the unedited agents, keeps the user's keys, the edited agent and the proxy URL, leaves the proxy running and empties the marker; `doctor`, `initialize` and `stats` do not put anything back; `configure --yes` brings it all back and sets the marker.
+5. **Proxy switch**: `proxy disable` removes only tokred's URL (a foreign `ANTHROPIC_BASE_URL` is left alone, and `initialize` warns instead of overwriting it); opening `claude` through the wrapper does not re-enable; `proxy enable` with no flags keeps the saved port.
+6. **Update** (network on): with only a pre-release published, `tokred update` exits 1 and says that no stable release exists; with a stable release it says up to date or offers the newer one (that branch is not exercised on purpose: it may replace the binary).
+7. **Uninstall, twice**: once with the installed binary (`tokred uninstall`) and once, after a reinstall, with the release's `uninstall.sh` / `uninstall.ps1`. Nothing is left: the tokred folder, the data folder, hooks, agents and URL in `settings.json` (which is **equal** to the starting document), the profile blocks (profiles byte-for-byte what the user had), the process and the port, and no stray file in the sandbox `HOME`. Two things stay by design and are printed as notes: `settings.json.tokred.bak` (tokred's backup of the user's settings) and an empty `agents/` folder; an agent the user edited is kept too.
+8. **Cleanup always** (a trap): the proxy and the fake upstream are stopped even on failure, and the last 30 lines of every log are printed.
+
+### Run it by hand
+
+```sh
+sh tests/release/smoke.sh v0.1.0-rc.1                       # macOS, Linux
+SMOKE_REPO=owner/tokred sh tests/release/smoke.sh v0.2.0    # another repository
+```
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\release\smoke.ps1 -Tag v0.1.0-rc.1 -AllowRealProfile
+```
+
+On Windows the user `PATH` and the two PowerShell profile files cannot be sandboxed; the script backs them up and restores them (like `install_test.ps1`) and, outside CI, asks for `-AllowRealProfile`. On GitHub: **Actions, Release smoke, Run workflow**, with the tag (and optionally the repository). It also runs by itself when the `Release` workflow succeeds for a `v*` tag.
+
+Knobs (documented at the top of each script): `SMOKE_TAG`, `SMOKE_REPO`, `SMOKE_PORT`, `SMOKE_DIR`, `SMOKE_KEEP=1` (keep the sandbox), `SMOKE_LOG_DIR` (copy the logs there on failure), `SMOKE_CONTINUE=1` (count failures and go on instead of stopping at the first; a diagnostic mode, the exit status is still 1), `SMOKE_SKIP_UPDATE=1`, `SMOKE_PYTHON`, `GITHUB_TOKEN` (only for the script's own probe of the GitHub API).
+
+### Reading a failure
+
+- The last line of the output is `not ok - [<step>] <what was expected>: <what was found>`, and the exit status is 1. The step names follow the numbers above.
+- Under it come the last 30 lines of every log: the `out/*.out` files (the output of each tokred command), `fake.log`, and tokred's own `logs/`. With `SMOKE_KEEP=1` the whole sandbox stays; the paths are printed. In CI the logs are the `smoke-logs-*` artifact of the failed job.
+- A failure in **step 1 or 7 on one platform only** is a packaging or installer problem (the Alpine container proves the static musl binary, the macOS jobs both CPU families). A failure in **steps 3 to 5 on every platform** is a product bug: reproduce it with the commands of the step, in a sandbox as in [try it by hand](#2-try-it-by-hand).
+- `skip - ...` lines are not failures: a shell that is not installed, or the GitHub API rate limit in step 6.
+
+### What it cannot cover
+
+Claude Code itself with a real login: the proxy is exercised with requests shaped like Claude Code's against a fake API, so subscription (OAuth) traffic, real model output and Claude Code's own start-up are not part of it. It also cannot test a binary that is not published yet (use [the installer tests](#the-install-scripts) for that) or the `tokred update` branch that replaces the binary (only reachable when a stable release newer than the installed one exists). See [decisions](decisions.md).
