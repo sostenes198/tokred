@@ -32,7 +32,7 @@ pub fn apply(env: &Env, io: &mut Io, claude_dir: &Path, purge: bool) -> Result<(
     // Release the database file before a possible purge (required on Windows).
     drop(store);
     let config = super::housekeeping::load_config(env);
-    let url = super::initialize::remove_own_url(env, &config, &claude_dir)?;
+    let url = super::initialize::remove_own_url(env, &config, claude_dir)?;
 
     let shown = render_report(claude_dir, &report, url.as_deref());
     write!(io.out(), "{shown}")?;
