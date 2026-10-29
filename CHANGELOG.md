@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.1.0-rc.2] - 2026-10-29
+
 ### Added
 
 - `tokred update --version 0.2.0-rc.3` installs exactly that version (a release candidate, or an older one) instead of the latest stable release, which never includes pre-releases.
