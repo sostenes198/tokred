@@ -279,6 +279,23 @@ fn the_real_proxy_forwards_streams_records_and_stops() {
         rows.iter()
             .all(|r| r.1 == "claude-sonnet-5-5" && r.2 == 100 && r.3 == 100 && r.4 == 25)
     );
+    // The richer per-request fields: stop reason, tool names, routing mode in force.
+    let extra: Vec<(String, String, Option<String>, String)> = db
+        .prepare("SELECT stop_reason, tools, cache_ttl, routing_mode FROM proxy_requests WHERE origin = 'main'")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(
+        extra,
+        [(
+            "end_turn".to_owned(),
+            r#"["Read"]"#.to_owned(),
+            None,
+            "observe".to_owned()
+        )]
+    );
     // Credentials never reach the database.
     let dump: String = db
         .prepare(
@@ -444,4 +461,54 @@ fn the_advice_commands_work_through_the_real_binary() {
         .clone();
     let text = String::from_utf8(output).unwrap();
     assert!(text.contains("tokred_retrieve"), "{text}");
+}
+
+#[test]
+fn the_proxy_prunes_records_older_than_retention_days_when_it_starts() {
+    let (upstream, _) = fake_upstream();
+    let port = free_port();
+    let sb = Sandbox::new(&upstream, port);
+    let path = sb.data().join("tokred.toml");
+    let toml = std::fs::read_to_string(&path).unwrap();
+    assert!(toml.contains("retention_days = 90"));
+    std::fs::write(
+        &path,
+        toml.replace("retention_days = 90", "retention_days = 1"),
+    )
+    .unwrap();
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let db = rusqlite::Connection::open(sb.data().join("tokred.db")).unwrap();
+    for (id, ts) in [("old", 1_u64), ("new", now)] {
+        db.execute(
+            "INSERT INTO proxy_requests(id, ts, session_id, origin, model_requested, \
+             model_effective, input, output, cache_write, cache_write_1h, cache_read, thinking, \
+             bytes_in, bytes_out, upstream_ttfb_ms, total_ms, proxy_overhead_us, status, \
+             tools_hash, system_hash) \
+             VALUES (?1, ?2, 's', 'main', 'm', 'm', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 200, '', '')",
+            rusqlite::params![id, i64::try_from(ts).unwrap()],
+        )
+        .unwrap();
+    }
+
+    sb.start_proxy();
+    let mut ids = Vec::new();
+    for _ in 0..50 {
+        ids = db
+            .prepare("SELECT id FROM proxy_requests ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        if ids == ["new"] {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    assert_eq!(ids, ["new"], "the old record was pruned at start");
+    sb.tokred().args(["proxy", "stop"]).assert().success();
 }
