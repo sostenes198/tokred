@@ -36,7 +36,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
-- Install like rustup: `install/install.sh` (macOS, Linux) and `install/install.ps1` (Windows) download the release archive from GitHub, verify its checksum, install it in `~/.tokred/bin` (`%LOCALAPPDATA%\tokred\bin`), add it to `PATH` and run `tokred configure` and `tokred proxy enable`. `uninstall.sh` / `uninstall.ps1` undo it. Options: `--yes`, `--port`, `--version`, `--no-modify-path`, `--no-alias`, `--no-proxy`, `--no-configure`, and `TOKRED_HOME`, `TOKRED_RELEASE_BASE_URL`.
+- One-command install: `install/install.sh` (macOS, Linux) and `install/install.ps1` (Windows) download the release archive from GitHub, verify its checksum, install it in `~/.tokred/bin` (`%LOCALAPPDATA%\tokred\bin`), add it to `PATH` and run `tokred configure` and `tokred proxy enable`. `uninstall.sh` / `uninstall.ps1` undo it. Options: `--yes`, `--port`, `--version`, `--no-modify-path`, `--no-alias`, `--no-proxy`, `--no-configure`, and `TOKRED_HOME`, `TOKRED_RELEASE_BASE_URL`.
 - The installer defines a `claude` wrapper (bash, zsh, fish, PowerShell) that runs `tokred initialize` first and then the real Claude Code; fail-open, skipped with `--no-alias` / `TOKRED_NO_ALIAS=1`, bypassed with `command claude`.
 - `tokred proxy enable` asks for the proxy port (default 1029, 1024 to 65535, must be free) and whether conversation content may be recorded for the dashboard; new flags `--port`, `--record-content <true|false>` and `--yes` and variables `TOKRED_PORT`, `TOKRED_RECORD_CONTENT` (a flag wins). A quiet re-run never changes a choice you made, and a running proxy is restarted on a new port.
 - `tokred uninstall`: stops the proxy, removes its user service, turns compression off, removes the hooks and agents and optionally the data folder.
@@ -86,10 +86,10 @@ All notable changes to this project are documented here. The format is based on 
 - `tokred doctor` shows the proxy (running, modes, where `ANTHROPIC_BASE_URL` points); `TOKRED_BENCH_RUNS` sets the runs of `doctor --bench`.
 - With the proxy recording: `tokred stats --by origin` and `--by agent-type`, and a Proxy section in `stats`, `metrics` and the HTML report with the overhead against its 10 ms budget, routing decisions with observed and applied savings, the model asked for against the one that answered, prompt-cache misses by cause, and the latest pending suggestion (`stats --json` gets a `proxy` key).
 - New `[proxy]`, `[routing]`, `[routing.tiers]`, `[suggest]`, `[compression]` and `[shadow]` sections in `tokred.toml` ([configuration](docs/configuration.md)).
-- Phases F1 to F5: colored terminal dashboards (`tokred stats`, `stats latency`, `metrics`) with an offline HTML report; price table with an embedded snapshot and a daily sync; the daily version check and `tokred update` (checksum-verified self-update for script installs); `tokred audit`; `tokred cache`; the six hooks (`guard-read`, `guard-search`, `route`, `enforce`, `session-check`, `session-start`) with latency recording and `doctor --bench`; the `dist` release pipeline with Homebrew, Scoop, winget and crates.io publishing.
+- Reports, pricing, updates and hooks: colored terminal dashboards (`tokred stats`, `stats latency`, `metrics`) with an offline HTML report; price table with an embedded snapshot and a daily sync; the daily version check and `tokred update` (checksum-verified self-update for script installs); `tokred audit`; `tokred cache`; the six hooks (`guard-read`, `guard-search`, `route`, `enforce`, `session-check`, `session-start`) with latency recording and `doctor --bench`; the `dist` release pipeline with Homebrew, Scoop, winget and crates.io publishing.
 - `TOKRED_OFFLINE`, `TOKRED_PRICES_URL`, `TOKRED_RELEASES_URL`, `NO_COLOR` and `CLICOLOR_FORCE`.
-- Phase F0: workspace bootstrap (ten crates, CI, cargo-deny, bilingual docs).
+- Workspace bootstrap (ten crates, CI, cargo-deny, bilingual docs).
 - `tokred configure`: detects the Claude Code folder, shows a plan, merges tokred hooks into `settings.json` without touching anything else, installs six subagents, creates the SQLite database and `tokred.toml`.
 - `tokred unconfigure [--purge]`: removes only what tokred added.
-- `tokred doctor [--json]`: reports hooks, agents, rtk detection and problems.
-- `tokred hook <event>`: fail-open stub for the six hooks (real behaviour arrives in phases F3 to F5).
+- `tokred doctor [--json]`: reports hooks, agents, other hook tools and problems.
+- `tokred hook <event>`: fail-open stub for the six hooks (the real behaviour arrives in later releases).

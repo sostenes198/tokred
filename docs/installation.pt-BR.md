@@ -2,146 +2,141 @@
 
 # Instalação
 
-O tokred se instala como o rustup: um comando no terminal baixa o binário da release do GitHub, confere o checksum, coloca na sua pasta pessoal, prepara o seu shell e executa `tokred configure` e `tokred proxy enable`. Não há gerenciador de pacotes (nada de Homebrew, Scoop, winget ou crates.io), nem `sudo`, nem direitos de administrador.
+Como instalar, atualizar e remover o tokred, e o que o instalador altera na sua máquina.
+
+## Instalar
+
+**macOS e Linux**
 
 ```sh
-# macOS e Linux
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sostenes198/tokred/releases/latest/download/install.sh | sh
+```
 
-# Windows (PowerShell)
+**Windows (PowerShell)**
+
+```powershell
 irm https://github.com/sostenes198/tokred/releases/latest/download/install.ps1 | iex
 ```
 
-Os scripts são assets da release (`install.sh`, `install.ps1`, `uninstall.sh`, `uninstall.ps1`). Antes de existir a primeira release, ou para testar a versão da `main`, use a URL raw: `https://raw.githubusercontent.com/sostenes198/tokred/main/install/install.sh` (e `install.ps1`). Os scripts ficam em [`install/`](../install/); leia antes de executar, eles são curtos.
+Os scripts são assets da release e ficam em [`install/`](../install/); são curtos, então leia-os antes de executar. Não é preciso `sudo` nem direitos de administrador.
 
-## O que o script faz
+Até a primeira release estável ser publicada, as URLs `latest` não existem. Use os scripts da `main` (`https://raw.githubusercontent.com/sostenes198/tokred/main/install/install.sh` e `https://raw.githubusercontent.com/sostenes198/tokred/main/install/install.ps1`) junto com `--version`, ou compile a partir do código-fonte. Pré-releases só são instaladas quando você pede a versão explicitamente.
 
-1. Detecta a plataforma: macOS ou Linux (musl, então roda em qualquer distribuição) em x86_64 ou aarch64; Windows em x86_64 (o Windows em ARM executa esse build pela emulação: não há build nativo para ARM).
-2. Baixa `tokred-<target>.tar.gz` (Windows: `.zip`) e o `.sha256` da release e **confere o checksum**. Se não bater, tudo para antes de qualquer coisa ser gravada.
+## O que o instalador faz
+
+1. Detecta sua plataforma: macOS ou Linux (musl, então roda em qualquer distribuição) em x86_64 ou aarch64, ou Windows em x86_64 (o Windows em ARM roda esse build por emulação).
+2. Baixa `tokred-<target>.tar.gz` (Windows: `.zip`) e o `.sha256` dele da release do GitHub e **verifica o checksum**. Uma divergência interrompe tudo antes de qualquer coisa ser gravada.
 3. Instala o binário em `${TOKRED_HOME:-$HOME/.tokred}/bin` (Windows: `%LOCALAPPDATA%\tokred\bin`).
-4. Adiciona essa pasta ao `PATH` e define o [wrapper `claude`](#o-wrapper-claude): nos perfis de shell que existem (`~/.bashrc`, `~/.bash_profile`, `~/.zshrc`, mais `~/.profile` e, com o fish instalado, `~/.config/fish/conf.d/tokred.fish`); no Windows, no `PATH` do usuário e no perfil do PowerShell. Tudo o que ele grava fica em um único bloco marcado (`# >>> tokred >>>` ... `# <<< tokred <<<`), que é substituído a cada execução (rodar o script duas vezes não muda nada) e removido pelo script de desinstalação.
-5. Executa o [`tokred configure`](commands.pt-BR.md), que integra o tokred ao Claude Code (só hooks e agentes; ele não pergunta nada sobre o proxy).
-6. Executa o [`tokred proxy enable`](commands.pt-BR.md#tokred-proxy-enable---port-n---record-content-truefalse---yes--disable), que faz as duas perguntas abaixo, salva as respostas, sobe o [proxy](proxy.pt-BR.md) e aponta o Claude Code para ele. O `--no-proxy` pula esta etapa, e você fica só com hooks e agentes (dá para executar `tokred proxy enable` depois, quando quiser).
+4. Adiciona essa pasta ao seu `PATH` e define o [wrapper `claude`](#o-wrapper-claude) nos perfis de shell que existirem (`~/.bashrc`, `~/.bash_profile`, `~/.zshrc`, `~/.profile` e, quando o fish está instalado, `~/.config/fish/conf.d/tokred.fish`). No Windows usa o `PATH` do seu usuário e o seu perfil do PowerShell. Tudo o que ele grava fica em um único bloco marcado (`# >>> tokred >>>` ... `# <<< tokred <<<`) que é substituído a cada execução, então rodar o script duas vezes não muda nada.
+5. Executa `tokred configure`, que adiciona os hooks e agentes do tokred ao Claude Code (veja [hooks e agentes](hooks-and-agents.pt-BR.md)).
+6. Executa `tokred proxy enable`, que faz as duas perguntas abaixo, salva as respostas, inicia o [proxy](proxy.pt-BR.md) e aponta o Claude Code para ele.
 
-Ele nunca usa `sudo`, nunca grava fora da pasta do tokred e dos seus arquivos de perfil, e se recusa a rodar como root, a menos que você passe `--yes`. Com `curl ... | sh` o stdin do script é o pipe, então as perguntas são feitas no terminal (`/dev/tty`); sem terminal nenhum, ele aplica os padrões.
+O script nunca grava fora da pasta do tokred e dos seus arquivos de perfil, e se recusa a rodar como root a menos que você passe `--yes`. Com `curl ... | sh` ele faz as perguntas no terminal (`/dev/tty`); sem terminal, aplica os padrões.
 
-### As duas perguntas
+**Qual porta o proxy usa?** O padrão é `1029`, ou a que já estiver no `tokred.toml`. Só são aceitas portas de 1024 a 65535; o instalador confere se a porta está livre e pergunta de novo quando está ocupada.
 
-São as do `tokred proxy enable`, feitas depois que o `configure` termina.
+**Gravar o conteúdo das conversas para o dashboard poder mostrá-lo?** O texto fica no banco de dados do próprio tokred, na sua máquina; cabeçalhos e credenciais nunca são gravados. A resposta é salva como `[proxy] log_bodies`. Sem terminal, ou com `--yes`, o conteúdo não é gravado a menos que você diga que sim. Mude depois editando o `tokred.toml` ou executando `tokred proxy enable` de novo.
 
-- **Qual porta o proxy usa?** Padrão `1029` (ou a que já está no `tokred.toml`). Só são aceitas portas de 1024 a 65535; o instalador confere se a porta está livre tentando abrir `127.0.0.1:<porta>`, avisa quando está ocupada e pergunta de novo. Se o proxy desta instalação já escuta nela, está tudo certo.
-- **Gravar o conteúdo das conversas para o painel mostrar o que foi enviado e devolvido? [Y/n]** O texto fica no banco de dados do próprio tokred, na sua máquina; cabeçalhos e credenciais nunca são gravados. A resposta é salva como `[proxy] log_bodies` no `tokred.toml`. Sem terminal, ou com `--yes`, o conteúdo **não** é gravado, a menos que você diga o contrário (`tokred proxy enable --record-content true`, `TOKRED_RECORD_CONTENT=1`). Mude depois editando o `tokred.toml` ou rodando `tokred proxy enable` de novo.
+## Opções
 
-### Opções
-
-O `irm | iex` não consegue passar parâmetros, então toda opção também tem uma variável de ambiente (as mesmas variáveis valem para o `sh`).
+`irm | iex` não consegue passar parâmetros, então toda opção também tem uma variável de ambiente. As mesmas variáveis funcionam com `sh`.
 
 | Opção do shell | PowerShell | Variável de ambiente | Significado |
 |---|---|---|---|
-| `-y`, `--yes` | `-Yes` | `TOKRED_YES=1` | Não pergunta nada; usa os padrões e as opções abaixo |
-| `--port N` | `-Port N` | `TOKRED_PORT` | Porta do proxy (1024 a 65535), repassada ao `tokred proxy enable --port` |
+| `-y`, `--yes` | `-Yes` | `TOKRED_YES=1` | Não pergunta nada; usa os padrões |
+| `--port N` | `-Port N` | `TOKRED_PORT` | Porta do proxy (1024 a 65535) |
 | `--version X` | `-Version X` | `TOKRED_VERSION` | Instala a release `vX` em vez da mais recente |
 | `--no-modify-path` | `-NoModifyPath` | `TOKRED_NO_MODIFY_PATH=1` | Não mexe no `PATH` |
 | `--no-alias` | `-NoAlias` | `TOKRED_NO_ALIAS=1` | Não define o wrapper `claude` |
-| `--no-proxy` | `-NoProxy` | `TOKRED_NO_PROXY=1` | Só hooks e agentes: não executa o `tokred proxy enable` |
+| `--no-proxy` | `-NoProxy` | `TOKRED_NO_PROXY=1` | Só hooks e agentes; não executa `tokred proxy enable` |
 | `--no-configure` | `-NoConfigure` | `TOKRED_NO_CONFIGURE=1` | Só instala o binário (sem `configure`, sem proxy) |
-| | | `TOKRED_HOME` | Pasta de instalação (padrão `~/.tokred`, Windows `%LOCALAPPDATA%\tokred`) |
-| | | `TOKRED_RELEASE_BASE_URL` | De onde baixar os assets da release (`https://` ou `file://`); para espelhos e instalação offline |
+| | | `TOKRED_HOME` | Pasta de instalação (padrão `~/.tokred`) |
+| | | `TOKRED_RELEASE_BASE_URL` | De onde os assets da release são baixados (`https://` ou `file://`), para espelhos e instalações offline |
 
-`--no-modify-path` e `--no-alias` são independentes: o primeiro pula o `PATH`, o segundo pula o wrapper; com os dois, os perfis não são tocados. Exemplos:
+`--no-modify-path` e `--no-alias` são independentes; com os dois, seus perfis não são tocados. Exemplos:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf .../install.sh | sh -s -- --yes --port 2000 --no-alias
-curl --proto '=https' --tlsv1.2 -LsSf .../install.sh | sh -s -- --no-proxy    # só hooks e agentes
-TOKRED_VERSION=0.2.0 TOKRED_NO_ALIAS=1 sh install.sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sostenes198/tokred/releases/latest/download/install.sh | sh -s -- --yes --port 2000 --no-alias
 ```
 
 ```powershell
-$env:TOKRED_PORT = '2000'; $env:TOKRED_NO_ALIAS = '1'; irm .../install.ps1 | iex
-powershell -File install.ps1 -Yes -Port 2000          # ou execute o arquivo baixado com parâmetros
+$env:TOKRED_PORT = '2000'; $env:TOKRED_NO_ALIAS = '1'; irm https://github.com/sostenes198/tokred/releases/latest/download/install.ps1 | iex
 ```
+
+Para uma instalação offline, aponte `TOKRED_RELEASE_BASE_URL` para uma pasta (ou URL) que contenha `tokred-<target>.tar.gz` / `.zip` e o respectivo arquivo `.sha256`; o checksum é sempre verificado.
 
 ## O wrapper `claude`
 
-O instalador adiciona uma função de shell chamada `claude` que executa `tokred initialize` e depois o Claude Code de verdade, com os seus argumentos intactos:
+O instalador adiciona uma função de shell chamada `claude` que executa `tokred initialize` e depois o Claude Code real, com seus argumentos intactos:
 
 ```sh
 claude() { if command -v tokred >/dev/null 2>&1; then tokred initialize; fi; command claude "$@"; }
 ```
 
-O `tokred initialize` é silencioso e rápido, e sempre sai com código 0: ele faz as configurações do Claude Code concordarem com a chave do proxy (`[proxy] enabled`): com o proxy ligado, aponta o Claude Code para ele (e o inicia, se preciso); desligado, remove só a `ANTHROPIC_BASE_URL` do próprio tokred e deixa em paz outro gateway seu. Assim, `claude` sempre faz o que a chave diz, em todo terminal.
+`tokred initialize` é silencioso e rápido, e sempre sai com código 0. Ele faz as configurações do Claude Code concordarem com a chave do proxy (`[proxy] enabled`): com o proxy ligado, aponta o Claude Code para ele (e o inicia se preciso); com o proxy desligado, remove apenas o `ANTHROPIC_BASE_URL` do próprio tokred e deixa em paz um gateway seu.
 
-- **É fail-open.** Se o `tokred` não existir (desinstalado, movido), o `claude` inicia normalmente.
-- **Para ignorá-lo:** `command claude` executa o binário real sem o wrapper (PowerShell: `& (Get-Command claude -CommandType Application)`).
-- **Para ligar ou desligar o proxy:** `tokred proxy disable` / `tokred proxy enable`.
-- **Para não instalá-lo:** `--no-alias` / `-NoAlias` / `TOKRED_NO_ALIAS=1`. Para remover depois, apague o bloco entre os marcadores `# >>> tokred >>>` ou execute o script de desinstalação.
-- **Shells cobertos:** bash, zsh, fish e PowerShell (Windows PowerShell e pwsh). O `cmd.exe` não tem aliases persistentes, então não é coberto; inicie o Claude Code pelo PowerShell ou rode `tokred initialize` à mão antes.
-- **É uma função, não um alias,** para repassar os argumentos e não poder chamar a si mesma. O bloco executa `unalias claude` antes, porque o instalador do próprio Claude Code pode adicionar `alias claude=...` ao `~/.zshrc`; se esse alias era o único caminho até o `claude`, o `command claude` não o encontrará. Coloque o `claude` real no `PATH`.
-- **PowerShell** precisa que um perfil seja carregado: se janelas novas não recebem o wrapper, a política de execução pode ser `Restricted`; rode `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` uma vez.
-
-## Instalar uma versão específica, offline ou de um espelho
-
-```sh
-sh install.sh --version 0.2.0
-TOKRED_RELEASE_BASE_URL=https://mirror.example/tokred/v0.2.0 sh install.sh
-TOKRED_RELEASE_BASE_URL=file:///srv/tokred sh install.sh      # uma pasta com o arquivo e o .sha256
-```
-
-A pasta (ou URL) precisa conter `tokred-<target>.tar.gz` / `.zip` e `tokred-<target>.tar.gz.sha256` / `.zip.sha256`; o checksum é sempre conferido. Para conferir um download à mão: `shasum -a 256 tokred-*.tar.gz` (Windows: `Get-FileHash`) e compare com o arquivo `.sha256`.
-
-## Compilando do código-fonte
-
-Para desenvolvimento: `cargo build` e execute `target/debug/tokred`, veja [testes](testing.pt-BR.md). Um binário compilado assim (ou colocado fora da pasta de instalação) funciona, mas não se atualiza sozinho: o `tokred update` manda reinstalar com o script.
-
-## Opcional: o proxy local
-
-O [proxy](proxy.pt-BR.md) é controlado por uma chave única, `[proxy] enabled` no `tokred.toml` (o `tokred proxy enable` a liga e o script de instalação o executa, a menos que você passe `--no-proxy`; o `tokred proxy disable` a desliga; o `tokred configure` nunca mexe nela). Enquanto está ligada, o `tokred initialize` (o que o wrapper de shell do `claude` executa antes de toda abertura) sobe o proxy quando preciso e mantém o `env.ANTHROPIC_BASE_URL` do `settings.json` do Claude Code apontando para ele; o `tokred unconfigure` remove essa URL de novo. O seu próprio gateway em `ANTHROPIC_BASE_URL` nunca é sobrescrito.
-
-```sh
-tokred claude                     # inicia o proxy se preciso e executa o Claude Code por ele, só nesta execução
-tokred proxy service install      # opcional: inicia o proxy no login, como serviço de usuário
-```
-
-`tokred compression on` é o único comando que edita a configuração de usuário do Claude Code (`~/.claude.json`, com backup em `.tokred.bak`), e só quando você o executa.
-
-## Atualização
-
-O `tokred update` olha onde o binário em execução está:
-
-| Onde o binário está | O que `tokred update` faz |
+| Você quer | Faça isto |
 |---|---|
-| Na pasta de instalação (`$TOKRED_HOME/bin`), colocado pelo script | Baixa o arquivo desta plataforma da release do GitHub, **confere o SHA-256**, troca o binário de forma atômica (no Windows o `.exe` em execução é renomeado para `.exe.old` e removido no próximo início) e reaplica a configuração com o binário novo |
-| Em qualquer outro lugar (compilado do código-fonte, copiado à mão) | Avisa que existe versão nova e manda reinstalar com o script de instalação |
+| Rodar o `claude` real uma vez | `command claude` (PowerShell: `& (Get-Command claude -CommandType Application)`) |
+| Desligar ou ligar o proxy | `tokred proxy disable` / `tokred proxy enable` |
+| Não instalar o wrapper | `--no-alias`, `-NoAlias` ou `TOKRED_NO_ALIAS=1` |
+| Remover o wrapper depois | Apague o bloco entre os marcadores `# >>> tokred >>>`, ou [desinstale](#desinstalar) |
 
-Rodar o script de instalação de novo faz o mesmo trabalho e também serve para um binário que não consegue se atualizar. Depois que o binário muda de versão, o primeiro comando da CLI reaplica a configuração de forma não interativa (hooks nunca fazem isso); suas escolhas de porta e de gravação de conteúdo são mantidas. O `tokred doctor` mostra quando há reconfiguração pendente.
+O wrapper é fail-open: se o `tokred` não existir, o `claude` inicia normalmente. Ele cobre bash, zsh, fish e PowerShell; o `cmd.exe` não tem aliases persistentes, então inicie o Claude Code pelo PowerShell ou execute `tokred initialize` manualmente antes. O instalador do próprio Claude Code pode adicionar `alias claude=...` ao `~/.zshrc`; o bloco executa `unalias claude` primeiro, então coloque o `claude` real no seu `PATH` se esse alias era a única forma de alcançá-lo.
 
-## Verificação de versão
-
-Uma vez por dia, só a partir de comandos da CLI (nunca de um hook), o tokred consulta o GitHub pela última release com timeout de 2 s e, se houver versão mais nova, imprime um aviso de uma linha no **stderr**, para não afetar a saída `--json`. Desligue com `[update] mode = "off"` ou `TOKRED_NO_UPDATE_CHECK=1`; `TOKRED_OFFLINE=1` desliga toda chamada de rede (verificação de versão e sincronização de preços).
-
-## Desinstalação
+## Atualizar
 
 ```sh
-# macOS e Linux
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sostenes198/tokred/releases/latest/download/uninstall.sh | sh
+tokred update
+```
 
-# Windows (PowerShell)
+```sh
+tokred update --version 0.2.0
+```
+
+O `tokred update` olha onde o binário em execução está. Na pasta de instalação (colocado lá pelo script), ele baixa o arquivo da sua plataforma, verifica o SHA-256, substitui o binário e reaplica a configuração. Em qualquer outro lugar (compilado do código-fonte, copiado à mão), ele avisa que existe uma versão nova e pede que você reinstale com o script, que faz o mesmo trabalho. Sem `--version`, instala a release estável mais recente. Depois que o binário muda de versão, o primeiro comando da CLI reaplica a configuração; sua porta e sua escolha sobre gravar conteúdo são mantidas. O `tokred doctor` mostra quando isso está pendente.
+
+## Desinstalar
+
+**macOS e Linux**
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sostenes198/tokred/releases/latest/download/uninstall.sh | sh
+```
+
+**Windows (PowerShell)**
+
+```powershell
 irm https://github.com/sostenes198/tokred/releases/latest/download/uninstall.ps1 | iex
 ```
 
-(Ou `sh install/uninstall.sh` a partir de um clone.) Ele remove tudo, **sem perguntar nada**.
-
-O script executa o `tokred uninstall`, que:
+A partir de um clone, execute `sh install/uninstall.sh`. Ele remove tudo **sem perguntar**, executando `tokred uninstall`, que:
 
 1. para o proxy e remove o serviço de usuário dele, se instalado;
 2. desliga a compressão, se estava ligada;
-3. remove o `ANTHROPIC_BASE_URL` do tokred das configurações do Claude Code (um gateway seu fica);
+3. remove o `ANTHROPIC_BASE_URL` do tokred das configurações do Claude Code (um gateway seu permanece);
 4. remove os hooks e agentes do tokred do Claude Code (agentes que você editou são mantidos e informados);
-5. apaga a pasta de dados do tokred (banco, config, logs, relatórios);
-6. remove o binário e a pasta de instalação, a entrada no `PATH` e os blocos do wrapper `claude` nos perfis do shell (um arquivo fish que contém só o nosso bloco é apagado; um com outras linhas as mantém). No Windows essa última parte roda assim que o `tokred.exe` termina: um programa em execução não consegue se apagar.
+5. apaga a pasta de dados do tokred (banco de dados, configuração, logs, relatórios);
+6. remove o binário e a pasta de instalação, a entrada no `PATH` e os blocos do wrapper `claude` nos seus perfis de shell (um arquivo do fish que só tem o bloco do tokred é apagado). No Windows, essa última parte roda assim que o `tokred.exe` termina, porque um programa em execução não consegue se apagar.
 
-Cada passo é feito no melhor esforço: uma falha é informada e o passo seguinte continua; se algum falhou, o binário é mantido para você executar de novo. O `tokred uninstall` também pode ser executado sozinho e faz tudo isso (o binário só se o script de instalação o pôs onde ele está). Sem o binário, o script limpa o que sobrou nos perfis do shell.
+Cada passo é de melhor esforço: uma falha é informada e o passo seguinte ainda roda, e se algum passo falhou o binário é mantido para você poder executar o comando de novo. O `tokred uninstall` também pode ser executado sozinho. Sem o binário, o script limpa o que sobrou nos seus perfis de shell.
 
-## Publicando uma release (mantenedores)
+## Compilar a partir do código-fonte
 
-Envie uma tag `vX.Y.Z`; o `release.yml` gerado constrói os arquivos e envia para a release do GitHub, junto com seus `.sha256` e os quatro scripts de instalação. Não são necessários tokens, nem repositórios de tap ou bucket. Passo a passo: [release](release.pt-BR.md).
+Você precisa do Rust 1.89 ou mais novo.
+
+```sh
+cargo install --path crates/tokred-cli
+```
+
+Um binário compilado assim funciona, mas não se atualiza sozinho: o `tokred update` pede que você reinstale. Para trabalhar no tokred, veja [desenvolvimento](development.pt-BR.md).
+
+## Resolução de problemas
+
+| Problema | O que fazer |
+|---|---|
+| `tokred: command not found` depois de instalar | Abra um novo terminal para carregar o novo `PATH`, ou confira se `~/.tokred/bin` (Windows: `%LOCALAPPDATA%\tokred\bin`) está nele. Sem `--no-modify-path`, o instalador o adiciona. |
+| O wrapper `claude` não aparece em novas janelas do PowerShell | Sua política de execução pode ser `Restricted`. Execute `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` uma vez. |
+| A porta do proxy está ocupada | Escolha outra: `tokred proxy enable --port 2000`, ou instale com `--port 2000`. |
+| O proxy não alcança a API a partir de uma rede corporativa | O proxy respeita `HTTPS_PROXY`, `NO_PROXY` e afins; veja [proxy](proxy.pt-BR.md). |
+| Outra coisa parece errada | Execute `tokred doctor`; ele mostra o que está instalado e o que precisa de atenção. |
