@@ -31,10 +31,26 @@ import argparse
 import itertools
 import json
 import re
+import socketserver
 import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+
+class QuickServer(ThreadingHTTPServer):
+    """A server that does not ask DNS for its own name.
+
+    `HTTPServer.server_bind` calls `socket.getfqdn`, a reverse lookup that can take tens of seconds on
+    some CI runners (macOS), and the name is never used here.
+    """
+
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name = "127.0.0.1"
+        self.server_port = self.server_address[1]
+
 
 IDS = itertools.count(1)
 ID_LOCK = threading.Lock()
@@ -173,7 +189,7 @@ def main():
     args = parser.parse_args()
     SETTINGS["delay"] = args.delay_ms / 1000.0
     SETTINGS["chunks"] = max(1, args.chunks)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    server = QuickServer(("127.0.0.1", args.port), Handler)
     server.daemon_threads = True
     port = server.server_address[1]
     if args.port_file:
