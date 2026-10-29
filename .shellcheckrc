@@ -2,4 +2,5 @@
 # profile files, so these two notes are intended there:
 #   SC2016: expressions do not expand in single quotes
 #   SC1003: a backslash-quote inside single quotes in a generated string
-disable=SC2016,SC1003
+#   SC2317: a function only called through `trap` looks unreachable (tests/release/smoke.sh)
+disable=SC2016,SC1003,SC2317
