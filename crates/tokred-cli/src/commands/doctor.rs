@@ -600,12 +600,12 @@ mod tests {
     #[test]
     fn a_url_in_settings_that_points_at_a_dead_proxy_is_a_warning() {
         let pointing = ProxyInfo {
-            settings_base_url: Some("http://127.0.0.1:8787".to_owned()),
+            settings_base_url: Some("http://127.0.0.1:1029".to_owned()),
             ..sample_proxy()
         };
         let text = proxy_lines(&pointing);
         assert!(
-            text.contains("settings.json ANTHROPIC_BASE_URL: http://127.0.0.1:8787"),
+            text.contains("settings.json ANTHROPIC_BASE_URL: http://127.0.0.1:1029"),
             "{text}"
         );
         assert!(

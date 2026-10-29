@@ -537,11 +537,11 @@ mod tests {
         assert_eq!(ours.starts.get(), 0, "nothing is started");
 
         // An older URL tokred wrote (another port) is tokred's too.
-        let older = World::new(Some("http://127.0.0.1:8787/"), false);
+        let older = World::new(Some("http://127.0.0.1:1029/"), false);
         older
             .known
             .borrow_mut()
-            .push("http://127.0.0.1:8787".to_owned());
+            .push("http://127.0.0.1:1029".to_owned());
         older.run(false, None);
         assert_eq!(older.url(), None);
 
@@ -602,11 +602,11 @@ mod tests {
 
     #[test]
     fn enabled_follows_a_changed_port() {
-        let world = World::new(Some("http://127.0.0.1:8787"), true);
+        let world = World::new(Some("http://127.0.0.1:1029"), true);
         world
             .known
             .borrow_mut()
-            .push("http://127.0.0.1:8787".to_owned());
+            .push("http://127.0.0.1:1029".to_owned());
         let report = world.run(true, None);
         assert_eq!(report.state, State::Enabled);
         assert_eq!(world.url().as_deref(), Some(OURS));
@@ -793,9 +793,9 @@ mod tests {
 
         // One an earlier port left behind is recognised from the record.
         files(&sb.env)
-            .remember_base_url("http://127.0.0.1:8787")
+            .remember_base_url("http://127.0.0.1:1029")
             .unwrap();
-        sb.write_settings(&url("http://127.0.0.1:8787"));
+        sb.write_settings(&url("http://127.0.0.1:1029"));
         assert!(
             remove_own_url(&sb.env, &config, &sb.claude)
                 .unwrap()
@@ -813,7 +813,7 @@ mod tests {
         // A bind address that is not valid still recognises recorded URLs.
         let mut broken = config.clone();
         broken.proxy.bind = "nonsense".to_owned();
-        sb.write_settings(&url("http://127.0.0.1:8787"));
+        sb.write_settings(&url("http://127.0.0.1:1029"));
         assert!(
             remove_own_url(&sb.env, &broken, &sb.claude)
                 .unwrap()
@@ -931,7 +931,7 @@ mod tests {
     ) -> (bool, u32) {
         let starts = Cell::new(0);
         let settings_value = || settings.map(str::to_owned);
-        let known = || vec!["http://127.0.0.1:8787".to_owned()];
+        let known = || vec!["http://127.0.0.1:1029".to_owned()];
         let healthy = |_port: u16| up;
         let start = || -> Result<()> {
             starts.set(starts.get() + 1);
@@ -955,7 +955,7 @@ mod tests {
         assert_eq!(session(true, None, Some(OURS), false, true), (true, 1));
         assert_eq!(session(true, Some(OURS), None, false, true), (true, 1));
         assert_eq!(
-            session(true, None, Some("http://127.0.0.1:8787"), false, true),
+            session(true, None, Some("http://127.0.0.1:1029"), false, true),
             (true, 1),
             "an older URL of tokred's counts"
         );

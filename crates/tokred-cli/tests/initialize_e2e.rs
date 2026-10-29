@@ -51,7 +51,7 @@ impl Sandbox {
         let toml = toml
             .replace("enabled = true", &format!("enabled = {enabled}"))
             .replace(
-                "bind = \"127.0.0.1:8787\"",
+                "bind = \"127.0.0.1:1029\"",
                 &format!("bind = \"127.0.0.1:{}\"", sb.port),
             )
             // No request is ever sent, but nothing may point at the real API.

@@ -131,7 +131,7 @@ mod tests {
         assert_eq!(set_in(merged.clone()), merged, "twice is once");
 
         let replaced = set(
-            json!({"env": {"A": "1", BASE_URL_KEY: "http://127.0.0.1:8787", "B": "2"}}),
+            json!({"env": {"A": "1", BASE_URL_KEY: "http://127.0.0.1:1029", "B": "2"}}),
             "http://127.0.0.1:1029",
         )
         .unwrap();

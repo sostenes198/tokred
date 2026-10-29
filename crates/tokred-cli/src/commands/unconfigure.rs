@@ -128,11 +128,11 @@ mod tests {
             tokred_install::base_url::write_base_url(&StdFileSystem, &sb.claude, Some(url))
                 .unwrap();
         };
-        set("http://127.0.0.1:8787");
+        set("http://127.0.0.1:1029");
         let (result, out) = unconfigure_cmd(&sb, false);
         result.unwrap();
         assert!(
-            out.contains("ANTHROPIC_BASE_URL removed from settings.json: http://127.0.0.1:8787"),
+            out.contains("ANTHROPIC_BASE_URL removed from settings.json: http://127.0.0.1:1029"),
             "{out}"
         );
         assert!(
