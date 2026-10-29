@@ -215,6 +215,10 @@ pub struct ProxyConfig {
     pub retention_days: u32,
     /// Log request bodies (debugging only; never credentials).
     pub log_bodies: bool,
+    /// A PEM file of certificate authorities to trust for the upstream, in addition to the
+    /// bundled roots, the operating system's and `NODE_EXTRA_CA_CERTS` / `SSL_CERT_FILE`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ca_bundle: Option<String>,
 }
 
 impl Default for ProxyConfig {
@@ -226,6 +230,7 @@ impl Default for ProxyConfig {
             persist_base_url: false,
             retention_days: 90,
             log_bodies: false,
+            ca_bundle: None,
         }
     }
 }
@@ -515,6 +520,16 @@ mod tests {
         assert_eq!(cfg.update.mode, UpdateMode::Notify);
         assert!(cfg.pricing.auto_sync);
         assert_eq!(cfg.cache.l2_hits, 3);
+    }
+
+    #[test]
+    fn the_ca_bundle_is_optional_and_survives_a_merge() {
+        assert_eq!(Config::default().proxy.ca_bundle, None);
+        let existing = "[proxy]\nca_bundle = \"/etc/corp-ca.pem\"\n";
+        let text = merge_config(existing, None).unwrap();
+        let cfg = Config::from_toml_str(&text).unwrap();
+        assert_eq!(cfg.proxy.ca_bundle.as_deref(), Some("/etc/corp-ca.pem"));
+        assert!(!merge_config("", None).unwrap().contains("ca_bundle"));
     }
 
     #[test]

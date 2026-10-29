@@ -12,6 +12,7 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ### Corrigido
 
+- No Windows, o `tokred proxy start` executado com a saída capturada (`out=$(tokred proxy start)`) não espera mais o proxy terminar: o proxy em segundo plano é iniciado por `Start-Process`, que não repassa os pipes de quem o chamou.
 - Gravações de cache com duração de 1 hora são precificadas pela própria tarifa (2x o input) em vez da tarifa de 5 minutos (1,25x); antes o `stats` as subestimava. O uso já registrado é corrigido automaticamente na próxima execução do `stats`.
 - O "modelo mais recente de uma família" (usado na comparação tudo-no-opus e para modelos desconhecidos) agora é ordenado pela versão antes da data, então ids atuais sem data como `claude-opus-5-5` não perdem mais para ids 4.x datados.
 - Fable e Mythos são reconhecidas como famílias de modelo (fallback de preço, cores no relatório).
@@ -21,6 +22,7 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ### Adicionado
 
+- O proxy funciona atrás de uma rede corporativa ([proxy](docs/proxy.pt-BR.md#atrás-de-um-proxy-corporativo)): faz túnel com `CONNECT` por `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` (respeitando `NO_PROXY`) e confia nos certificados do sistema operacional e nos arquivos PEM de `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE` e da nova chave opcional `[proxy] ca_bundle`. Valores inválidos são ignorados com um aviso. O `tokred doctor` e o `tokred proxy status` mostram o host do proxy e os arquivos de CA.
 - Proxy local opcional entre o Claude Code e a API da Anthropic, desligado até ser usado ([proxy](docs/proxy.pt-BR.md)): medição exata de cada requisição (modelo, tokens incluindo gravações de cache de 1 hora, latência, causa do cache miss, overhead do proxy); roteamento de requisições de subagentes e auxiliares para um modelo mais barato (`observe` por padrão; o modelo do loop principal nunca é alterado); conselhos sobre o loop principal (`tokred suggest`, `tokred statusline` e uma mensagem opcional de uma linha do hook `route`); compressão reversível de resultados grandes de ferramentas com o servidor MCP `tokred_retrieve` (`observe` por padrão). É fail-open: se algo falhar, a requisição original é encaminhada sem alteração.
 - `tokred claude [args...]`: inicia o proxy se preciso e executa o Claude Code por ele só nesta execução, repassando todos os argumentos.
 - `tokred proxy start|stop|status` e `tokred proxy service install|uninstall`; `tokred routing status|on|off|explain`; `tokred compression on|off|status` (`on` registra o servidor MCP em `~/.claude.json` com backup em `.tokred.bak`).

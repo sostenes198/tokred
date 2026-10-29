@@ -17,10 +17,6 @@ use hyper::header::{CONTENT_TYPE, HOST, HeaderValue};
 use hyper::http::request::Parts;
 use hyper::http::response;
 use hyper::{HeaderMap, Method, Request, Response, StatusCode};
-use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
-use hyper_util::client::legacy::Client;
-use hyper_util::client::legacy::connect::HttpConnector;
-use hyper_util::rt::{TokioExecutor, TokioTimer};
 use serde_json::{Value, json};
 use tokred_core::Timestamp;
 use tokred_core::ports::Clock;
@@ -29,6 +25,7 @@ use tokred_core::proxy::{
 };
 
 use crate::admin::{self, Admin};
+use crate::connector::UpstreamClient;
 use crate::headers;
 use crate::host::host_allowed;
 use crate::miss::{MainTurn, SessionTracker};
@@ -42,8 +39,6 @@ use crate::upstream::Upstream;
 
 /// Body of every response the proxy returns.
 pub(crate) type ProxyBody = UnsyncBoxBody<Bytes, hyper::Error>;
-
-type HttpClient = Client<HttpsConnector<HttpConnector>, Full<Bytes>>;
 
 /// Statuses that trigger the resend of the original body after a rewrite (spec 5.5).
 const REJECTIONS: [u16; 3] = [400, 404, 422];
@@ -66,7 +61,7 @@ fn bump(counter: &AtomicU64) {
 pub(crate) struct Shared {
     addr: SocketAddr,
     upstream: Upstream,
-    client: HttpClient,
+    client: UpstreamClient,
     hooks: Vec<Arc<dyn ProxyHook>>,
     sink: Arc<dyn RecordSink>,
     clock: Arc<dyn Clock + Send + Sync>,
@@ -81,25 +76,13 @@ pub(crate) struct Shared {
 pub(crate) struct SharedParts {
     pub addr: SocketAddr,
     pub upstream: Upstream,
+    pub client: UpstreamClient,
     pub hooks: Vec<Arc<dyn ProxyHook>>,
     pub sink: Arc<dyn RecordSink>,
     pub clock: Arc<dyn Clock + Send + Sync>,
     pub secret: String,
     pub session_cap: usize,
     pub shutdown: Shutdown,
-}
-
-/// An HTTP/1 client for the upstream: rustls with the Mozilla roots for `https`, plain TCP
-/// for a loopback `http` upstream. No timeouts: the client's own timeout is the only one.
-fn http_client() -> HttpClient {
-    let connector = HttpsConnectorBuilder::new()
-        .with_webpki_roots()
-        .https_or_http()
-        .enable_http1()
-        .build();
-    Client::builder(TokioExecutor::new())
-        .pool_timer(TokioTimer::new())
-        .build(connector)
 }
 
 /// The error and its causes, for logs (never contains headers or bodies).
@@ -119,7 +102,7 @@ impl Shared {
         Self {
             addr: parts.addr,
             upstream: parts.upstream,
-            client: http_client(),
+            client: parts.client,
             hooks: parts.hooks,
             sink: parts.sink,
             clock: parts.clock,

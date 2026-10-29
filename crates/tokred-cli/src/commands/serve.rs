@@ -15,7 +15,7 @@ use tokred_core::prompts::{PromptRepo, SuggestionRepo};
 use tokred_core::routing::RoutingRepo;
 use tokred_core::{Clock, Config, Timestamp};
 use tokred_pricing::load_table;
-use tokred_proxy::{ApplyRecord, ServerConfig, Shutdown, spawn_writer};
+use tokred_proxy::{ApplyRecord, NetworkSettings, ServerConfig, Shutdown, spawn_writer};
 use tokred_routing::RoutingHook;
 use tokred_store::Store;
 use tokred_suggest::{PromptTracker, TrackerSettings};
@@ -82,8 +82,9 @@ pub fn assemble(
     registered: bool,
     now: Timestamp,
 ) -> Result<Assembly> {
-    let server = ServerConfig::from_proxy_config(&config.proxy, secret)
+    let mut server = ServerConfig::from_proxy_config(&config.proxy, secret)
         .context("invalid [proxy] settings in tokred.toml")?;
+    server.network = NetworkSettings::from_env(config.proxy.ca_bundle.as_deref());
 
     let writer_store =
         Store::open(db).with_context(|| format!("could not open {}", db.display()))?;

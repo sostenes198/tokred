@@ -51,12 +51,22 @@ tokred proxy service install      # and later: tokred proxy service uninstall
 
 Both API-key and claude.ai subscription logins work (verified in the F7 spike). With a subscription, the credential travels in the `authorization` header and the proxy forwards it and the OAuth `anthropic-beta` value untouched. Measuring subscription traffic through a local gateway is a setup the Claude Code documentation describes. Rewriting the model of subscription requests is not addressed by Anthropic's terms, so routing stays in `observe` unless you turn it on ([decision](decisions.md)).
 
+## Behind a corporate proxy
+
+The proxy reaches the API the way Claude Code does when your network requires it.
+
+- **HTTP proxy.** If `HTTPS_PROXY` is set (also `ALL_PROXY` and `HTTP_PROXY`, in that order, and the lower-case names), the proxy asks it for a tunnel with `CONNECT` to the API host. `user:password@` in the address is sent as basic authentication and never logged. `NO_PROXY` works as in curl: comma-separated host names (a suffix also matches subdomains), IP addresses, CIDR ranges, `*`. SOCKS (`socks5://`) and `https://` proxies are not supported; tokred says so in the log and in `tokred doctor`, and connects directly.
+- **Certificate authorities.** On top of the built-in roots it trusts your operating system's certificate store and the PEM files named by `NODE_EXTRA_CA_CERTS` and `SSL_CERT_FILE` (the variables Claude Code reads) and by `ca_bundle` in `[proxy]` of `tokred.toml`. This is what a TLS-inspecting proxy needs.
+- **Fail-open.** A value that is not a proxy address, or a CA file that is missing or has no certificate, is logged once (by variable or file name, never the value) and ignored: the proxy connects directly, or with the remaining roots. A proxy that is reachable but refuses the tunnel (or a certificate that is not trusted) gives the usual `502` for an upstream that cannot be reached.
+- `tokred doctor` and `tokred proxy status` show the proxy (host and port only) and the extra CA files in use.
+
+The settings are read when the proxy starts, from the environment of the process that starts it: set the variables before `tokred proxy start` or `tokred claude`, and for the user service in the environment the service runs in (or put the CA file in `ca_bundle`). Restart the proxy after changing them.
+
 ## Limits
 
-- The proxy connects to the API directly and trusts the built-in certificate roots. It does not read `HTTPS_PROXY` or a custom CA bundle, so it does not work behind a corporate proxy that inspects TLS. In that case use Claude Code without it.
+- Behind a corporate network only `http://` proxies are supported (no SOCKS), and the proxy settings are read once, when the proxy starts.
 - It reads response usage only from an uncompressed response. It asks the API for one (`Accept-Encoding: identity`); if a response comes back compressed anyway it is still forwarded unchanged, just not measured.
 - A compaction request carries no header that tells it apart, so it can be taken for a simple prompt. Routing never changes the main loop's model, so this only affects the advice.
-- On Windows, `tokred proxy start` run with its output captured by a pipe (for example `out=$(tokred proxy start)`, or a CI step that records output) does not return until the proxy stops: Windows lets the background process inherit the pipe. Run it in a terminal, send its output to a file or `NUL`, or use `tokred proxy service install`. The same applies to `tokred claude` when it has to start the proxy with its output piped; start the proxy first in that case.
 - Per-request records do not yet include the stop reason, the tool names or the cache lifetime used.
 
 ## Configuration

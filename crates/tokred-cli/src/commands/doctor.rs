@@ -221,6 +221,8 @@ pub struct ProxyInfo {
     pub routing_mode: String,
     /// Compression mode.
     pub compression_mode: String,
+    /// The corporate-network settings in effect (HTTP proxy, extra certificate authorities).
+    pub network: tokred_proxy::NetworkSummary,
 }
 
 fn mode_text(mode: tokred_core::config::TrafficMode) -> String {
@@ -240,6 +242,8 @@ fn proxy_info(env: &Env, config: &Config) -> ProxyInfo {
             .filter(|v| !v.is_empty()),
         routing_mode: mode_text(config.routing.mode),
         compression_mode: mode_text(config.compression.mode),
+        network: tokred_proxy::NetworkSettings::from_env(config.proxy.ca_bundle.as_deref())
+            .summary(&config.proxy.upstream),
     }
 }
 
@@ -267,6 +271,9 @@ fn proxy_lines(proxy: &ProxyInfo) -> String {
             );
         }
         None => {}
+    }
+    for line in proxy.network.lines() {
+        let _ = writeln!(out, "               network: {line}");
     }
     if proxy.routing_mode == "enforce" {
         let _ = writeln!(
@@ -457,7 +464,38 @@ mod tests {
             anthropic_base_url: None,
             routing_mode: "observe".to_owned(),
             compression_mode: "observe".to_owned(),
+            network: tokred_proxy::NetworkSummary::default(),
         }
+    }
+
+    #[test]
+    fn the_proxy_section_shows_the_corporate_network_settings() {
+        let network = tokred_proxy::NetworkSettings::from_lookup(
+            &|name| match name {
+                "HTTPS_PROXY" => Some("http://alice:s3cret@proxy.corp:3128".to_owned()),
+                "NODE_EXTRA_CA_CERTS" => Some("/no/such/corp.pem".to_owned()),
+                _ => None,
+            },
+            None,
+        )
+        .summary("https://api.anthropic.com");
+        let text = proxy_lines(&ProxyInfo {
+            network,
+            ..sample_proxy()
+        });
+        assert!(
+            text.contains("network: HTTPS_PROXY proxy.corp:3128 (the upstream is reached"),
+            "{text}"
+        );
+        assert!(
+            text.contains("network: extra CA file /no/such/corp.pem (cannot be read)"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("s3cret") && !text.contains("alice"),
+            "{text}"
+        );
+        assert!(!proxy_lines(&sample_proxy()).contains("network:"));
     }
 
     #[test]

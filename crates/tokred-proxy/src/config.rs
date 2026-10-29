@@ -10,6 +10,7 @@ use tokred_core::config::ProxyConfig;
 use tokred_core::ports::Clock;
 
 use crate::error::ProxyError;
+use crate::network::NetworkSettings;
 
 /// Sessions whose last main-loop request is remembered for the cache-miss explanation.
 pub const DEFAULT_SESSION_CAP: usize = 1024;
@@ -47,6 +48,9 @@ pub struct ServerConfig {
     pub session_cap: usize,
     /// How long a shutdown waits for responses in flight.
     pub drain_timeout: Duration,
+    /// The corporate-network settings: HTTP proxy and extra certificate authorities. The default
+    /// is none; the CLI fills it from the environment ([`NetworkSettings::from_env`]).
+    pub network: NetworkSettings,
     /// Source of request timestamps.
     pub clock: Arc<dyn Clock + Send + Sync>,
 }
@@ -65,6 +69,7 @@ impl ServerConfig {
             admin_secret: admin_secret.into(),
             session_cap: DEFAULT_SESSION_CAP,
             drain_timeout: DEFAULT_DRAIN_TIMEOUT,
+            network: NetworkSettings::default(),
             clock: Arc::new(SystemClock),
         }
     }
@@ -93,6 +98,7 @@ impl fmt::Debug for ServerConfig {
             .field("admin_secret", &"<redacted>")
             .field("session_cap", &self.session_cap)
             .field("drain_timeout", &self.drain_timeout)
+            .field("network", &self.network)
             .finish_non_exhaustive()
     }
 }

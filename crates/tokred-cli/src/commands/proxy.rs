@@ -167,6 +167,8 @@ fn status(io: &mut Io, ctx: &ProxyCtx<'_>, json: bool) -> Result<()> {
         "anthropic_base_url_points_here": points_here,
         "routing_mode": ctx.config.routing.mode,
         "compression_mode": ctx.config.compression.mode,
+        "network": tokred_proxy::NetworkSettings::from_env(ctx.config.proxy.ca_bundle.as_deref())
+            .summary(&ctx.config.proxy.upstream),
         "details": details,
         "traffic": traffic_last_day(ctx.env),
     });
@@ -434,6 +436,7 @@ mod tests {
         assert_eq!(value["pid"], 1234);
         assert_eq!(value["details"]["requests"], 3, "status needs the secret");
         assert_eq!(value["routing_mode"], "observe");
+        assert!(value["network"]["ca_files"].is_array(), "{value}");
 
         let (mut io, out) = scripted(false, "");
         run(
