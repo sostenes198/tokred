@@ -147,3 +147,13 @@ impl Store {
             .map_err(StoreError::backend)
     }
 }
+
+impl tokred_core::proxy::ProxyRequestRepo for Store {
+    fn requests_between(
+        &self,
+        from: Timestamp,
+        to: Timestamp,
+    ) -> Result<Vec<ProxyRequestRecord>, StoreError> {
+        self.proxy_requests_between(from, to)
+    }
+}

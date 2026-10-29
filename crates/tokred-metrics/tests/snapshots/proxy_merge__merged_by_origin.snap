@@ -1,0 +1,42 @@
+---
+source: crates/tokred-metrics/tests/proxy_merge.rs
+expression: by_origin.groups
+---
+[
+  {
+    "key": "auxiliary",
+    "messages": 1,
+    "tokens": {
+      "input": 10000,
+      "output": 0,
+      "cache_write": 0,
+      "cache_read": 0,
+      "total": 10000
+    },
+    "cost_usd": 0.01
+  },
+  {
+    "key": "main",
+    "messages": 2,
+    "tokens": {
+      "input": 3000000,
+      "output": 0,
+      "cache_write": 0,
+      "cache_read": 0,
+      "total": 3000000
+    },
+    "cost_usd": 21.0
+  },
+  {
+    "key": "subagent",
+    "messages": 2,
+    "tokens": {
+      "input": 4000000,
+      "output": 0,
+      "cache_write": 0,
+      "cache_read": 0,
+      "total": 4000000
+    },
+    "cost_usd": 4.0
+  }
+]

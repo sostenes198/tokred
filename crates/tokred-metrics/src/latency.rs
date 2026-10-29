@@ -103,12 +103,12 @@ pub struct LatencyStats {
 }
 
 /// Microseconds as milliseconds, rounded to microsecond precision.
-fn ms(us: u64) -> f64 {
+pub(crate) fn ms(us: u64) -> f64 {
     round6(to_f64(us) / 1_000.0)
 }
 
 /// Nearest-rank percentile `p` (0..=100) of ascending `sorted` samples; 0 when empty.
-fn percentile(sorted: &[u64], p: usize) -> u64 {
+pub(crate) fn percentile(sorted: &[u64], p: usize) -> u64 {
     let rank = (p * sorted.len()).div_ceil(100).max(1);
     sorted.get(rank - 1).copied().unwrap_or(0)
 }

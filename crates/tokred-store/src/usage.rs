@@ -35,6 +35,8 @@ fn row_to_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<UsageRecord> {
             cache_read: from_db(row.get(8)?),
         },
         is_subagent: row.get::<_, i64>(9)? != 0,
+        origin: None,
+        agent_type: None,
     })
 }
 

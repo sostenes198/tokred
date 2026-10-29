@@ -1,0 +1,99 @@
+---
+source: crates/tokred-metrics/tests/proxy_merge.rs
+expression: stats
+---
+{
+  "range": {
+    "from": 1772323200,
+    "to": 1772326800
+  },
+  "group_by": "model",
+  "totals": {
+    "messages": 5,
+    "sessions": 1,
+    "tokens": {
+      "input": 7010000,
+      "output": 0,
+      "cache_write": 0,
+      "cache_read": 0,
+      "total": 7010000
+    },
+    "cost_usd": 25.01
+  },
+  "groups": [
+    {
+      "key": "claude-haiku-4-5",
+      "messages": 3,
+      "tokens": {
+        "input": 4010000,
+        "output": 0,
+        "cache_write": 0,
+        "cache_read": 0,
+        "total": 4010000
+      },
+      "cost_usd": 4.01
+    },
+    {
+      "key": "claude-opus-4-1-20250805",
+      "messages": 1,
+      "tokens": {
+        "input": 1000000,
+        "output": 0,
+        "cache_write": 0,
+        "cache_read": 0,
+        "total": 1000000
+      },
+      "cost_usd": 15.0
+    },
+    {
+      "key": "claude-sonnet-4-20250514",
+      "messages": 1,
+      "tokens": {
+        "input": 2000000,
+        "output": 0,
+        "cache_write": 0,
+        "cache_read": 0,
+        "total": 2000000
+      },
+      "cost_usd": 6.0
+    }
+  ],
+  "savings": {
+    "real_cost_usd": 25.01,
+    "opus_cost_usd": 105.15,
+    "routing_saving_usd": 80.14,
+    "guard": {
+      "estimate": true,
+      "blocks": 0,
+      "bytes_saved": 0,
+      "tokens_avoided": 0,
+      "saving_usd": 0.0
+    },
+    "total_saving_usd": 80.14
+  },
+  "cache_rate": {
+    "overall": 0.0,
+    "per_day": [
+      {
+        "day": "2026-03-01",
+        "rate": 0.0
+      }
+    ]
+  },
+  "projection": {
+    "last_7d": {
+      "window_days": 7,
+      "days_of_data": 1,
+      "daily_avg_usd": 25.01,
+      "projected_30d_usd": 750.3
+    },
+    "last_30d": {
+      "window_days": 30,
+      "days_of_data": 1,
+      "daily_avg_usd": 25.01,
+      "projected_30d_usd": 750.3
+    }
+  },
+  "before_after": null,
+  "unpriced_models": []
+}

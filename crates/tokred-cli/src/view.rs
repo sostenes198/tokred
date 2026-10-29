@@ -1021,6 +1021,8 @@ mod tests {
                 cache_read: 1_000,
             },
             is_subagent: false,
+            origin: None,
+            agent_type: None,
         }
     }
 

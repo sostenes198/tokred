@@ -21,6 +21,11 @@ pub struct UsageRecord {
     pub usage: Usage,
     /// The line came from a subagent transcript.
     pub is_subagent: bool,
+    /// Who sent the request (`main`, `subagent`, `auxiliary`, `compaction`). Known only for rows
+    /// the proxy measured; `None` for rows read from transcripts alone, and never stored.
+    pub origin: Option<String>,
+    /// The agent type of a subagent request, when the proxy saw it. Never stored.
+    pub agent_type: Option<String>,
 }
 
 /// Incremental-ingestion position of one transcript file (row of `ingest_state`).

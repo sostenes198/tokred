@@ -1941,6 +1941,7 @@ name = "tokred-metrics"
 version = "0.1.0"
 dependencies = [
  "insta",
+ "proptest",
  "serde",
  "serde_json",
  "tempfile",
