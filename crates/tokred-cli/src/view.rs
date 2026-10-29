@@ -9,6 +9,7 @@ use tokred_audit::AuditReport;
 use tokred_audit::report::{ItemKind, McpScope, Scope};
 use tokred_core::cache::CacheStats;
 use tokred_core::pricing::PriceEntry;
+use tokred_metrics::proxy::{CacheMisses, ModelRoute, ProxyStats};
 use tokred_metrics::stats::{BeforeAfter, Group, UnpricedReason};
 use tokred_metrics::{GroupBy, LatencyStats, Stats, Tradeoff};
 use tokred_report::format::{compact, integer, ms, percent, usd};
@@ -25,6 +26,12 @@ const MAX_NAME: usize = 38;
 const IMPACT_WIDTH: usize = 10;
 /// Cells in the efficiency meter.
 const METER_WIDTH: usize = 28;
+
+/// A counter as `f64` (counters are far below 2^53).
+#[allow(clippy::cast_precision_loss)]
+fn to_f64(value: u64) -> f64 {
+    value as f64
+}
 
 fn fraction(part: f64, whole: f64) -> Option<f64> {
     (whole > 0.0 && part.is_finite()).then(|| (part / whole).clamp(0.0, 1.0))
@@ -211,6 +218,8 @@ fn group_heading(by: GroupBy) -> (&'static str, &'static str) {
         GroupBy::Model => ("By Model", "Model"),
         GroupBy::Day => ("By Day", "Day"),
         GroupBy::Project => ("By Project", "Project"),
+        GroupBy::Origin => ("By Origin", "Origin"),
+        GroupBy::AgentType => ("By Agent Type", "Agent type"),
     }
 }
 
@@ -282,6 +291,220 @@ fn groups_table(term: Term, stats: &Stats) -> String {
             term.dim(&format!("... and {} more", groups.len() - MAX_ROWS))
         );
     }
+    out
+}
+
+/// What only the proxy measures, after the cost dashboard: where the numbers came from, the
+/// proxy's own overhead, model routing, cache misses by cause and the suggestion waiting.
+#[must_use]
+pub fn render_proxy(term: Term, proxy: &ProxyStats) -> String {
+    let mut out = format!("\n{}\n", term.accent("Proxy"));
+    let coverage = &proxy.coverage;
+    let mut rows: Vec<(&str, String)> = vec![
+        (
+            "Data source",
+            format!(
+                "{} messages measured by the proxy, {} from transcripts only",
+                integer(coverage.measured),
+                integer(coverage.transcript_only)
+            ),
+        ),
+        (
+            "Requests",
+            format!(
+                "{} handled, {} failed",
+                integer(proxy.requests),
+                integer(proxy.failed)
+            ),
+        ),
+    ];
+    if let Some(overhead) = &proxy.overhead {
+        let text = format!(
+            "p50 {} · p95 {} · p99 {} · max {} (budget: p95 under {})",
+            ms(overhead.p50_ms),
+            ms(overhead.p95_ms),
+            ms(overhead.p99_ms),
+            ms(overhead.max_ms),
+            ms(overhead.budget_ms)
+        );
+        rows.push((
+            "Overhead",
+            if overhead.over_budget {
+                term.red(&text)
+            } else {
+                term.heat(1.0, &text)
+            },
+        ));
+    }
+    if let Some(routing) = &proxy.routing {
+        rows.push((
+            "Routing",
+            format!(
+                "{} applied (~{} saved) · {} observed (~{} if applied) · {} kept · {} fallback {}",
+                integer(routing.applied),
+                usd(routing.applied_saving_usd),
+                integer(routing.observed),
+                usd(routing.observed_saving_usd),
+                integer(routing.kept),
+                integer(routing.fallback),
+                term.dim("(estimate)")
+            ),
+        ));
+    }
+    if let Some(misses) = &proxy.cache_misses {
+        rows.push((
+            "Cache misses",
+            format!(
+                "{} of {} main-loop messages ({})",
+                integer(misses.misses),
+                integer(misses.main_requests),
+                misses.rate.map_or_else(|| "n/a".to_owned(), percent)
+            ),
+        ));
+    }
+    out.push_str(&key_values(&rows));
+    if let Some(overhead) = proxy.overhead.filter(|overhead| overhead.over_budget) {
+        out.push_str(&term.red(&format!(
+            "▶ proxy overhead p95 is {} (budget {})\n",
+            ms(overhead.p95_ms),
+            ms(overhead.budget_ms)
+        )));
+        out.push('\n');
+    }
+    out.push_str(&routes_table(term, &proxy.models));
+    if let Some(misses) = &proxy.cache_misses {
+        out.push_str(&misses_table(term, misses));
+    }
+    if let Some(suggestion) = &proxy.suggestion {
+        let _ = write!(
+            out,
+            "\n{} {} {}\n",
+            term.cyan("▶"),
+            suggestion.message,
+            term.dim("(`tokred suggest` shows the evidence)")
+        );
+    }
+    out
+}
+
+/// Requested against effective model.
+fn routes_table(term: Term, models: &[ModelRoute]) -> String {
+    if models.is_empty() {
+        return String::new();
+    }
+    let rows: Vec<Vec<String>> = models
+        .iter()
+        .take(MAX_ROWS)
+        .enumerate()
+        .map(|(index, route)| {
+            let effective = truncate(&route.effective, MAX_NAME);
+            vec![
+                format!("{}.", index + 1),
+                truncate(&route.requested, MAX_NAME),
+                if route.rewritten {
+                    term.yellow(&format!("{effective} *"))
+                } else {
+                    effective
+                },
+                integer(route.requests),
+                compact(route.tokens),
+                usd(route.cost_usd),
+            ]
+        })
+        .collect();
+    let columns = [
+        Column {
+            title: "#",
+            align: Align::Right,
+        },
+        Column {
+            title: "Asked for",
+            align: Align::Left,
+        },
+        Column {
+            title: "Answered by",
+            align: Align::Left,
+        },
+        Column {
+            title: "Msgs",
+            align: Align::Right,
+        },
+        Column {
+            title: "Tokens",
+            align: Align::Right,
+        },
+        Column {
+            title: "Cost",
+            align: Align::Right,
+        },
+    ];
+    let mut out = format!("\n{}\n", term.accent("Model routing"));
+    out.push_str(&table(term, &columns, &rows));
+    if models.len() > MAX_ROWS {
+        out.push_str(&term.dim(&format!("... and {} more\n", models.len() - MAX_ROWS)));
+    }
+    if models.iter().any(|route| route.rewritten) {
+        out.push_str(&term.dim("* the proxy rewrote the model of the request\n"));
+    }
+    out
+}
+
+/// Prompt-cache misses of the main loop, by cause.
+fn misses_table(term: Term, misses: &CacheMisses) -> String {
+    let max = misses
+        .causes
+        .iter()
+        .map(|cause| cause.requests)
+        .max()
+        .unwrap_or(0);
+    let rows: Vec<Vec<String>> = misses
+        .causes
+        .iter()
+        .take(MAX_ROWS)
+        .enumerate()
+        .map(|(index, cause)| {
+            vec![
+                format!("{}.", index + 1),
+                term.accent(&truncate(&cause.cause, MAX_NAME)),
+                integer(cause.requests),
+                fraction(to_f64(cause.requests), to_f64(misses.misses))
+                    .map_or_else(|| "-".to_owned(), percent),
+                compact(cause.cache_write_tokens),
+                term.bar(
+                    fraction(to_f64(cause.requests), to_f64(max)).unwrap_or(0.0),
+                    IMPACT_WIDTH,
+                ),
+            ]
+        })
+        .collect();
+    let columns = [
+        Column {
+            title: "#",
+            align: Align::Right,
+        },
+        Column {
+            title: "Cause",
+            align: Align::Left,
+        },
+        Column {
+            title: "Misses",
+            align: Align::Right,
+        },
+        Column {
+            title: "Share",
+            align: Align::Right,
+        },
+        Column {
+            title: "Rebuilt",
+            align: Align::Right,
+        },
+        Column {
+            title: "Impact",
+            align: Align::Left,
+        },
+    ];
+    let mut out = format!("\n{}\n", term.accent("Cache misses by cause"));
+    out.push_str(&table(term, &columns, &rows));
     out
 }
 
@@ -1563,5 +1786,174 @@ mod tests {
         let text = render_stats(OFF, &stats, "x");
         assert!(text.contains("Cost per session"), "{text}");
         assert!(text.contains("+0%") || text.contains("0%"));
+    }
+    fn proxy_stats() -> ProxyStats {
+        use tokred_metrics::proxy::{
+            Coverage, MissCause, Overhead, PendingSuggestion, RoutingOutcomes,
+        };
+        ProxyStats {
+            coverage: Coverage {
+                measured: 120,
+                transcript_only: 14,
+            },
+            requests: 150,
+            failed: 2,
+            models: vec![
+                ModelRoute {
+                    requested: "claude-sonnet-4-20250514".to_owned(),
+                    effective: "claude-haiku-4-5".to_owned(),
+                    rewritten: true,
+                    requests: 40,
+                    tokens: 4_200_000,
+                    cost_usd: 1.5,
+                },
+                ModelRoute {
+                    requested: "claude-opus-4-1-20250805".to_owned(),
+                    effective: "claude-opus-4-1-20250805".to_owned(),
+                    rewritten: false,
+                    requests: 80,
+                    tokens: 9_000_000,
+                    cost_usd: 42.0,
+                },
+            ],
+            routing: Some(RoutingOutcomes {
+                decisions: 46,
+                applied: 30,
+                observed: 10,
+                kept: 5,
+                fallback: 1,
+                applied_saving_usd: 4.25,
+                observed_saving_usd: 1.5,
+            }),
+            overhead: Some(Overhead {
+                requests: 150,
+                p50_ms: 0.4,
+                p95_ms: 1.2,
+                p99_ms: 2.0,
+                max_ms: 3.5,
+                budget_ms: 10.0,
+                over_budget: false,
+            }),
+            cache_misses: Some(CacheMisses {
+                main_requests: 80,
+                misses: 8,
+                rate: Some(0.1),
+                causes: vec![
+                    MissCause {
+                        cause: "ttl_expired".to_owned(),
+                        requests: 6,
+                        cache_write_tokens: 120_000,
+                    },
+                    MissCause {
+                        cause: "tools_changed".to_owned(),
+                        requests: 2,
+                        cache_write_tokens: 900,
+                    },
+                ],
+            }),
+            suggestion: Some(PendingSuggestion {
+                id: "sg1".to_owned(),
+                ts: 1_000,
+                session_id: "s1".to_owned(),
+                message: "The last 3 prompts were simple; sonnet would have done".to_owned(),
+            }),
+        }
+    }
+
+    #[test]
+    fn the_proxy_section_without_colors() {
+        insta::assert_snapshot!(render_proxy(OFF, &proxy_stats()));
+    }
+
+    #[test]
+    fn the_proxy_section_with_colors() {
+        insta::assert_snapshot!(render_proxy(Term::new(true), &proxy_stats()));
+    }
+
+    #[test]
+    fn an_overhead_over_budget_is_an_alert() {
+        let mut proxy = proxy_stats();
+        if let Some(overhead) = proxy.overhead.as_mut() {
+            overhead.p95_ms = 12.5;
+            overhead.over_budget = true;
+        }
+        let plain = render_proxy(OFF, &proxy);
+        assert!(
+            plain.contains("▶ proxy overhead p95 is 12.5 ms (budget 10.0 ms)"),
+            "{plain}"
+        );
+        let painted = render_proxy(Term::new(true), &proxy);
+        assert!(painted.contains("\x1b[31m▶ proxy overhead"), "{painted}");
+
+        let calm = render_proxy(OFF, &proxy_stats());
+        assert!(!calm.contains("▶ proxy overhead"), "{calm}");
+    }
+
+    #[test]
+    fn the_proxy_section_leaves_out_what_it_did_not_record() {
+        use tokred_metrics::proxy::Coverage;
+        let bare = ProxyStats {
+            coverage: Coverage {
+                measured: 0,
+                transcript_only: 3,
+            },
+            requests: 0,
+            failed: 0,
+            models: Vec::new(),
+            routing: None,
+            overhead: None,
+            cache_misses: None,
+            suggestion: None,
+        };
+        let text = render_proxy(OFF, &bare);
+        assert!(text.contains("Data source:"), "{text}");
+        for absent in ["Overhead", "Routing", "Cache misses", "Model routing", "▶"] {
+            assert!(!text.contains(absent), "unexpected {absent:?} in:\n{text}");
+        }
+
+        // Long tables are cut, and a miss rate without main-loop messages is "n/a".
+        let mut many = proxy_stats();
+        many.models = (0..20)
+            .map(|n| ModelRoute {
+                requested: format!("model-{n}"),
+                effective: format!("model-{n}"),
+                rewritten: false,
+                requests: 20 - n,
+                tokens: 1,
+                cost_usd: 0.0,
+            })
+            .collect();
+        if let Some(misses) = many.cache_misses.as_mut() {
+            misses.rate = None;
+        }
+        let text = render_proxy(OFF, &many);
+        assert!(text.contains("... and 5 more"), "{text}");
+        assert!(text.contains("8 of 80 main-loop messages (n/a)"), "{text}");
+        assert!(
+            !text.contains("* the proxy rewrote"),
+            "nothing was rewritten"
+        );
+    }
+
+    #[test]
+    fn the_cost_table_can_be_grouped_by_origin_and_agent_type() {
+        let mut usage = vec![
+            record("a", "s1", "claude-opus-4-1-20250805", 1, 2_000_000),
+            record("b", "s1", "claude-sonnet-4-20250514", 1, 3_000_000),
+        ];
+        usage[0].origin = Some("main".to_owned());
+        usage[1].origin = Some("subagent".to_owned());
+        usage[1].agent_type = Some("Explore".to_owned());
+        let origin = render_stats(OFF, &stats_for(&usage, &[], GroupBy::Origin), "x");
+        assert!(
+            origin.contains("By Origin") && origin.contains("subagent"),
+            "{origin}"
+        );
+        let agents = render_stats(OFF, &stats_for(&usage, &[], GroupBy::AgentType), "x");
+        assert!(
+            agents.contains("By Agent Type") && agents.contains("Explore"),
+            "{agents}"
+        );
+        assert!(agents.contains("(unknown)"), "{agents}");
     }
 }

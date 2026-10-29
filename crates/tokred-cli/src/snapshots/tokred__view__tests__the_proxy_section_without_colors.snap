@@ -1,0 +1,30 @@
+---
+source: crates/tokred-cli/src/view.rs
+expression: "render_proxy(OFF, &proxy_stats())"
+---
+
+Proxy
+Data source:  120 messages measured by the proxy, 14 from transcripts only
+Requests:     150 handled, 2 failed
+Overhead:     p50 0.40 ms · p95 1.20 ms · p99 2.00 ms · max 3.50 ms (budget: p95 under 10.0 ms)
+Routing:      30 applied (~$4.25 saved) · 10 observed (~$1.50 if applied) · 5 kept · 1 fallback (estimate)
+Cache misses: 8 of 80 main-loop messages (10.0%)
+
+Model routing
+────────────────────────────────────────────────────────────────────────────
+ #  Asked for                 Answered by               Msgs  Tokens    Cost
+────────────────────────────────────────────────────────────────────────────
+1.  claude-sonnet-4-20250514  claude-haiku-4-5 *          40    4.2M   $1.50
+2.  claude-opus-4-1-20250805  claude-opus-4-1-20250805    80    9.0M  $42.00
+────────────────────────────────────────────────────────────────────────────
+* the proxy rewrote the model of the request
+
+Cache misses by cause
+─────────────────────────────────────────────────────
+ #  Cause          Misses  Share  Rebuilt  Impact    
+─────────────────────────────────────────────────────
+1.  ttl_expired         6  75.0%   120.0k  ██████████
+2.  tools_changed       2  25.0%      900  ███░░░░░░░
+─────────────────────────────────────────────────────
+
+▶ The last 3 prompts were simple; sonnet would have done (`tokred suggest` shows the evidence)

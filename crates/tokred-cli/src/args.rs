@@ -31,6 +31,10 @@ pub enum StatsBy {
     Day,
     /// One row per project.
     Project,
+    /// One row per request origin (main, subagent, auxiliary, compaction).
+    Origin,
+    /// One row per agent type of a subagent request.
+    AgentType,
 }
 
 /// Grouping of `tokred stats latency`.
@@ -342,6 +346,15 @@ mod tests {
             Command::Stats { command: None, ref args, .. }
                 if args.since == "30d" && args.by == Some(StatsBy::Model) && args.json
         ));
+        for (flag, expected) in [
+            ("origin", StatsBy::Origin),
+            ("agent-type", StatsBy::AgentType),
+        ] {
+            assert!(matches!(
+                parse(&["stats", "--by", flag]),
+                Command::Stats { command: None, ref args, .. } if args.by == Some(expected)
+            ));
+        }
         assert!(matches!(
             parse(&["stats", "latency", "--by", "session"]),
             Command::Stats { command: Some(StatsCommand::Latency(ref latency)), .. }

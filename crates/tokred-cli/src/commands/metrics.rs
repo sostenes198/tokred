@@ -3,19 +3,16 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use tokred_core::meta::MetaRepo;
 use tokred_install::StdFileSystem;
-use tokred_metrics::latency_stats;
-use tokred_pricing::PRICE_SYNCED_AT;
-use tokred_report::{Opener, render_html, write_report};
+use tokred_report::{Opener, write_report};
 
-use super::data::load;
-use super::report_data::{build, model_stats};
+use super::data::{Repos, load};
+use super::report_data::{model_stats, report_html};
 use super::{audit, show};
 use crate::env::Env;
 use crate::io::Io;
 use crate::term::Term;
-use crate::view::render_stats;
+use crate::view::{render_proxy, render_stats};
 
 pub fn run(
     env: &Env,
@@ -26,27 +23,25 @@ pub fn run(
     opener: &dyn Opener,
 ) -> Result<()> {
     let loaded = load(env, io, dir_flag, since)?;
-    let stats = model_stats(&loaded, &loaded.prices);
-    let latency = latency_stats(&loaded.events, loaded.spawn_overhead_us, loaded.range);
+    let data = &loaded.data;
     let audit_report = audit::default_project()
         .ok()
         .map(|project| audit::build_report(env, &loaded.claude_dir, project));
-    let last_sync = loaded
-        .store
-        .meta_get(PRICE_SYNCED_AT)?
-        .and_then(|v| v.parse::<i64>().ok());
-
-    let html = render_html(&build(
-        &loaded,
-        &stats,
-        &latency,
+    let html = report_html(
+        &Repos::of(&loaded.store),
+        data.prices.clone(),
+        data.now,
+        since,
         audit_report.as_ref(),
-        last_sync,
-    ));
+    )?;
     let path = env.data.reports_dir().join("metrics.html");
     write_report(&StdFileSystem, &path, &html)?;
 
-    let dashboard = render_stats(Term::new(io.color()), &stats, &loaded.label);
+    let term = Term::new(io.color());
+    let mut dashboard = render_stats(term, &model_stats(data, &data.prices), &data.label);
+    if let Some(proxy) = data.proxy() {
+        dashboard.push_str(&render_proxy(term, &proxy));
+    }
     write!(io.out(), "{dashboard}")?;
     writeln!(io.out(), "\nHTML report written to {}", show(&path))?;
     if !no_open && let Err(err) = opener.open(&path) {
@@ -182,5 +177,47 @@ mod tests {
             html.contains("No data yet"),
             "empty sections are shown, not dropped"
         );
+    }
+    #[test]
+    fn the_report_and_the_dashboard_show_the_proxy_when_it_recorded_something() {
+        let sb = seeded();
+        sb.seed_proxy();
+        let browser = Browser {
+            opened: RefCell::default(),
+            fail: false,
+        };
+        let (result, out, _) = go(&sb, true, &browser);
+        result.unwrap();
+        assert!(
+            out.contains("Data source:  3 messages measured by the proxy"),
+            "{out}"
+        );
+        let html = std::fs::read_to_string(sb.env.data.reports_dir().join("metrics.html")).unwrap();
+        for id in [
+            "proxy-routing",
+            "proxy-overhead",
+            "proxy-cache",
+            "proxy-origin",
+        ] {
+            assert!(html.contains(id), "{id}");
+        }
+        assert!(html.contains("claude-haiku-4-5"));
+        assert!(
+            !html.contains("http://") && !html.contains("https://"),
+            "still offline"
+        );
+    }
+
+    #[test]
+    fn without_the_proxy_the_report_has_no_proxy_sections() {
+        let sb = seeded();
+        let browser = Browser {
+            opened: RefCell::default(),
+            fail: false,
+        };
+        let (_, out, _) = go(&sb, true, &browser);
+        assert!(!out.contains("Data source"), "{out}");
+        let html = std::fs::read_to_string(sb.env.data.reports_dir().join("metrics.html")).unwrap();
+        assert!(!html.contains("proxy-routing") && !html.contains("\"proxy\""));
     }
 }
