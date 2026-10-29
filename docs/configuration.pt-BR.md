@@ -14,7 +14,7 @@ Onde o tokred guarda seus arquivos, quais variáveis de ambiente ele lê e todas
 | Config | `<data>/tokred.toml` |
 | Logs | `<data>/logs/` (um arquivo por dia, 7 dias mantidos) |
 | Relatório HTML | `<data>/reports/metrics.html` |
-| Arquivos de execução do proxy | `<data>/proxy/` (arquivo de pid, segredo de administração) |
+| Arquivos de execução do proxy | `<data>/proxy/` (arquivo de pid, segredo de administração, os valores de `ANTHROPIC_BASE_URL` que o tokred gravou) |
 
 ## Variáveis de ambiente
 
@@ -23,10 +23,10 @@ Onde o tokred guarda seus arquivos, quais variáveis de ambiente ele lê e todas
 | `TOKRED_DATA_DIR` | Substitui a pasta de dados |
 | `CLAUDE_CONFIG_DIR` | Pasta do Claude Code, como o próprio Claude Code a lê |
 | `TOKRED_LOG` | Nível gravado no arquivo de log: `error`, `warn`, `info` (padrão), `debug`, `trace` |
-| `TOKRED_OFFLINE` | `1` desliga toda chamada de rede: verificação de versão, sincronização de preços, `update`, `pricing sync` |
+| `TOKRED_OFFLINE` | `1` desliga as chamadas de rede automáticas (a verificação diária de versão e a sincronização diária de preços) e faz o `tokred update` se recusar a rodar. O `tokred pricing sync` ainda baixa a lista de preços quando você o executa |
 | `TOKRED_NO_UPDATE_CHECK` | `1` desliga só a verificação diária de versão |
 | `TOKRED_PORT` | Porta do proxy para `tokred proxy enable` e o script de instalação (1024 a 65535); a flag `--port` vence |
-| `TOKRED_RECORD_CONTENT` | Responde, sem perguntar, à pergunta do `tokred proxy enable` sobre registrar o conteúdo das conversas (`true`, `false`, `yes`, `no`, `1`, `0`); a flag `--record-content` vence |
+| `TOKRED_RECORD_CONTENT` | Responde, sem perguntar, à pergunta do `tokred proxy enable` sobre gravar o conteúdo das conversas (`true`, `false`, `yes`, `no`, `1`, `0`); a flag `--record-content` vence |
 | `TOKRED_BENCH_RUNS` | Execuções por entrada do `tokred doctor --bench` (padrão 50) |
 | `TOKRED_PRICES_URL` | URL alternativa da lista de preços do LiteLLM (espelhos) |
 | `TOKRED_RELEASES_URL` | URL alternativa da API de "última release" (espelhos) |
@@ -35,13 +35,23 @@ Onde o tokred guarda seus arquivos, quais variáveis de ambiente ele lê e todas
 | `NO_COLOR` | Qualquer valor não vazio desliga as cores do terminal |
 | `CLICOLOR_FORCE` | Qualquer valor não vazio diferente de `0` força as cores, mesmo quando o stdout não é um terminal |
 
-Os scripts de instalação e desinstalação também leem `TOKRED_VERSION`, `TOKRED_YES`, `TOKRED_NO_MODIFY_PATH`, `TOKRED_NO_ALIAS`, `TOKRED_NO_PROXY`, `TOKRED_NO_CONFIGURE` e `TOKRED_RELEASE_BASE_URL`; eles estão descritos em [instalação](installation.pt-BR.md). O proxy lê as variáveis de rede usuais (`HTTPS_PROXY`, `NO_PROXY`, `NODE_EXTRA_CA_CERTS`, ...), descritas em [proxy](proxy.pt-BR.md).
+O script de instalação também lê `TOKRED_VERSION`, `TOKRED_YES`, `TOKRED_NO_MODIFY_PATH`, `TOKRED_NO_ALIAS`, `TOKRED_NO_PROXY`, `TOKRED_NO_CONFIGURE` e `TOKRED_RELEASE_BASE_URL` (o de desinstalação lê só `TOKRED_HOME`); eles estão descritos em [instalação](installation.pt-BR.md). O proxy lê as variáveis de rede usuais (`HTTPS_PROXY`, `NO_PROXY`, `NODE_EXTRA_CA_CERTS`, ...), descritas em [proxy](proxy.pt-BR.md).
+
+## Tarefas em segundo plano
+
+Além do trabalho que lhes cabe, `doctor`, `stats`, `metrics`, `audit`, `pricing` e `cache` fazem três tarefas discretas. Os hooks e os demais comandos nunca as fazem:
+
+- **Reaplicar a configuração** uma vez depois que o binário muda de versão, quando o tokred já havia sido configurado: os hooks e agentes são atualizados e as suas configurações são mantidas. Depois do `tokred unconfigure`, nada é recolocado.
+- **Sincronizar a tabela de preços** no máximo uma vez por dia, a menos que `[pricing] auto_sync = false`.
+- **Verificar se há uma versão nova** no máximo uma vez por dia, a menos que `[update] mode = "off"`. Uma versão mais nova é anunciada em uma linha no stderr.
+
+`TOKRED_OFFLINE` desliga as duas últimas.
 
 ## tokred.toml
 
-O `tokred configure` cria o arquivo com todas as chaves no valor padrão. O arquivo que ele grava não tem comentários e suas chaves ficam em ordem alfabética; a ordem e os comentários abaixo servem só para leitura. Edite-o com qualquer editor; reiniciar o proxy aplica as mudanças de `[proxy]`, `[routing]`, `[suggest]`, `[compression]` e `[shadow]`, e os hooks leem o arquivo a cada execução.
+O `tokred configure` cria o arquivo com todas as chaves no valor padrão (só `ca_bundle` fica de fora). O arquivo que ele grava não tem comentários e suas chaves ficam em ordem alfabética; a ordem e os comentários abaixo servem só para leitura. Edite-o com qualquer editor; reiniciar o proxy aplica as mudanças de `[proxy]`, `[routing]`, `[suggest]`, `[compression]` e `[shadow]`, e os hooks e os comandos leem o arquivo a cada execução.
 
-**Como as atualizações fazem o merge.** No `configure` e depois de uma atualização de versão, as chaves que faltam são adicionadas com o padrão e todo valor que você definiu é mantido. O arquivo só é reescrito quando faltava uma chave, então os seus comentários sobrevivem nos outros casos. Uma chave que o tokred não conhece mais é ignorada. Um `tokred.toml` que não pode ser lido faz os hooks usarem os padrões.
+**Como as atualizações fazem o merge.** No `configure` e depois de uma atualização de versão, as chaves que faltam são adicionadas com o padrão e todo valor que você definiu é mantido. O arquivo só é reescrito quando faltava uma chave, então os seus comentários sobrevivem nos outros casos. Uma chave que o tokred não conhece é ignorada. Um `tokred.toml` que não pode ser lido faz os hooks usarem os padrões, enquanto comandos como `configure` e `stats` param com o erro de leitura.
 
 ```toml
 [claude]
@@ -67,7 +77,7 @@ large_repo_files = 5000      # um repositório com mais arquivos conta como gran
 context_warn_tokens = 120000 # avisa o usuário quando o contexto passa disto
 
 [update]
-mode = "notify"              # off | notify | auto (auto hoje se comporta como notify)
+mode = "notify"              # off | notify | auto (auto é aceito e se comporta como notify)
 
 [pricing]
 auto_sync = true             # atualiza a tabela de preços no máximo uma vez por dia
@@ -80,10 +90,10 @@ l3_hits = 10                 # acertos necessários para chegar ao L3
 
 [proxy]
 enabled = false                        # a chave geral dos recursos do proxy
-bind = "127.0.0.1:1029"                # endereço em que o proxy escuta
+bind = "127.0.0.1:1029"                # endereço em que o proxy escuta (só loopback)
 upstream = "https://api.anthropic.com" # o único host para o qual as requisições são encaminhadas
-retention_days = 90                    # dias de registros do proxy e de turnos capturados do painel mantidos; 0 mantém tudo
-log_bodies = false                     # registra o conteúdo das conversas para o painel (desligado: só metadados)
+retention_days = 90                    # dias de registros do proxy e de turnos capturados do dashboard mantidos; 0 nunca apaga
+log_bodies = false                     # grava o conteúdo das conversas para o dashboard (desligado: só metadados)
 # ca_bundle = "/etc/ssl/corp-ca.pem"   # opcional, ausente por padrão: certificados de CA extras (PEM) em que confiar
 
 [routing]
@@ -128,11 +138,11 @@ response_cache = true                  # conta requisições repetidas exatas
 |---|---|
 | `[modes]` | O que cada modo faz está em [hooks e agentes](hooks-and-agents.pt-BR.md). `route` e `session_check` nunca negam, então `enforce` se comporta como `warn` para eles. |
 | `[guard_read]`, `[guard_search]`, `[session_check]` | Limites dos hooks de mesmo nome. Os `deny_globs` são comparados com o caminho relativo à pasta da sessão. |
-| `[update]` | `off` nunca verifica novas versões; `notify` imprime um aviso (no máximo uma requisição por dia). `auto` é aceito e se comporta como `notify`: nada se atualiza sozinho, rode `tokred update`. |
+| `[update]` | `off` nunca verifica novas versões; `notify` imprime um aviso (no máximo uma requisição por dia, veja [tarefas em segundo plano](#tarefas-em-segundo-plano)). `auto` é aceito e se comporta como `notify`: nada se atualiza sozinho, rode `tokred update`. |
 | `[pricing]` | Com `auto_sync = false`, os preços só mudam com `tokred pricing sync`. |
 | `[cache]` | As durações aceitam `s`, `m`, `h` ou `d` (`90s`, `30m`, `4h`, `7d`). |
-| `[proxy]` | O `tokred proxy enable` grava `enabled`, `bind` (muda a porta e mantém o host) e `log_bodies` por você; o `configure` nunca os altera. Com `enabled = false`, o tokred remove o próprio `ANTHROPIC_BASE_URL` das configurações do Claude Code, `tokred claude` executa o `claude` diretamente, `proxy start` se recusa e o `doctor` mostra `disabled`. `retention_days` vale para tudo que o proxy guarda (requisições, decisões de roteamento, resumos, sugestões, medições, resultados de ferramentas guardados) e roda quando o proxy inicia e depois a cada hora. Com `log_bodies = false` só metadados são registrados, nunca o texto das mensagens. `ca_bundle` se soma às raízes embutidas, ao repositório do sistema e aos arquivos indicados por `NODE_EXTRA_CA_CERTS` e `SSL_CERT_FILE`. Veja [proxy](proxy.pt-BR.md). |
+| `[proxy]` | O `tokred proxy enable` grava `enabled`, `bind` (muda a porta e mantém o host) e `log_bodies` por você; o `configure` nunca os altera. Com `enabled = false`, o tokred remove o próprio `ANTHROPIC_BASE_URL` das configurações do Claude Code, `tokred claude` executa o `claude` diretamente, `proxy start` se recusa e o `doctor` mostra `disabled`. `retention_days` vale para tudo que o proxy guarda (requisições, decisões de roteamento, resumos, sugestões, medições, resultados de ferramentas guardados) e roda quando o proxy inicia e depois a cada hora. Com `log_bodies = false` só metadados são gravados, nunca o texto das mensagens. O `bind` aceita só endereços de loopback. `ca_bundle` se soma às raízes embutidas, ao repositório do sistema e aos arquivos indicados por `NODE_EXTRA_CA_CERTS` e `SSL_CERT_FILE`. Veja [proxy](proxy.pt-BR.md). |
 | `[routing]`, `[routing.tiers]` | Nunca mudam o modelo do loop principal, diga o que disserem. `observe` registra o que o roteamento faria e não muda nada. `tokred routing on` / `off` definem `mode` para você. Veja [roteamento](routing.pt-BR.md). |
-| `[suggest]` | `off` impede que sugestões sejam produzidas. Qualquer outro valor as deixa disponíveis em `tokred suggest` e, se você definir `tokred statusline` como sua barra de status, nela também. `message` também deixa uma mensagem de uma linha chegar até você em um momento seguro (veja [hooks e agentes](hooks-and-agents.pt-BR.md)). Precisa do proxy. |
+| `[suggest]` | `off` impede que sugestões sejam produzidas. `stats` (o padrão) as mostra só em `tokred suggest`. `statusline` as mostra também na linha impressa por `tokred statusline`, se você o definir como sua barra de status. `message` acrescenta uma mensagem de uma linha que chega até você em um momento seguro (veja [hooks e agentes](hooks-and-agents.pt-BR.md)). Precisa do proxy. |
 | `[compression]` | `tokred compression on` / `off` definem `mode` para você. Com `observe` (o padrão) o tokred apenas mede. |
 | `[shadow]` | Medições para o relatório; nunca alteram o tráfego. |

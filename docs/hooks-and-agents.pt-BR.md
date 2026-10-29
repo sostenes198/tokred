@@ -59,7 +59,7 @@ Os subagentes são acompanhados separadamente, porque o contexto de um subagente
 
 **`guard-search`**
 
-Um `Grep` sem `path`, `glob` nem `type`, ou um `Glob` que casa com tudo e não tem `path`, é amplo. Só as buscas amplas são verificadas: os arquivos do repositório são contados (a contagem fica em cache e é abandonada após 100 ms, o que permite a busca). Acima de `large_repo_files` a busca é negada (`enforce`) ou desaconselhada (`warn`).
+Uma busca que começa na raiz do repositório (a pasta mais próxima que tem um `.git`, ou a pasta da sessão) é ampla quando é um `Grep` sem `glob` nem `type`, ou um `Glob` cujo padrão casa com todos os arquivos (`*`, `**`, `**/*`, ...). Só as buscas amplas são verificadas: os arquivos do repositório são contados (a contagem fica em cache e é abandonada após 100 ms, o que permite a busca). Acima de `large_repo_files` a busca é negada (`enforce`) ou desaconselhada (`warn`).
 
 **`route`**
 
@@ -85,9 +85,9 @@ Lê o uso de tokens da última mensagem da conversa principal no transcript e es
 
 ### Garantias
 
-- **Fail-open.** Diante de qualquer erro, pânico, entrada inválida ou timeout, um hook sai com `0` sem saída e registra o problema em `<data>/logs/`. Uma guarda de tempo de 2 segundos encerra um hook que travar. Se a pasta de dados ou o banco não existir, o hook não faz nada e nunca os cria. Um `tokred.toml` ilegível significa os padrões. Um nome de hook desconhecido também sai com `0`, então o Claude Code nunca vê o código de saída `2`, que significa "bloquear".
-- **Rápido.** Uma execução fica bem abaixo de 50 ms no p95, sem acesso à rede; o `tokred doctor --bench` mede isso.
-- **Medido.** Toda execução é registrada com sua duração e resultado (`ok`, `error`, `panic`, `timeout_guard`), depois que a resposta foi escrita. O `tokred stats latency` mostra isso.
+- **Fail-open.** Diante de qualquer erro, pânico, entrada inválida ou timeout, um hook sai com `0` sem saída e registra o problema em `<data>/logs/`. Um limite de tempo de 2 segundos encerra um hook que travar. Se a pasta de dados ou o banco não existir, o hook não faz nada e nunca os cria. Um `tokred.toml` ilegível significa os padrões. Um nome de hook desconhecido também sai com `0`, então o Claude Code nunca vê o código de saída `2`, que significa "bloquear".
+- **Local e rápido.** Um hook nunca usa a rede. O `tokred doctor --bench` mede quanto cada um demora, e o `tokred stats latency` sinaliza um hook cujo p95 passa de 50 ms.
+- **Medido.** Uma execução que decide algo, e toda execução que falha, é registrada com sua duração e resultado (`ok`, `error`, `panic`, `timeout_guard`), depois que a resposta foi escrita. Um hook que não faz nada (o modo dele é `off`, ou a chamada não é uma que ele verifica) não registra nada. O `tokred stats latency` mostra isso.
 - **Contexto mínimo.** Todo `additionalContext` tem uma linha e só é emitido quando algo muda.
 
 ## Os seis subagentes
@@ -125,7 +125,7 @@ O `tokred configure` adiciona cada hook do tokred como um grupo próprio, com o 
   "hooks": [{ "type": "command", "command": "\"/path/to/tokred\" hook guard-read", "timeout": 5 }] }
 ```
 
-O tokred reconhece as suas entradas pelo comando (um executável chamado `tokred`, com ou sem sufixo de versão, seguido de `hook <nome>`). Só essas entradas são adicionadas, substituídas ou removidas; os seus hooks e qualquer coisa que o tokred não entenda permanecem como estão. Antes de alterar o arquivo, o `configure` salva o anterior como `settings.json.tokred.bak` (só o último backup é mantido). Se o `settings.json` não for um JSON válido, o `configure` para e não escreve nada. Rodá-lo de novo é seguro.
+O tokred reconhece as suas entradas pelo comando (um executável cujo nome de arquivo começa com `tokred`, como `tokred`, `tokred.exe` ou `tokred-0.4.0`, seguido de `hook <nome>`). Só essas entradas são adicionadas, substituídas ou removidas; os seus hooks e qualquer coisa que o tokred não entenda permanecem como estão. Antes de alterar o arquivo, o `configure` salva o anterior como `settings.json.tokred.bak` (só o último backup é mantido). Se o `settings.json` não for um JSON válido, o `configure` para e não escreve nada. Rodá-lo de novo é seguro.
 
 O `tokred unconfigure` remove as entradas de hook do tokred e os arquivos de agente que o tokred instalou. Ele também grava `settings.json.tokred.bak`, apaga arquivos `.new` pendentes e mantém um agente que você editou ou cuja origem ele não consegue verificar, informando cada um. Deixa o proxy e o `ANTHROPIC_BASE_URL` dele em paz, e uma atualização nunca recoloca os hooks: só o `tokred configure` faz isso. Os dois comandos estão descritos em [comandos](commands.pt-BR.md).
 

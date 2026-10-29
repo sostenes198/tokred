@@ -59,7 +59,7 @@ Subagents are tracked separately, because a subagent's context does not contain 
 
 **`guard-search`**
 
-A `Grep` with no `path`, `glob` or `type`, or a `Glob` that matches everything with no `path`, is broad. Only broad searches are checked: the files of the repository are counted (the count is cached, and abandoned after 100 ms, which allows the search). Above `large_repo_files` the search is denied (`enforce`) or advised against (`warn`).
+A search that starts at the root of the repository (the nearest folder with a `.git`, or the session's folder) is broad when it is a `Grep` with no `glob` or `type`, or a `Glob` whose pattern matches every file (`*`, `**`, `**/*`, ...). Only broad searches are checked: the files of the repository are counted (the count is cached, and abandoned after 100 ms, which allows the search). Above `large_repo_files` the search is denied (`enforce`) or advised against (`warn`).
 
 **`route`**
 
@@ -86,8 +86,8 @@ Reads the token usage of the last main-conversation message in the transcript an
 ### Guarantees
 
 - **Fail-open.** On any error, panic, bad input or timeout a hook exits `0` with no output and logs the problem to `<data>/logs/`. A time guard of 2 seconds ends a hook that gets stuck. If the data folder or the database does not exist, a hook does nothing and never creates them. An unparsable `tokred.toml` means the defaults. An unknown hook name also exits `0`, so Claude Code never sees exit code `2`, which means "block".
-- **Fast.** A run stays well under 50 ms at p95, with no network access; `tokred doctor --bench` measures it.
-- **Measured.** Every run is recorded with its duration and outcome (`ok`, `error`, `panic`, `timeout_guard`), after the answer was written. `tokred stats latency` reports it.
+- **Local and quick.** A hook never uses the network. `tokred doctor --bench` measures how long each one takes, and `tokred stats latency` flags a hook whose p95 passes 50 ms.
+- **Measured.** A run that decides something, and every failed run, is recorded with its duration and outcome (`ok`, `error`, `panic`, `timeout_guard`), after the answer was written. A hook that does nothing (its mode is `off`, or the call is not one it checks) records nothing. `tokred stats latency` reports it.
 - **Minimal context.** Any `additionalContext` is one line and is emitted only when something changes.
 
 ## The six subagents
@@ -125,7 +125,7 @@ PENDING: <list or "none">
   "hooks": [{ "type": "command", "command": "\"/path/to/tokred\" hook guard-read", "timeout": 5 }] }
 ```
 
-tokred recognizes its entries by their command (an executable named `tokred`, with or without a version suffix, followed by `hook <name>`). Only those entries are ever added, replaced or removed; your hooks and anything tokred does not understand stay as they are. Before it changes the file, `configure` saves the previous one as `settings.json.tokred.bak` (only the last backup is kept). If `settings.json` is not valid JSON, `configure` stops and writes nothing. Running it again is safe.
+tokred recognizes its entries by their command (an executable whose file name starts with `tokred`, such as `tokred`, `tokred.exe` or `tokred-0.4.0`, followed by `hook <name>`). Only those entries are ever added, replaced or removed; your hooks and anything tokred does not understand stay as they are. Before it changes the file, `configure` saves the previous one as `settings.json.tokred.bak` (only the last backup is kept). If `settings.json` is not valid JSON, `configure` stops and writes nothing. Running it again is safe.
 
 `tokred unconfigure` removes tokred's hook entries and the agent files tokred installed. It also writes `settings.json.tokred.bak`, deletes pending `.new` files, and keeps an agent that you edited or whose origin it cannot verify, reporting each one. It leaves the proxy and its `ANTHROPIC_BASE_URL` alone, and an upgrade never puts the hooks back: only `tokred configure` does. Both commands are described in [commands](commands.md).
 

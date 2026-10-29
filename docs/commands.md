@@ -31,7 +31,7 @@ Reference for every `tokred` command and its flags. `tokred <command> --help` pr
 
 ## Common behavior
 
-- **Claude Code folder.** Commands that read or change it take `--claude-dir <PATH>`. The folder is the first that applies of: the flag, `[claude] dir` in `tokred.toml`, `$CLAUDE_CONFIG_DIR`, `~/.claude` (`%USERPROFILE%\.claude` on Windows). It is valid when it exists and holds `settings.json` or `projects/`. An explicit `--claude-dir` that is not valid is an error.
+- **Claude Code folder.** Commands that read or change it take `--claude-dir <PATH>`. The folder is the first that applies of: the flag, `[claude] dir` in `tokred.toml`, `$CLAUDE_CONFIG_DIR`, `~/.claude` (`%USERPROFILE%\.claude` on Windows). It is valid when it exists and holds `settings.json` or `projects/`. An explicit `--claude-dir` that is not valid is an error. [`initialize`](#initialize) and the [`proxy`](#proxy-enable-disable) commands, which edit the `settings.json` that Claude Code itself reads, put `$CLAUDE_CONFIG_DIR` before `[claude] dir`.
 - **`--since`.** A span of hours, days or weeks: `12h`, `7d`, `2w`, `30d`.
 - **`--json`.** Where a command lists it, the output is machine-readable. Not every command has it.
 - **Exit codes.** `0` success, `1` error (the message goes to stderr), `2` for a usage error and for a `configure` the user declined. `tokred claude` exits with `claude`'s own code. `hook` always exits `0`; `initialize` fails only on invalid arguments.
@@ -82,9 +82,9 @@ Checks the latest stable release (a pre-release is never offered) and acts accor
 | The binary is | `tokred update` |
 |---|---|
 | In the install folder (`$TOKRED_HOME/bin`, where the install script puts it) | Downloads the archive for this platform, verifies its SHA-256, replaces the binary and re-applies the configuration with the new binary |
-| Anywhere else (built from source, copied by hand) | Says a newer version exists and to reinstall with the install script |
+| Anywhere else (built from source, copied by hand) | Says whether a newer version exists and, if so, to reinstall with the install script |
 
-`--version 0.2.0-rc.3` (a leading `v` is fine) installs exactly that version instead of the latest stable one: use it to try a release candidate or to go back. It downloads that release directly and verifies the checksum like any update. A version that is already installed is not downloaded again. Needs the network and refuses to run when `TOKRED_OFFLINE` is set. After the binary changes version, the first command you run re-applies the configuration quietly and keeps your choices. See [installation](installation.md).
+`--version <VERSION>` (a leading `v` is fine) installs exactly that version instead of the latest stable one: use it to try a release candidate or to go back. It downloads that release directly and verifies the checksum like any update. A version that is already installed is not downloaded again. Needs the network and refuses to run when `TOKRED_OFFLINE` is set. The configuration is re-applied with the new binary and keeps your choices. See [installation](installation.md).
 
 ## uninstall
 
@@ -99,7 +99,7 @@ Removes tokred from the machine completely and asks nothing. In order:
 3. removes tokred's `ANTHROPIC_BASE_URL` from Claude Code's `settings.json` (a gateway of your own stays);
 4. removes the hooks and agents, like `unconfigure` (skipped when there is no Claude Code folder);
 5. deletes tokred's data folder;
-6. runs the uninstall script embedded in the binary: it deletes the binary and its folder, the `PATH` entry and the `claude` wrapper in your shell profiles. A binary built from source is left where it is. On Windows this step runs right after the command exits, because a running program cannot delete itself.
+6. runs the uninstall script embedded in the binary: it deletes the binary and its folder (when nothing else is in it), the `PATH` entry and the `claude` wrapper in your shell profiles. A binary built from source is left where it is. On Windows this step runs right after the command exits, because a running program cannot delete itself.
 
 Every step is best effort: a failure is printed and the next step still runs. If a step failed, the binary is kept so you can fix the problem and run the command again. See [installation](installation.md).
 
@@ -171,7 +171,7 @@ tokred pricing sync
 tokred pricing show [--json]
 ```
 
-`sync` refreshes the price table from the public LiteLLM price list; if it cannot be reached, the embedded snapshot stays in use. `show` prints the table (USD per million tokens). Prices are also synced automatically, at most once a day, by the other commands. See [metrics](metrics.md#prices).
+`sync` refreshes the price table from the public LiteLLM price list; if it cannot be reached, the embedded snapshot stays in use. `show` prints the table (USD per million tokens). Prices are also synced automatically, at most once a day, as described in [configuration](configuration.md#background-tasks). How prices are used is in [metrics](metrics.md).
 
 ## cache
 
@@ -199,12 +199,12 @@ tokred proxy stop
 tokred proxy status [--json]
 ```
 
-The optional [local proxy](proxy.md). `start` runs it in the background and returns at once, so `out=$(tokred proxy start)` does not hang. `stop` asks it to shut down and waits until it has. `status` shows whether it is running, whether the user service is installed, whether this terminal's `ANTHROPIC_BASE_URL` points to it, and the routing and compression modes. While `[proxy] enabled = false`, `start` refuses; `stop` and `status` still work.
+The optional [local proxy](proxy.md). `start` runs it in the background and returns as soon as it answers (it waits up to 5 seconds), so `out=$(tokred proxy start)` does not hang. `stop` asks it to shut down and waits until it has. `status` shows whether it is running, whether the user service is installed, whether this terminal's `ANTHROPIC_BASE_URL` points to it, and the routing and compression modes. While `[proxy] enabled = false`, `start` refuses; `stop` and `status` still work.
 
 | Flag | Effect |
 |---|---|
 | `--foreground` | Run in this terminal instead of the background (what the user service uses) |
-| `--bind <HOST:PORT>` | Address to listen on (default `[proxy] bind`, `127.0.0.1:1029`) |
+| `--bind <HOST:PORT>` | Address to listen on (default `[proxy] bind`, `127.0.0.1:1029`). Only loopback addresses are accepted |
 | `--json` | `status` only: machine-readable output, including the HTTP proxy and CA files the proxy uses |
 
 ## proxy enable, disable
@@ -227,7 +227,7 @@ The one place that turns the proxy features on or off and applies it at once. Th
 | `--record-content <BOOL>` | Let the [dashboard](dashboard.md) show what was sent and returned: `true`, `false`, `yes`, `no`, `1` or `0`. Also `TOKRED_RECORD_CONTENT`; the flag wins. Sets `[proxy] log_bodies`. The text stays in tokred's own database on this machine; headers and credentials are never recorded |
 | `-y`, `--yes` | Ask nothing: use the values given, the saved ones or the defaults |
 
-In a terminal, a value that no flag or variable gave is asked: the port (a busy port is reported and asked again; the proxy of this installation counts as free) and whether to record conversation content (default: the saved answer, else yes). Without a terminal, or with `--yes`, nothing is asked: the defaults are port `1029` and content **not** recorded. A proxy that is already running is restarted when the port or the recording answer changed, and the command says so.
+In a terminal, a value that no flag or variable gave is asked: the port (a busy port is reported and asked again; the proxy of this installation counts as free) and whether to record conversation content (default: the saved answer, else yes). Without a terminal, or with `--yes`, nothing is asked: the saved values stay, and when none is saved the port is `1029` and content is **not** recorded. A proxy that is already running is restarted when the port or the recording answer changed, and the command says so.
 
 `disable` sets `[proxy] enabled = false` and removes tokred's URL from `settings.json`. A running proxy keeps running (`tokred proxy stop` stops it). While disabled, `proxy start` and `proxy service install` refuse, `tokred claude` runs `claude` directly and `doctor` shows `disabled`. A different gateway in `ANTHROPIC_BASE_URL` is never overwritten or removed: `enable` then saves the setting and says so.
 
@@ -307,7 +307,7 @@ tokred compression off [--claude-dir <PATH>]
 tokred compression status
 ```
 
-`on` registers the `tokred_retrieve` MCP server in Claude Code's user config (`~/.claude.json`; the previous file is saved next to it as `.tokred.bak`) and sets `[compression] mode = "enforce"`: large tool results are replaced by a preview and the model reads the original back with `tokred_retrieve`. `off` unregisters the server and sets `"observe"` (measure only). `status` shows the mode, whether the server is registered and whether the circuit breaker tripped. Nothing is edited unless you run `on` or `off`.
+`on` registers the `tokred_retrieve` MCP server in Claude Code's user config (`.claude.json` in the Claude Code folder if it exists there, else `~/.claude.json`; the previous file is saved next to it as `.tokred.bak`) and sets `[compression] mode = "enforce"`: large tool results are replaced by a preview and the model reads the original back with `tokred_retrieve`. `off` unregisters the server and sets `"observe"` (measure only). Restart the proxy and Claude Code to apply `on`. `status` shows the mode, whether the server is registered and whether the circuit breaker tripped. Nothing is edited unless you run `on` or `off`.
 
 ## suggest
 

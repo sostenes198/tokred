@@ -14,33 +14,23 @@ Thank you for helping. This page explains how to contribute; please also read th
 
 ```sh
 git clone https://github.com/sostenes198/tokred.git
-cd tokred
-cargo build
-cargo test --workspace
-cargo run -- doctor
 ```
 
-You need Rust 1.89 or newer. More in [development](docs/development.md).
+You need Rust 1.89 or newer. In the new folder, build with `cargo build`, run the tests with `cargo test --workspace` and try your build with `cargo run -- doctor`. More in [development](docs/development.md).
 
 ## Workflow
 
 1. Branch from `main` (`feat/...`, `fix/...`, `docs/...`).
 2. Make small, focused commits using [Conventional Commits](https://www.conventionalcommits.org/) **in English** (`feat:`, `fix:`, `docs:`, `chore:`...).
-3. Open a pull request against `main`. CI must be green on Linux, macOS and Windows.
+3. Open a pull request against `main`. CI must pass: it runs the tests on Linux, macOS and Windows, and the other checks below.
 
 ## Before you open a pull request
 
-```sh
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
-cargo deny check
-```
+Run the quality gate described in [development](docs/development.md): formatting, Clippy, tests, the documentation build and `cargo deny check`. CI runs the same checks. Then go through this list:
 
 - [ ] New behaviour has tests; a bug fix includes a test that reproduces the bug.
 - [ ] No test touches the real `~/.claude` or the real data folder, or the network (use temporary directories, `TOKRED_DATA_DIR` and `--claude-dir`).
-- [ ] Docs are updated in both languages.
+- [ ] Docs are updated in both languages, and `python3 scripts/check-docs.py` prints `documentation ok`.
 - [ ] `CHANGELOG.md` and `CHANGELOG.pt-BR.md` are updated for user-visible changes.
 
 ## Language
@@ -50,6 +40,6 @@ cargo deny check
 
 ## Architecture
 
-Business rules are pure functions in `tokred-core` and the use-case crates; I/O lives behind the traits (ports) of `tokred-core` and is composed only in `tokred-cli`. See [architecture](docs/architecture.md) and [development](docs/development.md).
+Business rules are pure functions in `tokred-core` and the use-case crates; I/O lives behind traits (ports) and is composed only in `tokred-cli`. See [architecture](docs/architecture.md) and [development](docs/development.md).
 
-Design decisions, and any place where the official Claude Code documentation made us diverge from a plan, are recorded in [decisions](docs/decisions.md). Add an entry when you make one.
+Design decisions and their reasons are recorded in [decisions](docs/decisions.md). Add an entry when you make one.

@@ -13,7 +13,7 @@ Lower the cost and token use of Claude Code: model routing, context guards and l
 tokred is a local command-line tool for macOS, Linux and Windows. It works in two layers:
 
 1. **Hooks, subagents and metrics.** Six subagents pinned to the right model for each kind of task, hooks that reinforce that delegation and block useless context reads, and a report of tokens, cost and savings.
-2. **An optional local proxy** between Claude Code and the Anthropic API. It measures every request exactly, routes only subagent and auxiliary requests to a cheaper model, advises you about the main loop (it never changes the main loop's model), keeps large tool results out of the context without losing them, and serves a live dashboard.
+2. **An optional local proxy** between Claude Code and the Anthropic API. It measures every request exactly, advises you about the main loop (it never changes the main loop's model) and serves a live dashboard. Two more features start in a measure-only mode and change nothing until you turn them on: routing subagent and auxiliary requests to a cheaper model, and replacing large tool results with a preview you can read back in full.
 
 Everything runs on your machine, with no account and no telemetry. Savings figures are estimates, not guarantees.
 
@@ -44,20 +44,34 @@ The installer:
 
 It also defines a `claude` wrapper in your shell profile that keeps Claude Code's settings in line with the proxy switch before each launch; `command claude` runs the real binary.
 
-To install a specific version, pass `--version X` (PowerShell: `-Version X`, or `TOKRED_VERSION=X`). Pre-releases are installed only with an explicit version.
+Pre-releases are installed only when you ask for their version. To pick a version, and for every other option, see [installation](docs/installation.md).
 
-> Until the first stable release is published, the `latest` URLs above do not exist. Use `--version` with a release tag, or the scripts from `main`: `https://raw.githubusercontent.com/sostenes198/tokred/main/install/install.sh` and `https://raw.githubusercontent.com/sostenes198/tokred/main/install/install.ps1`.
-
-All options, the wrapper and troubleshooting: [installation](docs/installation.md).
+> Until the first stable release is published, the `latest` URLs above (and the uninstall ones below) return 404. In the commands, replace `https://github.com/sostenes198/tokred/releases/latest/download/` with `https://raw.githubusercontent.com/sostenes198/tokred/main/install/`, and name the version to install as described in [installation](docs/installation.md).
 
 ## Quick start
 
+Check what is installed:
+
 ```sh
-tokred doctor     # check what is installed
-tokred stats      # tokens, cost and savings in the terminal
-tokred metrics    # the same, plus an HTML report
-tokred dashboard  # live view of your sessions (needs the proxy)
-tokred claude     # run Claude Code through the proxy, for this run only
+tokred doctor
+```
+
+See tokens, cost and savings in the terminal:
+
+```sh
+tokred stats
+```
+
+Run Claude Code through the proxy, for this run only:
+
+```sh
+tokred claude
+```
+
+Open the live dashboard of your sessions (needs the proxy):
+
+```sh
+tokred dashboard
 ```
 
 ## Commands
@@ -84,7 +98,7 @@ Claude Code runs a tokred hook before or after certain events and passes JSON on
 
 - **Local.** Metrics and settings live in your own data folder. The proxy listens on `127.0.0.1` only, never logs credentials, and forwards requests only to the Anthropic API.
 - **Message contents** are stored only if you turn on `[proxy] log_bodies` (the installer asks; the default without a terminal is off). Details: [dashboard](docs/dashboard.md) and [proxy](docs/proxy.md).
-- **Network.** Apart from the proxy, tokred contacts GitHub (version check, `tokred update`) and fetches a price table, only from CLI commands and never from hooks. Switch them off with `[update] mode = "off"`, `[pricing] auto_sync = false`, or `TOKRED_OFFLINE=1` for all of them. See [configuration](docs/configuration.md).
+- **Network.** Apart from the proxy, tokred contacts GitHub (at most one version check a day, and `tokred update`) and downloads a public price list (at most once a day, and `tokred pricing sync`). Hooks never use the network. Switch the automatic calls off with `[update] mode = "off"`, `[pricing] auto_sync = false`, or `TOKRED_OFFLINE=1` for both. See [configuration](docs/configuration.md).
 
 ## Documentation
 
@@ -104,7 +118,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sostenes198/tokred/rele
 irm https://github.com/sostenes198/tokred/releases/latest/download/uninstall.ps1 | iex
 ```
 
-It removes everything without asking: the proxy and its service, the hooks and agents, tokred's data folder, the binary, the `PATH` entry and the `claude` wrapper.
+It removes everything without asking: the proxy and its service, the hooks and agents, tokred's `ANTHROPIC_BASE_URL` in Claude Code's settings, tokred's data folder, the binary, the `PATH` entry and the `claude` wrapper.
 
 ## Contributing, security, license
 

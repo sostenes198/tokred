@@ -14,33 +14,23 @@ Obrigado por ajudar. Esta página explica como contribuir; leia também o [códi
 
 ```sh
 git clone https://github.com/sostenes198/tokred.git
-cd tokred
-cargo build
-cargo test --workspace
-cargo run -- doctor
 ```
 
-Você precisa do Rust 1.89 ou mais novo. Mais em [desenvolvimento](docs/development.pt-BR.md).
+Você precisa do Rust 1.89 ou mais novo. Na nova pasta, compile com `cargo build`, rode os testes com `cargo test --workspace` e experimente o seu build com `cargo run -- doctor`. Mais em [desenvolvimento](docs/development.pt-BR.md).
 
 ## Fluxo de trabalho
 
 1. Crie uma branch a partir da `main` (`feat/...`, `fix/...`, `docs/...`).
 2. Faça commits pequenos e focados com [Conventional Commits](https://www.conventionalcommits.org/) **em inglês** (`feat:`, `fix:`, `docs:`, `chore:`...).
-3. Abra um pull request contra a `main`. O CI precisa estar verde em Linux, macOS e Windows.
+3. Abra um pull request contra a `main`. O CI precisa passar: ele roda os testes em Linux, macOS e Windows, além das outras verificações abaixo.
 
 ## Antes de abrir um pull request
 
-```sh
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
-cargo deny check
-```
+Rode a verificação de qualidade descrita em [desenvolvimento](docs/development.pt-BR.md): formatação, Clippy, testes, a geração da documentação e `cargo deny check`. O CI roda as mesmas verificações. Depois, confira esta lista:
 
 - [ ] Comportamento novo tem testes; a correção de um bug inclui um teste que reproduz o bug.
 - [ ] Nenhum teste toca o `~/.claude` real, a pasta de dados real nem a rede (use diretórios temporários, `TOKRED_DATA_DIR` e `--claude-dir`).
-- [ ] A documentação está atualizada nos dois idiomas.
+- [ ] A documentação está atualizada nos dois idiomas, e `python3 scripts/check-docs.py` imprime `documentation ok`.
 - [ ] `CHANGELOG.md` e `CHANGELOG.pt-BR.md` estão atualizados para mudanças visíveis ao usuário.
 
 ## Idioma
@@ -50,6 +40,6 @@ cargo deny check
 
 ## Arquitetura
 
-As regras de negócio são funções puras em `tokred-core` e nos crates de casos de uso; a E/S fica atrás das traits (portas) de `tokred-core` e só é composta em `tokred-cli`. Veja [arquitetura](docs/architecture.pt-BR.md) e [desenvolvimento](docs/development.pt-BR.md).
+As regras de negócio são funções puras em `tokred-core` e nos crates de casos de uso; a E/S fica atrás de traits (portas) e só é composta em `tokred-cli`. Veja [arquitetura](docs/architecture.pt-BR.md) e [desenvolvimento](docs/development.pt-BR.md).
 
-As decisões de projeto, e qualquer ponto em que a documentação oficial do Claude Code nos fez divergir de um plano, ficam registradas em [decisões](docs/decisions.pt-BR.md). Adicione uma entrada quando tomar uma.
+As decisões de projeto e seus motivos ficam registrados em [decisões](docs/decisions.pt-BR.md). Adicione uma entrada quando tomar uma.
