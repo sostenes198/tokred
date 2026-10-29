@@ -83,6 +83,7 @@ tokred_home() { printf '%s' "${S_TOKRED_HOME:-$S_HOME/.tokred}"; }
 
 # in_sandbox [VAR=value ...] COMMAND...: only the sandbox variables are visible to COMMAND.
 in_sandbox() {
+    # shellcheck disable=SC2086 # the ${VAR:+...} words are either empty or one NAME=value word
     env -i PATH="$PATH" HOME="$S_HOME" TOKRED_DATA_DIR="$S_DATA" \
         CLAUDE_CONFIG_DIR="$S_CLAUDE" TOKRED_OFFLINE=1 TOKRED_RELEASE_BASE_URL="file://$REL" \
         ${S_TOKRED_HOME:+TOKRED_HOME="$S_TOKRED_HOME"} ${S_SHELL:+SHELL="$S_SHELL"} "$@"

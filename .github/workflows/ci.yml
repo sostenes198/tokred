@@ -84,3 +84,34 @@ jobs:
         with:
           name: coverage
           path: lcov.info
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: shellcheck install/*.sh tests/installer/*.sh
+
+  installer:
+    name: installer (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # The scripts talk to a fake release on disk; a hang must fail with its log.
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p tokred
+      - run: sh tests/installer/install_test.sh
+
+  installer-windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p tokred
+      # Edits the runner's user PATH and PowerShell profile (and restores them); Actions sets CI=true.
+      - run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\installer\install_test.ps1
