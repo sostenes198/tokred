@@ -81,9 +81,14 @@ impl GithubReleaseSource {
 
 impl ReleaseSource for GithubReleaseSource {
     fn latest(&self) -> Result<Release, SourceError> {
-        let body = self
-            .get_json()
-            .map_err(|err| SourceError::Unavailable(Box::new(err)))?;
+        let body = self.get_json().map_err(|err| match err {
+            // GitHub's "latest" never offers a pre-release: with only pre-releases out, it is 404.
+            ureq::Error::StatusCode(404) => SourceError::Invalid(
+                "no stable release has been published yet (pre-releases are not offered)"
+                    .to_owned(),
+            ),
+            other => SourceError::Unavailable(Box::new(other)),
+        })?;
         parse_release(&body)
     }
 }

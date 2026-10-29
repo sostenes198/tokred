@@ -6,6 +6,10 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+### Corrigido
+
+- O `tokred update` diz que ainda não há release estável quando só existem pré-releases (o "latest" do GitHub responde 404 nesse caso), em vez de falhar com `http status: 404`.
+
 ## [0.1.0-rc.1] - 2026-10-29
 
 ### Adicionado

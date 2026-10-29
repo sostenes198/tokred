@@ -117,6 +117,17 @@ fn release_errors_are_classified() {
         .latest()
         .unwrap_err();
     assert!(matches!(err, SourceError::Unavailable(_)), "{err}");
+
+    // Only pre-releases published: GitHub's "latest" answers 404, which is not a failure to reach it.
+    let (url, _) = serve_once("404 Not Found", b"{}");
+    let err = GithubReleaseSource::new()
+        .with_url(url)
+        .latest()
+        .unwrap_err();
+    assert!(
+        matches!(&err, SourceError::Invalid(text) if text.contains("no stable release")),
+        "{err}"
+    );
 }
 
 #[test]

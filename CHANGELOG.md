@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Fixed
+
+- `tokred update` says that no stable release has been published yet when only pre-releases exist (GitHub's "latest" answers 404 then), instead of failing with `http status: 404`.
+
 ## [0.1.0-rc.1] - 2026-10-29
 
 ### Added
