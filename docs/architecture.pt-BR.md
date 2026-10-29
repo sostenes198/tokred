@@ -17,7 +17,7 @@ tokred (cli) ──► casos de uso (install, hooks, metrics, pricing, audit, up
 | `tokred-core` | Domínio: tipos, erros, modelo de config, regras de paths, modelo dos eventos de hook e os ports (`Clock`, `FileSystem`, `ManifestRepo`; outros chegam com suas fases). **Sem I/O.** |
 | `tokred-install` | Casos de uso `configure`, `unconfigure`, `doctor`: merge puro do settings, templates dos agentes e regras de instalação. Contém o adapter de `std::fs` (módulo `fs`) |
 | `tokred-hooks` | Os seis handlers de hook, o guarda de tempo e os payloads do benchmark (fail-open) |
-| `tokred-metrics` | Ingestão de transcripts, custo, economia, projeção, latência e resumos de roteamento/guardas (puro) |
+| `tokred-metrics` | Ingestão de transcripts, mesclagem do uso de transcripts e proxy, custo, economia, projeção, latência, seções do proxy e resumos de roteamento/guardas (puro) |
 | `tokred-pricing` | Parse da lista de preços, snapshot embutido de fallback, casos de uso de sync e o adapter do LiteLLM |
 | `tokred-update` | Detecção do método de instalação, verificação de versão, self-update com checksum e o adapter do GitHub |
 | `tokred-audit` | Auditoria do contexto fixo: `CLAUDE.md` com imports, rules, skills, agentes, uso de MCP |

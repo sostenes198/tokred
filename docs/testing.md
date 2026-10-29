@@ -82,11 +82,12 @@ Point the proxy at a fake upstream that returns a message with token counts.
 ```sh
 # Terminal A: the fake API on port 9000
 python3 -I - <<'PY'
-import json, http.server
+import itertools, json, http.server
+ids = itertools.count(1)
 class H(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         self.rfile.read(int(self.headers.get("content-length", 0)))
-        body = json.dumps({"id": "msg_1", "type": "message", "role": "assistant", "model": "claude-sonnet-4-5",
+        body = json.dumps({"id": f"msg_{next(ids)}", "type": "message", "role": "assistant", "model": "claude-sonnet-4-5",
                            "content": [{"type": "text", "text": "hi"}], "stop_reason": "end_turn",
                            "usage": {"input_tokens": 120, "output_tokens": 15}}).encode()
         self.send_response(200); self.send_header("content-type", "application/json")
@@ -115,6 +116,7 @@ What to check:
 
 - the replies you get are exactly what the fake returned (the proxy changes nothing in `observe`);
 - `sqlite3 "$TOKRED_DATA_DIR/tokred.db" "select origin, model_requested, model_effective, input, output from proxy_requests"` shows two rows (`auxiliary` and `subagent`) with 120 input and 15 output tokens;
+- `tokred stats` shows a **Proxy** section counting the two requests (`2 messages measured by the proxy`), and `tokred stats --by origin` lists `auxiliary` and `subagent`;
 - a request with `Host: evil.example` is refused: `curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: evil.example' http://127.0.0.1:1029/v1/messages -d '{}'` prints `421`;
 - stopping really ends the process: `pgrep -fl "proxy start --foreground"` prints nothing.
 

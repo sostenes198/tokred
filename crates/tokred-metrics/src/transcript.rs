@@ -99,6 +99,8 @@ pub fn parse_line(line: &str, context: &LineContext<'_>) -> Option<UsageRecord> 
             cache_read: raw.cache_read.unwrap_or(0),
         },
         is_subagent: context.is_subagent_file || parsed.is_sidechain.unwrap_or(false),
+        origin: None,
+        agent_type: None,
     })
 }
 

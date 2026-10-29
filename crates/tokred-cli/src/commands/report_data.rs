@@ -6,27 +6,30 @@ use tokred_core::hook_event::reason;
 use tokred_core::pricing::{Family, PriceTable};
 use tokred_metrics::{
     GroupBy, LatencyStats, Stats, StatsInput, TimeRange, compute_stats, guards_summary,
-    routing_summary,
+    latency_stats, routing_summary,
 };
+use tokred_pricing::PRICE_SYNCED_AT;
 use tokred_report::model::{
     AuditItem, AuditStats, DayCache, DayCost, GuardReason, GuardStat, HookLatency,
-    LatencyStats as ReportLatency, ModelFamily, ModelUsage, ReportData, ReportMeta, RoutingStats,
+    LatencyStats as ReportLatency, ModelFamily, ModelUsage, ProxyBreakdown, ProxyMiss,
+    ProxyOverhead, ProxyReport, ProxyRoute, ProxyRouting, ReportData, ReportMeta, RoutingStats,
     Summary, TaskTypeCount,
 };
+use tokred_report::render_html;
 
-use super::data::Loaded;
+use super::data::{Gathered, Repos, gather};
 use crate::view::ymd;
 
 const DAY: i64 = 86_400;
 
 /// One entry per calendar day (UTC) of `range`, with the real cost and the "all on opus" cost.
-fn daily_costs(loaded: &Loaded) -> Vec<DayCost> {
-    let first = loaded.range.from.0.div_euclid(DAY);
-    let last = (loaded.range.to.0 - 1).div_euclid(DAY);
+fn daily_costs(data: &Gathered) -> Vec<DayCost> {
+    let first = data.range.from.0.div_euclid(DAY);
+    let last = (data.range.to.0 - 1).div_euclid(DAY);
     (first..=last)
         .map(|day| {
             let range = TimeRange::new(Timestamp(day * DAY), Timestamp((day + 1) * DAY));
-            let slice: Vec<_> = loaded
+            let slice: Vec<_> = data
                 .usage
                 .iter()
                 .filter(|u| range.contains(u.ts))
@@ -34,11 +37,11 @@ fn daily_costs(loaded: &Loaded) -> Vec<DayCost> {
                 .collect();
             let stats = compute_stats(&StatsInput {
                 usage: &slice,
-                prices: &loaded.prices,
+                prices: &data.prices,
                 events: &[],
                 range,
                 group_by: GroupBy::Model,
-                now: loaded.now,
+                now: data.now,
                 first_configure: None,
             });
             let real = stats.savings.real_cost_usd;
@@ -73,15 +76,15 @@ fn guard_reason(name: &str) -> Option<GuardReason> {
 }
 
 /// Stats grouped by model for the period (the donut and the table).
-pub fn model_stats(loaded: &Loaded, prices: &PriceTable) -> Stats {
+pub fn model_stats(data: &Gathered, prices: &PriceTable) -> Stats {
     compute_stats(&StatsInput {
-        usage: &loaded.usage,
+        usage: &data.usage,
         prices,
-        events: &loaded.events,
-        range: loaded.range,
+        events: &data.events,
+        range: data.range,
         group_by: GroupBy::Model,
-        now: loaded.now,
-        first_configure: loaded.first_configure,
+        now: data.now,
+        first_configure: data.first_configure,
     })
 }
 
@@ -99,8 +102,8 @@ fn summary_of(stats: &Stats, latency: &LatencyStats) -> Option<Summary> {
     })
 }
 
-fn routing_of(loaded: &Loaded) -> Option<RoutingStats> {
-    let routing = routing_summary(&loaded.events, loaded.range);
+fn routing_of(data: &Gathered) -> Option<RoutingStats> {
+    let routing = routing_summary(&data.events, data.range);
     (routing.total_classified > 0 || routing.delegations.total > 0).then(|| RoutingStats {
         classifications: routing
             .classifications
@@ -115,8 +118,8 @@ fn routing_of(loaded: &Loaded) -> Option<RoutingStats> {
     })
 }
 
-fn guards_of(loaded: &Loaded) -> Vec<GuardStat> {
-    guards_summary(&loaded.events, loaded.range)
+fn guards_of(data: &Gathered) -> Vec<GuardStat> {
+    guards_summary(&data.events, data.range)
         .reasons
         .iter()
         .filter_map(|r| {
@@ -130,7 +133,7 @@ fn guards_of(loaded: &Loaded) -> Vec<GuardStat> {
         .collect()
 }
 
-fn latency_of(loaded: &Loaded, stats: &Stats, latency: &LatencyStats) -> Option<ReportLatency> {
+fn latency_of(data: &Gathered, stats: &Stats, latency: &LatencyStats) -> Option<ReportLatency> {
     (latency.runs > 0).then(|| ReportLatency {
         budget_ms: latency.budget_ms,
         hooks: latency
@@ -147,8 +150,8 @@ fn latency_of(loaded: &Loaded, stats: &Stats, latency: &LatencyStats) -> Option<
         total_added_ms: latency.total_ms,
         saved_usd: stats.savings.total_saving_usd.unwrap_or(0.0),
         saved_tokens: stats.savings.guard.tokens_avoided,
-        spawn_overhead_ms: (loaded.spawn_overhead_us > 0)
-            .then(|| u64_to_f64(loaded.spawn_overhead_us) / 1_000.0),
+        spawn_overhead_ms: (data.spawn_overhead_us > 0)
+            .then(|| u64_to_f64(data.spawn_overhead_us) / 1_000.0),
     })
 }
 
@@ -177,7 +180,7 @@ fn audit_of(audit: &AuditReport) -> AuditStats {
 
 /// Builds the report from everything that was loaded and computed.
 pub fn build(
-    loaded: &Loaded,
+    data: &Gathered,
     stats: &Stats,
     latency: &LatencyStats,
     audit: Option<&AuditReport>,
@@ -186,15 +189,15 @@ pub fn build(
     let has_usage = stats.totals.messages > 0;
     ReportData {
         meta: ReportMeta {
-            generated_at: ymd(loaded.now.0),
+            generated_at: ymd(data.now.0),
             tokred_version: env!("CARGO_PKG_VERSION").to_owned(),
-            period_start: Some(ymd(loaded.range.from.0)),
-            period_end: Some(ymd(loaded.range.to.0 - 1)),
+            period_start: Some(ymd(data.range.from.0)),
+            period_end: Some(ymd(data.range.to.0 - 1)),
             last_price_sync: last_price_sync.map(ymd),
         },
         summary: summary_of(stats, latency),
         cost_per_day: if has_usage {
-            daily_costs(loaded)
+            daily_costs(data)
         } else {
             Vec::new()
         },
@@ -208,8 +211,8 @@ pub fn build(
                 cost_usd: g.cost_usd,
             })
             .collect(),
-        routing: routing_of(loaded),
-        guards: guards_of(loaded),
+        routing: routing_of(data),
+        guards: guards_of(data),
         cache_per_day: stats
             .cache_rate
             .per_day
@@ -221,9 +224,104 @@ pub fn build(
                 })
             })
             .collect(),
-        latency: latency_of(loaded, stats, latency),
+        latency: latency_of(data, stats, latency),
         audit: audit.map(audit_of),
+        proxy: proxy_of(data),
     }
+}
+
+/// Cost per origin or agent type, the most expensive first.
+fn breakdown(data: &Gathered, by: GroupBy) -> Vec<ProxyBreakdown> {
+    let mut rows: Vec<ProxyBreakdown> = super::stats::compute(data, by)
+        .groups
+        .into_iter()
+        .map(|group| ProxyBreakdown {
+            name: group.key,
+            messages: group.messages,
+            tokens: group.tokens.total,
+            cost_usd: group.cost_usd,
+        })
+        .collect();
+    rows.sort_by(|a, b| b.cost_usd.total_cmp(&a.cost_usd).then(a.name.cmp(&b.name)));
+    rows
+}
+
+/// What the proxy measured (`None` when it recorded nothing in the period).
+fn proxy_of(data: &Gathered) -> Option<ProxyReport> {
+    let proxy = data.proxy()?;
+    Some(ProxyReport {
+        measured_messages: proxy.coverage.measured,
+        transcript_only_messages: proxy.coverage.transcript_only,
+        routes: proxy
+            .models
+            .iter()
+            .map(|route| ProxyRoute {
+                requested: route.requested.clone(),
+                effective: route.effective.clone(),
+                requests: route.requests,
+                cost_usd: route.cost_usd,
+            })
+            .collect(),
+        routing: proxy.routing.map(|routing| ProxyRouting {
+            applied: routing.applied,
+            observed: routing.observed,
+            kept: routing.kept,
+            fallback: routing.fallback,
+            applied_saving_usd: routing.applied_saving_usd,
+            observed_saving_usd: routing.observed_saving_usd,
+        }),
+        overhead: proxy.overhead.map(|overhead| ProxyOverhead {
+            requests: overhead.requests,
+            p50_ms: overhead.p50_ms,
+            p95_ms: overhead.p95_ms,
+            p99_ms: overhead.p99_ms,
+            max_ms: overhead.max_ms,
+            budget_ms: overhead.budget_ms,
+        }),
+        main_requests: proxy
+            .cache_misses
+            .as_ref()
+            .map_or(0, |misses| misses.main_requests),
+        cache_misses: proxy.cache_misses.map_or_else(Vec::new, |misses| {
+            misses
+                .causes
+                .into_iter()
+                .map(|cause| ProxyMiss {
+                    cause: cause.cause,
+                    requests: cause.requests,
+                    cache_write_tokens: cause.cache_write_tokens,
+                })
+                .collect()
+        }),
+        by_origin: breakdown(data, GroupBy::Origin),
+        by_agent_type: breakdown(data, GroupBy::AgentType),
+        suggestion: proxy.suggestion.map(|suggestion| suggestion.message),
+    })
+}
+
+/// The HTML report of a period, from the repositories alone: nothing is read from the transcripts
+/// or the disk, nothing is written or opened. This is what `tokred metrics` writes to its file and
+/// what the proxy serves at `/metrics`.
+pub fn report_html(
+    repos: &Repos<'_>,
+    prices: PriceTable,
+    now: Timestamp,
+    since: &str,
+    audit: Option<&AuditReport>,
+) -> anyhow::Result<String> {
+    let data = gather(repos, prices, now, since)?;
+    let last_sync = repos
+        .meta
+        .meta_get(PRICE_SYNCED_AT)?
+        .and_then(|value| value.parse::<i64>().ok());
+    Ok(html_of(&data, audit, last_sync))
+}
+
+/// The HTML report of data that was already gathered.
+fn html_of(data: &Gathered, audit: Option<&AuditReport>, last_sync: Option<i64>) -> String {
+    let stats = model_stats(data, &data.prices);
+    let latency = latency_stats(&data.events, data.spawn_overhead_us, data.range);
+    render_html(&build(data, &stats, &latency, audit, last_sync))
 }
 
 fn u64_to_f64(value: u64) -> f64 {
@@ -244,9 +342,11 @@ mod tests {
     use super::*;
     use crate::io::testing::scripted;
 
-    fn loaded(sb: &Sandbox) -> Loaded {
+    fn loaded(sb: &Sandbox) -> Gathered {
         let (mut io, _) = scripted(false, "");
-        load(&sb.env, &mut io, Some(sb.claude.clone()), "7d").unwrap()
+        load(&sb.env, &mut io, Some(sb.claude.clone()), "7d")
+            .unwrap()
+            .data
     }
 
     #[test]
@@ -376,5 +476,96 @@ mod tests {
             "disabled servers are not 'unused'"
         );
         assert_eq!(stats.unused_window_days, Some(30));
+    }
+    #[test]
+    fn the_proxy_maps_into_the_report_and_is_left_out_without_it() {
+        let sb = Sandbox::new();
+        sb.configure();
+        sb.seed_usage();
+        let l = loaded(&sb);
+        let stats = model_stats(&l, &l.prices);
+        let latency = latency_stats(&l.events, 0, l.range);
+        assert!(build(&l, &stats, &latency, None, None).proxy.is_none());
+
+        sb.seed_proxy();
+        let l = loaded(&sb);
+        let stats = model_stats(&l, &l.prices);
+        let proxy = build(&l, &stats, &latency, None, None).proxy.unwrap();
+        assert_eq!(
+            (proxy.measured_messages, proxy.transcript_only_messages),
+            (3, 0)
+        );
+        assert_eq!(proxy.routes[0].effective, "claude-haiku-4-5");
+        let routing = proxy.routing.unwrap();
+        assert_eq!((routing.applied, routing.observed), (1, 1));
+        assert!((routing.applied_saving_usd - 0.6).abs() < 1e-9);
+        assert!((proxy.overhead.unwrap().p95_ms - 0.8).abs() < 1e-9);
+        assert_eq!(proxy.main_requests, 1);
+        assert_eq!(proxy.cache_misses[0].cause, "ttl_expired");
+        assert_eq!(proxy.cache_misses[0].cache_write_tokens, 100);
+        let origins: Vec<_> = proxy.by_origin.iter().map(|o| o.name.as_str()).collect();
+        assert_eq!(origins.len(), 3);
+        assert!(origins.contains(&"main") && origins.contains(&"subagent"));
+        assert!(
+            proxy
+                .by_origin
+                .windows(2)
+                .all(|w| w[0].cost_usd >= w[1].cost_usd),
+            "most expensive first"
+        );
+        assert!(proxy.by_agent_type.iter().any(|a| a.name == "Explore"));
+        assert!(proxy.suggestion.unwrap().contains("simple"));
+
+        // Only a pending suggestion: no requests, but something waits to be read.
+        let quiet = Sandbox::new();
+        quiet.configure();
+        quiet.seed_proxy();
+        quiet.store().prune_proxy_requests(l.now, 0).unwrap();
+        let l = loaded(&quiet);
+        let proxy = super::proxy_of(&l).unwrap();
+        assert_eq!(proxy.main_requests, 0);
+        assert!(proxy.routes.is_empty() && proxy.overhead.is_none());
+        assert!(proxy.cache_misses.is_empty() && proxy.suggestion.is_some());
+    }
+
+    #[test]
+    fn the_report_is_built_from_the_repositories_alone() {
+        use super::super::data::Repos;
+
+        let sb = Sandbox::new();
+        sb.configure();
+        sb.seed_usage();
+        sb.seed_proxy();
+        sb.store()
+            .meta_set("price_synced_at", "1700000000")
+            .unwrap();
+        let store = sb.store();
+        let (mut io, _) = scripted(false, "");
+        let l = load(&sb.env, &mut io, Some(sb.claude.clone()), "7d").unwrap();
+
+        let html = report_html(
+            &Repos::of(&store),
+            l.data.prices.clone(),
+            l.data.now,
+            "7d",
+            None,
+        )
+        .unwrap();
+        assert!(html.contains("proxy-routing") && html.contains("claude-haiku-4-5"));
+        assert!(
+            html.contains("2023-11-14"),
+            "the last price sync is read from the repository"
+        );
+
+        let err = report_html(
+            &Repos::of(&store),
+            l.data.prices.clone(),
+            l.data.now,
+            "soon",
+            None,
+        )
+        .err()
+        .unwrap();
+        assert!(err.to_string().contains("invalid --since"), "{err}");
     }
 }

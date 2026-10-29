@@ -556,6 +556,105 @@ pub mod testing {
                 store.insert_event(&e).unwrap();
             }
         }
+
+        /// Records what the proxy saw of the conversation `seed_usage` wrote: the same two
+        /// messages (the second one rewritten to haiku, as a subagent request), a request the
+        /// transcripts do not have (the auxiliary one), two routing decisions and a suggestion.
+        pub fn seed_proxy(&self) {
+            use tokred_core::pricing::Usage;
+            use tokred_core::prompts::{SuggestionRecord, SuggestionRepo};
+            use tokred_core::proxy::ProxyRequestRecord;
+            use tokred_core::routing::{RoutingDecision, RoutingRepo};
+            let now = tokred_core::Clock::now(&super::SystemClock).0;
+            let noon = (now - 86_400).div_euclid(86_400) * 86_400 + 12 * 3_600;
+            let store = self.store();
+            let base = ProxyRequestRecord {
+                session_id: "s1".to_owned(),
+                status: 200,
+                ts: tokred_core::Timestamp(noon),
+                usage: Usage {
+                    input: 200_000,
+                    output: 100_000,
+                    cache_write: 100,
+                    cache_write_1h: 40,
+                    cache_read: 2_000,
+                },
+                ..ProxyRequestRecord::default()
+            };
+            let requests = [
+                ProxyRequestRecord {
+                    id: "p1".to_owned(),
+                    message_key: Some("m1:r-m1".to_owned()),
+                    origin: "main".to_owned(),
+                    model_requested: "claude-opus-4-1-20250805".to_owned(),
+                    model_effective: "claude-opus-4-1-20250805".to_owned(),
+                    miss_cause: Some("ttl_expired".to_owned()),
+                    proxy_overhead_us: 400,
+                    ..base.clone()
+                },
+                ProxyRequestRecord {
+                    id: "p2".to_owned(),
+                    message_key: Some("m2:r-m2".to_owned()),
+                    origin: "subagent".to_owned(),
+                    agent_type: Some("Explore".to_owned()),
+                    model_requested: "claude-sonnet-4-20250514".to_owned(),
+                    model_effective: "claude-haiku-4-5".to_owned(),
+                    usage: Usage {
+                        input: 300_000,
+                        output: 150_000,
+                        ..base.usage
+                    },
+                    proxy_overhead_us: 600,
+                    ..base.clone()
+                },
+                ProxyRequestRecord {
+                    id: "p3".to_owned(),
+                    ts: tokred_core::Timestamp(noon + 60),
+                    message_key: Some("m9:r-m9".to_owned()),
+                    origin: "auxiliary".to_owned(),
+                    model_requested: "claude-haiku-4-5".to_owned(),
+                    model_effective: "claude-haiku-4-5".to_owned(),
+                    usage: Usage {
+                        input: 1_000,
+                        output: 20,
+                        cache_write: 0,
+                        cache_write_1h: 0,
+                        cache_read: 0,
+                    },
+                    proxy_overhead_us: 800,
+                    ..base
+                },
+            ];
+            for request in &requests {
+                assert!(store.insert_proxy_request(request).unwrap());
+            }
+            let decision = |id: &str, outcome: &str, from: f64, to: f64| RoutingDecision {
+                id: id.to_owned(),
+                ts: tokred_core::Timestamp(noon),
+                session_id: "s1".to_owned(),
+                outcome: outcome.to_owned(),
+                est_cost_from: from,
+                est_cost_to: to,
+                ..RoutingDecision::default()
+            };
+            store
+                .insert_decision(&decision("d1", "applied", 0.9, 0.3))
+                .unwrap();
+            store
+                .insert_decision(&decision("d2", "observed", 0.5, 0.1))
+                .unwrap();
+            store
+                .insert_suggestion(&SuggestionRecord {
+                    id: "sg1".to_owned(),
+                    ts: tokred_core::Timestamp(noon + 120),
+                    session_id: "s1".to_owned(),
+                    kind: "cheaper_model".to_owned(),
+                    message: "The last 3 prompts were simple; sonnet would have done".to_owned(),
+                    shown: false,
+                    detail: "{}".to_owned(),
+                })
+                .unwrap();
+        }
     }
 }
 

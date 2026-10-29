@@ -21,6 +21,8 @@ fn record(key: &str, ts: i64, subagent: bool) -> UsageRecord {
             cache_read: 4,
         },
         is_subagent: subagent,
+        origin: None,
+        agent_type: None,
     }
 }
 

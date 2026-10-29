@@ -32,13 +32,13 @@ tokred proxy service install      # and later: tokred proxy service uninstall
 
 | Feature | Default | What it changes |
 |---|---|---|
-| Measurement | always on | Nothing. Records each request's model, tokens (including 1-hour cache writes), latency and the likely cause of a prompt-cache miss |
+| Measurement | always on | Nothing. Records each request's model, tokens (including 1-hour cache writes), latency and the likely cause of a prompt-cache miss; `tokred stats`, `tokred metrics` and the HTML report read it as their exact source ([metrics](metrics.md)) |
 | [Model routing](routing.md) | `observe` | Only subagent and auxiliary requests, and only in `enforce`. **The main loop's model is never changed** |
-| Suggestions | shown by `tokred suggest` | Nothing. Tells you when the main loop's last prompts were simple enough for a cheaper model |
+| Suggestions | shown by `tokred suggest` and `tokred stats` (and, if you choose, the status line and a one-line message) | Nothing. Tells you when the main loop's last prompts were simple enough for a cheaper model |
 | Reversible compression | `observe` | Only in `enforce`: large tool results are replaced by a preview plus an id; the original is kept and the model reads it back with `tokred_retrieve` |
 | Response-cache measurement | on | Nothing. Counts exact repeats to show whether a response cache would help |
 
-`observe` means the feature records what it *would* do, so `tokred routing status` and `tokred suggest` show the saving before you turn anything on.
+`observe` means the feature records what it *would* do, so `tokred routing status`, `tokred suggest` and `tokred stats` show the saving before you turn anything on.
 
 ## Guarantees
 

@@ -50,7 +50,36 @@ Hooks run synchronously before Claude Code continues, so `tokred stats latency` 
 
 ## With the proxy
 
-`stats`, `stats latency` and the HTML report still read their numbers from the transcripts and hooks, as described above. When the optional [proxy](proxy.md) runs, it records its own, exact data per request in the database: requested and effective model, tokens (including 1-hour cache writes), time to first byte and total time, the likely cause of a prompt-cache miss, and the time the proxy itself added (its overhead, budgeted at p95 under 10 ms). Today that data is shown through `tokred routing status` (recent routing decisions with their estimated saving), `tokred proxy status` (request count and the overhead's median and p95 over the last 24 hours) and `tokred suggest` (suggestions for the main loop); showing the per-request figures in `stats` and the HTML report is specified in the [spec](spec.md) and not done yet.
+When the optional [proxy](proxy.md) runs, it records its own, exact data per request in `proxy_requests`: requested and effective model, tokens (including 1-hour cache writes), time to first byte and total time, the likely cause of a prompt-cache miss, the origin (main loop, subagent, auxiliary, compaction), the agent type of a subagent and the time the proxy itself added (its overhead, budgeted at p95 under 10 ms). `stats`, `metrics` and the HTML report read the proxy as the **primary source** and the transcripts as the fallback for what the proxy did not see, as one merged list of usage rows.
+
+### One source, no request counted twice
+
+Every proxied request is also in the transcripts, so the two lists are merged before anything is computed (`merge_usage` in `tokred-metrics`):
+
+- **Pairing.** A proxy request is paired with the transcript row that has the same `message_key` (the Anthropic message id and the request id, in the same format on both sides). A proxy request **without** a key (the response carried no message id, e.g. an interrupted stream) is paired with the transcript row of the same session whose four token counters are equal and whose time lies within 5 seconds of the request, or up to 5 seconds after the end of its response (the transcript line is written when the response ends). Two requests that both have a key and differ are two requests, never merged by time.
+- **One to one.** A proxy request takes at most one transcript row and the reverse; keyless requests are paired nearest in time first. Two identical requests in the same few seconds stay two rows.
+- **The proxy wins.** A pair becomes one row with the proxy's numbers: the model that really answered (not the one asked for), the tokens with the 1-hour cache split, the arrival time, the origin and the agent type. It keeps the transcript's project.
+- **What stays.** Transcript-only rows (requests made while the proxy was off) and proxy-only rows (the project of its session when a transcript names it, else `(proxy)`).
+- **What is skipped.** A request answered with a non-2xx status or with no tokens is not a message; it still counts for the overhead and the failed-request count.
+
+Everything else reads the merged rows, so the totals, the groups, the all-on-opus counterfactual (the tokens are priced on the model that answered, so what routing really changed shows up in the routing saving), the projection and the before/after comparison are exact for the proxied part. Without any proxy row the transcript rows pass through unchanged and every output stays exactly as described above.
+
+### What `stats` adds
+
+- `--by origin` groups the cost by who sent the request (`main`, `subagent`, `auxiliary`, `compaction`) and `--by agent-type` by the agent type of subagent requests (`Explore`, `Plan`, ...). Without the proxy, `origin` falls back to the transcripts (`main` or `subagent`) and every agent type is `(unknown)`.
+- A **Proxy** section after the cost tables, only when the proxy recorded something in the period:
+
+| Line | How |
+|---|---|
+| Data source | Messages measured by the proxy and messages known only from the transcripts |
+| Requests | Requests the proxy handled and how many the upstream did not answer with a 2xx status |
+| Overhead | p50, p95, p99 and max of `proxy_overhead_us` in ms (nearest-rank, as for the hooks) against the 10 ms budget; an alert when the p95 is over it (exactly 10 ms is within budget) |
+| Routing | Decisions of the period: applied (`enforce`), observed (`observe`), kept, fallback, with the **estimated** saving of the applied ones and of the observed ones had they been applied (`est_cost_from - est_cost_to` of each decision) |
+| Model routing | The model asked for against the model that answered, per pair: messages, tokens and cost on the model that answered; rewritten pairs are marked |
+| Cache misses | Main-loop messages whose `miss_cause` is set, and a table per cause with the tokens those requests wrote to the cache again |
+| Suggestion | The latest suggestion not shown yet in the period, with a pointer to `tokred suggest`; `stats` never marks it as shown |
+
+`stats --json` carries the same data under a top-level `proxy` key, present only when the proxy recorded something.
 
 ## Spans and ranges
 
@@ -58,6 +87,6 @@ Hooks run synchronously before Claude Code continues, so `tokred stats latency` 
 
 ## HTML report
 
-`tokred metrics` writes a self-contained, offline HTML file (inline CSS/JS, SVG charts generated in Rust, light/dark theme) to `<data>/reports/metrics.html`, always the same file, atomically, and opens it in the browser unless `--no-open`. Sections without data show a "no data yet" notice instead of disappearing.
+`tokred metrics` writes a self-contained, offline HTML file (inline CSS/JS, SVG charts generated in Rust, light/dark theme) to `<data>/reports/metrics.html`, always the same file, atomically, and opens it in the browser unless `--no-open`. Sections without data show a "no data yet" notice instead of disappearing. The proxy's sections (model routing, overhead, cache misses by cause, cost by origin and agent type) are the exception: they appear only when the proxy recorded something, so a report without the proxy is exactly the one it always was.
 
 Prices come from the public LiteLLM JSON with an embedded fallback; an unknown model is mapped to the latest price of its family (opus/sonnet/haiku) and flagged.

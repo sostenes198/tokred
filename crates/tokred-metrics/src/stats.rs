@@ -32,7 +32,17 @@ pub enum GroupBy {
     Day,
     /// One group per project directory.
     Project,
+    /// One group per request origin (`main`, `subagent`, `auxiliary`, `compaction`). Only the
+    /// proxy sees the last two; rows read from transcripts alone are `main` or `subagent`.
+    Origin,
+    /// One group per agent type of a subagent request (`Explore`, `Plan`, ...). Only the proxy
+    /// knows it; every other row is [`UNKNOWN_AGENT_TYPE`].
+    #[serde(rename = "agent_type")]
+    AgentType,
 }
+
+/// The agent type of a row that has none.
+pub const UNKNOWN_AGENT_TYPE: &str = "(unknown)";
 
 /// Everything [`compute_stats`] needs.
 #[derive(Debug, Clone, Copy)]
@@ -304,6 +314,18 @@ fn group_key(record: &UsageRecord, group_by: GroupBy) -> String {
         GroupBy::Model => record.model.clone(),
         GroupBy::Day => day_string(record.ts.0),
         GroupBy::Project => record.project.clone(),
+        GroupBy::Origin => record.origin.clone().unwrap_or_else(|| {
+            if record.is_subagent {
+                "subagent"
+            } else {
+                "main"
+            }
+            .to_owned()
+        }),
+        GroupBy::AgentType => record
+            .agent_type
+            .clone()
+            .unwrap_or_else(|| UNKNOWN_AGENT_TYPE.to_owned()),
     }
 }
 
@@ -593,6 +615,8 @@ mod tests {
                 cache_read: tokens[3],
             },
             is_subagent: false,
+            origin: None,
+            agent_type: None,
         }
     }
 
@@ -716,6 +740,42 @@ mod tests {
             .map(|g| (g.key.as_str(), g.tokens.total))
             .collect();
         assert_eq!(got, [("A", 24_600), ("B", 1_700_000)]);
+    }
+
+    #[test]
+    fn groups_by_origin_and_agent_type_use_what_the_proxy_knows() {
+        let mut usage = dataset();
+        usage[0].origin = Some("main".to_owned());
+        usage[1].origin = Some("auxiliary".to_owned());
+        usage[2].origin = Some("subagent".to_owned());
+        usage[2].agent_type = Some("Explore".to_owned());
+        usage[3].is_subagent = true;
+
+        let by_origin = stats_for(&usage, whole(), GroupBy::Origin, None);
+        let got: Vec<_> = by_origin
+            .groups
+            .iter()
+            .map(|g| (g.key.as_str(), g.messages))
+            .collect();
+        assert_eq!(
+            got,
+            [("auxiliary", 1), ("main", 2), ("subagent", 2)],
+            "rows without the proxy are main, or subagent when the transcript says so"
+        );
+
+        let by_agent = stats_for(&usage, whole(), GroupBy::AgentType, None);
+        let got: Vec<_> = by_agent
+            .groups
+            .iter()
+            .map(|g| (g.key.as_str(), g.messages))
+            .collect();
+        assert_eq!(got, [("(unknown)", 4), ("Explore", 1)]);
+        let json = serde_json::to_value(&by_agent).unwrap();
+        assert_eq!(json["group_by"], "agent_type");
+        assert_eq!(
+            serde_json::to_value(&by_origin).unwrap()["group_by"],
+            "origin"
+        );
     }
 
     #[test]

@@ -10,6 +10,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::compression::{CompressedBlock, ShadowRecord, StoredResult};
+use crate::error::StoreError;
 use crate::pricing::Usage;
 use crate::prompts::{PromptSummary, SuggestionRecord};
 use crate::routing::RoutingDecision;
@@ -359,6 +360,16 @@ pub struct ProxyRequestRecord {
     pub tools_hash: String,
     /// blake3 of the `system` block.
     pub system_hash: String,
+}
+
+/// Read access to the stored proxy requests (`proxy_requests`), for the reports.
+pub trait ProxyRequestRepo {
+    /// Requests with `from <= ts < to`, oldest first.
+    fn requests_between(
+        &self,
+        from: Timestamp,
+        to: Timestamp,
+    ) -> Result<Vec<ProxyRequestRecord>, StoreError>;
 }
 
 /// Something the proxy wants stored. Written by a single writer, off the request path.

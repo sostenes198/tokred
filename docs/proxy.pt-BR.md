@@ -32,13 +32,13 @@ O `tokred proxy start` roda em segundo plano sem serviço; `--foreground` o mant
 
 | Recurso | Padrão | O que altera |
 |---|---|---|
-| Medição | sempre ligada | Nada. Registra o modelo, os tokens (inclusive gravações de cache de 1 hora), a latência e a causa provável de um cache miss de cada requisição |
+| Medição | sempre ligada | Nada. Registra o modelo, os tokens (inclusive gravações de cache de 1 hora), a latência e a causa provável de um cache miss de cada requisição; o `tokred stats`, o `tokred metrics` e o relatório HTML a leem como sua fonte exata ([metrics](metrics.pt-BR.md)) |
 | [Roteamento de modelo](routing.pt-BR.md) | `observe` | Só requisições de subagentes e auxiliares, e só em `enforce`. **O modelo do loop principal nunca é trocado** |
-| Sugestões | mostradas pelo `tokred suggest` | Nada. Avisa quando os últimos prompts do loop principal foram simples o bastante para um modelo mais barato |
+| Sugestões | mostradas pelo `tokred suggest` e pelo `tokred stats` (e, se você quiser, na status line e numa mensagem de uma linha) | Nada. Avisa quando os últimos prompts do loop principal foram simples o bastante para um modelo mais barato |
 | Compressão reversível | `observe` | Só em `enforce`: resultados grandes de ferramentas viram uma prévia mais um id; o original é guardado e o modelo o lê de volta com o `tokred_retrieve` |
 | Medição de cache de respostas | ligada | Nada. Conta repetições exatas para mostrar se um cache de respostas ajudaria |
 
-`observe` quer dizer que o recurso registra o que *faria*, então o `tokred routing status` e o `tokred suggest` mostram a economia antes de você ligar qualquer coisa.
+`observe` quer dizer que o recurso registra o que *faria*, então o `tokred routing status`, o `tokred suggest` e o `tokred stats` mostram a economia antes de você ligar qualquer coisa.
 
 ## Garantias
 

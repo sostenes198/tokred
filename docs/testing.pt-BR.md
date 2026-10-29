@@ -82,11 +82,12 @@ Aponte o proxy para um upstream falso que devolve uma mensagem com contagem de t
 ```sh
 # Terminal A: a API falsa na porta 9000
 python3 -I - <<'PY'
-import json, http.server
+import itertools, json, http.server
+ids = itertools.count(1)
 class H(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         self.rfile.read(int(self.headers.get("content-length", 0)))
-        body = json.dumps({"id": "msg_1", "type": "message", "role": "assistant", "model": "claude-sonnet-4-5",
+        body = json.dumps({"id": f"msg_{next(ids)}", "type": "message", "role": "assistant", "model": "claude-sonnet-4-5",
                            "content": [{"type": "text", "text": "hi"}], "stop_reason": "end_turn",
                            "usage": {"input_tokens": 120, "output_tokens": 15}}).encode()
         self.send_response(200); self.send_header("content-type", "application/json")
@@ -115,6 +116,7 @@ O que conferir:
 
 - as respostas que você recebe são exatamente o que o servidor falso devolveu (o proxy não altera nada em `observe`);
 - `sqlite3 "$TOKRED_DATA_DIR/tokred.db" "select origin, model_requested, model_effective, input, output from proxy_requests"` mostra duas linhas (`auxiliary` e `subagent`) com 120 tokens de entrada e 15 de saída;
+- o `tokred stats` mostra uma seção **Proxy** contando as duas requisições (`2 messages measured by the proxy`), e o `tokred stats --by origin` lista `auxiliary` e `subagent`;
 - uma requisição com `Host: evil.example` é recusada: `curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: evil.example' http://127.0.0.1:1029/v1/messages -d '{}'` imprime `421`;
 - parar de verdade encerra o processo: `pgrep -fl "proxy start --foreground"` não imprime nada.
 

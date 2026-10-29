@@ -58,9 +58,11 @@ Remove os hooks do tokred do `settings.json` e os arquivos de agente que o tokre
 
 Mostra a versão do tokred, o path do binário, as pastas do Claude Code e de dados, a versão do schema do banco, o estado da config, a detecção do rtk, uma tabela de hooks (`ok`, `missing`, `outdated`, ou path de binário que não existe mais), uma tabela de agentes (`current`, `outdated`, `edited by you`, `missing`, `.new` pendente) e uma lista de problemas e observações. Uma seção do proxy mostra se o [proxy](proxy.pt-BR.md) está rodando, seus modos de roteamento e compressão, e se o `ANTHROPIC_BASE_URL` aponta para ele ou para outro gateway; quando `HTTPS_PROXY` está definida ou há arquivos de CA extras configurados, mostra também o proxy (só host e porta, nunca as credenciais) e os arquivos de CA. Com `--bench` também executa cada hook muitas vezes com entrada realista e mede a latência real por fora (do início do processo até o fim); o resultado é salvo e usado pelo `stats latency`. `TOKRED_BENCH_RUNS` define as execuções por payload (padrão 50).
 
-## `tokred stats [--since 7d] [--by model|day|project] [--json]`
+## `tokred stats [--since 7d] [--by model|day|project|origin|agent-type] [--json]`
 
 O painel de custo, impresso no terminal: totais (mensagens, tokens, custo real), quanto os mesmos tokens custariam se tudo rodasse no opus, a economia do roteamento e das guardas (**uma estimativa**, rotulada como tal), a taxa de acerto do cache de prompt, a projeção mensal, um medidor de eficiência e uma tabela numerada com coluna de participação e barra de impacto. Modelos precificados por família aparecem sinalizados. Quando há dados anteriores ao primeiro `configure`, compara o custo por sessão antes e depois. Os transcripts são ingeridos de forma incremental antes, então fica rápido depois da primeira vez. `--since` aceita horas, dias e semanas (`12h`, `7d`, `2w`).
+
+Com o [proxy](proxy.pt-BR.md) registrando, os números vêm dos seus dados exatos por requisição (mesclados com os transcripts para o que ele não viu, sem contar nada duas vezes; veja [metrics](metrics.pt-BR.md)), `--by origin` e `--by agent-type` agrupam o custo por quem enviou a requisição, e segue uma seção **Proxy**: fonte dos dados, overhead contra o orçamento de 10 ms, decisões de roteamento com a economia estimada, o modelo pedido contra o que respondeu, cache misses do prompt por causa e a última sugestão ainda não mostrada. O `--json` acrescenta a chave `proxy`.
 
 ## `tokred stats latency [--since 7d] [--by hook|day|session] [--json]`
 
@@ -68,7 +70,7 @@ Quanto tempo os hooks do tokred acrescentaram ao Claude Code: execuções, p50/p
 
 ## `tokred metrics [--since 30d] [--no-open]`
 
-Imprime o mesmo painel do `stats` e grava o relatório HTML autocontido em `<dados>/reports/metrics.html` (sempre o mesmo arquivo, sobrescrito de forma atômica), e o abre no navegador a menos que se passe `--no-open`. O relatório funciona offline: sem rede, sem fontes nem scripts externos.
+Imprime o mesmo painel do `stats` (com a seção Proxy quando o proxy registrou algo) e grava o relatório HTML autocontido em `<dados>/reports/metrics.html` (sempre o mesmo arquivo, sobrescrito de forma atômica), e o abre no navegador a menos que se passe `--no-open`. O relatório funciona offline: sem rede, sem fontes nem scripts externos.
 
 ## `tokred audit [--project <path>] [--json]`
 

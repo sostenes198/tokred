@@ -8,6 +8,7 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ### Alterado
 
+- O `tokred stats`, o `tokred metrics` e o relatório HTML leem os dados exatos por requisição do proxy como fonte primária e os transcripts para o que o proxy não viu, mesclados para que nenhuma requisição seja contada duas vezes ([metrics](docs/metrics.pt-BR.md)). Sem o proxy nada muda.
 - O `unconfigure` deixa intocado o que não entende nas configurações, em vez de falhar.
 
 ### Corrigido
@@ -27,6 +28,7 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 - `tokred claude [args...]`: inicia o proxy se preciso e executa o Claude Code por ele só nesta execução, repassando todos os argumentos.
 - `tokred proxy start|stop|status` e `tokred proxy service install|uninstall`; `tokred routing status|on|off|explain`; `tokred compression on|off|status` (`on` registra o servidor MCP em `~/.claude.json` com backup em `.tokred.bak`).
 - O `tokred doctor` mostra o proxy (rodando, modos, para onde o `ANTHROPIC_BASE_URL` aponta); `TOKRED_BENCH_RUNS` define as execuções do `doctor --bench`.
+- Com o proxy registrando: `tokred stats --by origin` e `--by agent-type`, e uma seção Proxy no `stats`, no `metrics` e no relatório HTML com o overhead contra o orçamento de 10 ms, as decisões de roteamento com economia observada e aplicada, o modelo pedido contra o que respondeu, os cache misses do prompt por causa e a última sugestão pendente (o `stats --json` ganha a chave `proxy`).
 - Novas seções `[proxy]`, `[routing]`, `[routing.tiers]`, `[suggest]`, `[compression]` e `[shadow]` no `tokred.toml` ([configuração](docs/configuration.pt-BR.md)).
 - Fases F1 a F5: painéis coloridos no terminal (`tokred stats`, `stats latency`, `metrics`) com um relatório HTML offline; tabela de preços com snapshot embutido e sincronização diária; a verificação diária de versão e o `tokred update` (self-update com checksum verificado para instalações por script); `tokred audit`; `tokred cache`; os seis hooks (`guard-read`, `guard-search`, `route`, `enforce`, `session-check`, `session-start`) com registro de latência e `doctor --bench`; o pipeline de release com `dist` e publicação no Homebrew, Scoop, winget e crates.io.
 - `TOKRED_OFFLINE`, `TOKRED_PRICES_URL`, `TOKRED_RELEASES_URL`, `NO_COLOR` e `CLICOLOR_FORCE`.
