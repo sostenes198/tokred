@@ -58,7 +58,10 @@ fn rich() -> ReportData {
             tokens_avoided: 1_234_567,
             monthly_projection_usd: 135.0,
             latency_added_ms: 4_321.5,
+            since: None,
         }),
+        summary_7d: None,
+        summary_30d: None,
         cost_per_day,
         models: models(),
         routing: Some(RoutingStats {

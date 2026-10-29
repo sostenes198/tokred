@@ -17,6 +17,7 @@ use tokred_store::Store;
 
 use super::SystemClock;
 use super::metrics::html_report;
+use super::session_labels::Labels;
 use crate::env::Env;
 
 /// Sessions read from the store per call (the newest ones).
@@ -29,6 +30,7 @@ pub struct StoreSource {
     env: Env,
     claude_dir: Option<PathBuf>,
     prices: PriceTable,
+    labels: Labels,
 }
 
 impl StoreSource {
@@ -36,9 +38,20 @@ impl StoreSource {
     pub fn new(env: Env, claude_dir: Option<PathBuf>, prices: PriceTable) -> Self {
         Self {
             env,
+            labels: Labels::new(claude_dir.as_deref()),
             claude_dir,
             prices,
         }
+    }
+
+    /// Names the sessions the way Claude Code does (see [`Labels`]).
+    fn named(&self, mut sessions: Vec<SessionView>) -> Vec<SessionView> {
+        for session in &mut sessions {
+            let label = self.labels.label(&session.id);
+            session.title = label.title;
+            session.project = label.project;
+        }
+        sessions
     }
 
     fn open(&self) -> Result<Store, String> {
@@ -81,6 +94,8 @@ fn fold_session(group: &[SessionModelRow], prices: &PriceTable, now: Timestamp) 
         cache_write: 0,
         subagents_running: 0,
         content_recorded: first.content_turns > 0,
+        title: None,
+        project: None,
     };
     for row in group {
         session.requests += row.requests;
@@ -151,10 +166,10 @@ impl DashboardSource for StoreSource {
             .open()?
             .session_model_rows(None, SESSIONS_SCANNED)
             .map_err(|error| error.to_string())?;
-        let (active, mut recent): (Vec<_>, Vec<_>) =
-            fold_sessions(&rows, &self.prices, SystemClock.now())
-                .into_iter()
-                .partition(|session| session.status == SessionStatus::Active);
+        let (active, mut recent): (Vec<_>, Vec<_>) = self
+            .named(fold_sessions(&rows, &self.prices, SystemClock.now()))
+            .into_iter()
+            .partition(|session| session.status == SessionStatus::Active);
         recent.truncate(RECENT_SESSIONS);
         Ok(SessionList { active, recent })
     }
@@ -164,7 +179,8 @@ impl DashboardSource for StoreSource {
         let rows = store
             .session_model_rows(Some(id), 1)
             .map_err(|error| error.to_string())?;
-        let Some(session) = fold_sessions(&rows, &self.prices, SystemClock.now()).pop() else {
+        let named = self.named(fold_sessions(&rows, &self.prices, SystemClock.now()));
+        let Some(session) = named.into_iter().next_back() else {
             return Ok(None);
         };
         let (turns, truncated) = store
@@ -304,6 +320,42 @@ mod tests {
         assert_eq!(list.recent[0].id, "old");
         assert_eq!(list.recent[0].status, SessionStatus::Ended);
         assert!(!list.recent[0].content_recorded);
+    }
+
+    #[test]
+    fn sessions_are_named_the_way_claude_code_names_them() {
+        let sb = Sandbox::new();
+        sb.configure();
+        seed(&sb);
+        let project = sb.claude.join("projects/-Users-x-tokred");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(
+            project.join("live.jsonl"),
+            concat!(
+                r#"{"type":"user","cwd":"/Users/x/Repos/tokred","sessionId":"live"}"#,
+                "\n",
+                r#"{"type":"ai-title","aiTitle":"Tokred spec implementation","sessionId":"live"}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+        let source = source(&sb);
+        let list = source.sessions().unwrap();
+        assert_eq!(
+            list.active[0].title.as_deref(),
+            Some("Tokred spec implementation")
+        );
+        assert_eq!(list.active[0].project.as_deref(), Some("tokred"));
+        // A session without a transcript has no name, and is still listed.
+        assert_eq!(list.recent[0].id, "old");
+        assert_eq!(list.recent[0].title, None);
+        let detail = source.session("live").unwrap().unwrap();
+        assert_eq!(
+            detail.session.title.as_deref(),
+            Some("Tokred spec implementation")
+        );
+        // The id of a request never leaves the project folders.
+        assert!(source.session("../live").unwrap().is_none());
     }
 
     #[test]

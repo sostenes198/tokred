@@ -19,6 +19,7 @@ mod pricing;
 mod proxy;
 mod report_data;
 mod serve;
+mod session_labels;
 mod stats;
 mod unconfigure;
 mod uninstall;
@@ -376,7 +377,7 @@ fn run_claude(env: &Env, io: &mut Io, exe: Option<&Path>, args: &[OsString]) -> 
     let launcher = claude::Launcher {
         enabled: config.proxy.enabled,
         port,
-        existing_base_url: std::env::var("ANTHROPIC_BASE_URL").ok(),
+        existing_base_url: env.anthropic_base_url.clone(),
         healthy: &|port| crate::daemon::healthy(port, probe),
         start_proxy: &start,
         wait_healthy: &|port, timeout| {
@@ -620,6 +621,7 @@ pub mod testing {
                 default_claude_dir: None,
                 home_dir: Some(root.path().join("home")),
                 data: DataLayout::new(root.path().join("data")),
+                anthropic_base_url: None,
             };
             Self { root, claude, env }
         }

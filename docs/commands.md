@@ -111,6 +111,8 @@ Turn the proxy features on or off and apply it at once. This is the one place th
 
 **Without a terminal** (or with `--yes`) nothing is asked: only what a flag or variable says is changed; the rest keeps the saved value, else the defaults (port 1029, content **not** recorded). If the proxy is already running on another port than the new one, it is stopped and started again on the new port, and the command says so.
 
+A proxy that is already running is restarted when what it does differs from what you asked for: another port, or another answer about recording conversation content (it reads that setting only when it starts; one too old to say what it records is restarted too). `enable` says so before it stops it.
+
 `disable` removes tokred's URL from there and leaves a running proxy running (`tokred proxy stop` stops it). While disabled, `proxy start` and `proxy service install` refuse, `tokred claude` runs `claude` directly and `doctor` shows "disabled"; `proxy stop` and `proxy status` still work. A different gateway in `ANTHROPIC_BASE_URL` is never overwritten or removed: `enable` then only saves the setting and says so. See [proxy](proxy.md).
 
 ## `tokred initialize [--quiet | --verbose] [--json]`

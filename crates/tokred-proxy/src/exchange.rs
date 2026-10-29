@@ -161,6 +161,7 @@ impl Shared {
             "upstream_errors": count(&self.counters.upstream_errors),
             "sessions": sessions,
             "hooks": hooks,
+            "content_recorded": self.dashboard.as_ref().is_some_and(|dashboard| dashboard.capture),
         })
     }
 }

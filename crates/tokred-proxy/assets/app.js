@@ -37,6 +37,7 @@
   var PRUNE_SESSIONS_AT = 200;
   var RECONNECT_MS = 3000;
   var TICK_MS = 5000;
+  var REFRESH_MS = 30000; // the list is read again: Claude Code names a session after its first turn
   var API = '/dashboard/api/sessions';
   var EVENTS = '/dashboard/events';
 
@@ -123,6 +124,21 @@
   function shortId(id) {
     var s = str(id);
     return s.length > 8 ? s.slice(0, 8) : s;
+  }
+
+  // What a session is called: the name Claude Code shows for it, else its short id.
+  function sessionName(s) {
+    var title = typeof s.title === 'string' ? s.title.trim() : '';
+    return title || shortId(s.id);
+  }
+
+  // The muted line under the name: the folder and the short id (the id is the name when there is no title).
+  function sessionSub(s) {
+    var hasTitle = typeof s.title === 'string' && s.title.trim() !== '';
+    var parts = [];
+    if (typeof s.project === 'string' && s.project) parts.push(s.project);
+    if (hasTitle) parts.push(shortId(s.id));
+    return parts.join(' · ');
   }
 
   function fmtTokens(n) {
@@ -312,6 +328,11 @@
     var id = String(s.id);
     var prev = st.sessions.get(id);
     if (prev && num(s.last_activity_at) < num(prev.last_activity_at)) return; // stale
+    if (prev) {
+      // A live event does not know the name: keep the one already read.
+      if (!s.title && prev.title) s.title = prev.title;
+      if (!s.project && prev.project) s.project = prev.project;
+    }
     st.sessions.set(id, s);
     st.dirty.lists = true;
     if (id === st.selectedId) {
@@ -395,14 +416,15 @@
     var sid = h('span', 'sid');
     var status = h('span', 'sstatus');
     var ago = h('span', 'ago');
+    var sub = h('span', 'ssub');
     var models = h('span', 'models');
     var stats = h('span', 'sstats');
-    var btn = h('button', 'session', h('span', 'row', dot, sid, status, ago), h('span', 'row', models), h('span', 'row', stats));
+    var btn = h('button', 'session', h('span', 'row', dot, sid, status, ago), h('span', 'row sub-row', sub), h('span', 'row', models), h('span', 'row', stats));
     btn.type = 'button';
     btn.addEventListener('click', function () {
       select(id);
     });
-    var entry = { li: h('li', null, btn), btn: btn, dot: dot, sid: sid, status: status, ago: ago, models: models, stats: stats, last: 0 };
+    var entry = { li: h('li', null, btn), btn: btn, dot: dot, sid: sid, sub: sub, status: status, ago: ago, models: models, stats: stats, last: 0 };
     return entry;
   }
 
@@ -415,8 +437,11 @@
   function updateSessionEl(entry, s) {
     var status = pick(s.status, STATUSES, 'ended');
     entry.dot.setAttribute('data-status', status);
-    entry.sid.textContent = shortId(s.id);
+    entry.sid.textContent = sessionName(s);
     entry.sid.title = str(s.id);
+    var sub = sessionSub(s);
+    entry.sub.textContent = sub;
+    entry.sub.parentNode.hidden = sub === '';
     entry.status.textContent = status;
     entry.last = toMillis(s.last_activity_at);
     entry.ago.textContent = fmtAgo(entry.last);
@@ -576,7 +601,12 @@
       var dot = h('span', 'dot');
       dot.setAttribute('data-status', status);
       dot.setAttribute('aria-hidden', 'true');
-      var title = h('span', 'title', dot, h('span', null, str(s.id)), h('span', 'muted', status));
+      var named = typeof s.title === 'string' && s.title.trim() !== '';
+      var title = h('span', 'title', dot, h('span', null, named ? s.title.trim() : str(s.id)), h('span', 'muted', status));
+      if (named) {
+        var ident = h('span', 'muted ident', (s.project ? s.project + ' · ' : '') + str(s.id));
+        title.appendChild(ident);
+      }
       var inputs = num(s.input) + num(s.cache_read) + num(s.cache_write);
       var hit = inputs > 0 ? Math.round((num(s.cache_read) / inputs) * 100) + '%' : '-';
       var models = Array.isArray(s.models) ? s.models.map(shortModel).join(', ') : '';
@@ -956,6 +986,7 @@
       if (st.selectedId === null && first) select(String(first.id));
     });
     setInterval(tickAgo, TICK_MS);
+    setInterval(loadSessions, REFRESH_MS);
   }
 
   boot();

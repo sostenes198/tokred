@@ -39,6 +39,8 @@ fn session_view(id: &str, last: i64, status: SessionStatus) -> SessionView {
         cache_write: 4,
         subagents_running: 0,
         content_recorded: false,
+        title: None,
+        project: None,
     }
 }
 
@@ -380,6 +382,27 @@ async fn without_a_dashboard_the_paths_are_forwarded_and_the_token_endpoint_is_a
     .await;
     assert_eq!(token.status, 404);
     proxy.stop().await;
+}
+
+/// The admin status says whether the running proxy records conversation content, which is what
+/// `tokred proxy enable` compares with what was asked for.
+#[tokio::test]
+async fn the_status_says_whether_conversation_content_is_recorded() {
+    for capture in [true, false] {
+        let upstream = quiet_upstream().await;
+        let (proxy, _source) = dashboard(&upstream, capture).await;
+        let status = send(
+            proxy.addr,
+            Method::GET,
+            "/__tokred/status",
+            &[("x-tokred-secret", SECRET)],
+            "",
+        )
+        .await
+        .json();
+        assert_eq!(status["content_recorded"], capture, "{status}");
+        proxy.stop().await;
+    }
 }
 
 #[tokio::test]

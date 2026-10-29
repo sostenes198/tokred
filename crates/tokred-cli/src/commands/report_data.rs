@@ -89,16 +89,48 @@ pub fn model_stats(data: &Gathered, prices: &PriceTable) -> Stats {
 }
 
 fn summary_of(stats: &Stats, latency: &LatencyStats) -> Option<Summary> {
+    summary_with(stats, latency, false)
+}
+
+/// The summary cards of `stats`; the projection comes from the last 30 days when `from_30d`,
+/// else from the last 7.
+fn summary_with(stats: &Stats, latency: &LatencyStats, from_30d: bool) -> Option<Summary> {
     (stats.totals.messages > 0).then(|| Summary {
         real_cost_usd: stats.savings.real_cost_usd,
         routing_saving_usd: stats.savings.routing_saving_usd.unwrap_or(0.0),
         guard_saving_usd: stats.savings.guard.saving_usd,
         tokens_avoided: stats.savings.guard.tokens_avoided,
-        monthly_projection_usd: stats
-            .projection
-            .as_ref()
-            .map_or(0.0, |p| p.last_7d.projected_30d_usd),
+        monthly_projection_usd: stats.projection.as_ref().map_or(0.0, |p| {
+            if from_30d {
+                p.last_30d.projected_30d_usd
+            } else {
+                p.last_7d.projected_30d_usd
+            }
+        }),
         latency_added_ms: latency.total_ms,
+        since: None,
+    })
+}
+
+/// The summary cards over the last `days` calendar days of the period (all of it when it is
+/// shorter): the same days the daily charts show for that view.
+fn summary_of_last(data: &Gathered, days: i64) -> Option<Summary> {
+    let last_day = (data.range.to.0 - 1).div_euclid(DAY);
+    let from = Timestamp(((last_day - days + 1) * DAY).max(data.range.from.0));
+    let range = TimeRange::new(from, data.range.to);
+    let stats = compute_stats(&StatsInput {
+        usage: &data.usage,
+        prices: &data.prices,
+        events: &data.events,
+        range,
+        group_by: GroupBy::Model,
+        now: data.now,
+        first_configure: data.first_configure,
+    });
+    let latency = latency_stats(&data.events, data.spawn_overhead_us, range);
+    summary_with(&stats, &latency, days >= 30).map(|summary| Summary {
+        since: Some(ymd(from.0)),
+        ..summary
     })
 }
 
@@ -195,7 +227,12 @@ pub fn build(
             period_end: Some(ymd(data.range.to.0 - 1)),
             last_price_sync: last_price_sync.map(ymd),
         },
-        summary: summary_of(stats, latency),
+        summary: summary_of(stats, latency).map(|summary| Summary {
+            since: Some(ymd(data.range.from.0)),
+            ..summary
+        }),
+        summary_7d: summary_of_last(data, 7),
+        summary_30d: summary_of_last(data, 30),
         cost_per_day: if has_usage {
             daily_costs(data)
         } else {
@@ -347,6 +384,95 @@ mod tests {
         load(&sb.env, &mut io, Some(sb.claude.clone()), "7d")
             .unwrap()
             .data
+    }
+
+    /// A transcript with one message of `input` tokens on each of the given days ago.
+    fn seed_days(sb: &Sandbox, days_ago: &[(i64, u64)]) {
+        let now = tokred_core::Clock::now(&super::super::SystemClock).0;
+        let text: Vec<String> = days_ago
+            .iter()
+            .enumerate()
+            .map(|(i, (ago, input))| {
+                let day = crate::view::ymd(now - ago * 86_400);
+                format!(
+                    r#"{{"type":"assistant","sessionId":"s{i}","timestamp":"{day}T12:00:00.000Z","requestId":"r{i}","cwd":"/p","isSidechain":false,"message":{{"id":"m{i}","model":"claude-opus-4-1-20250805","usage":{{"input_tokens":{input},"output_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}}}}"#
+                )
+            })
+            .collect();
+        let dir = sb.claude.join("projects/-tmp-proj");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("s.jsonl"), format!("{}\n", text.join("\n"))).unwrap();
+    }
+
+    #[test]
+    fn the_summary_is_also_kept_for_the_last_7_and_30_days() {
+        let sb = Sandbox::new();
+        sb.configure();
+        // 50 days ago (only in "all"), 20 days ago (30 days and "all"), 2 days ago (every view).
+        seed_days(&sb, &[(50, 1_000_000), (20, 2_000_000), (2, 4_000_000)]);
+        let (mut io, _) = scripted(false, "");
+        let l = load(&sb.env, &mut io, Some(sb.claude.clone()), "90d")
+            .unwrap()
+            .data;
+        let stats = model_stats(&l, &l.prices);
+        let latency = latency_stats(&l.events, l.spawn_overhead_us, l.range);
+        let data = build(&l, &stats, &latency, None, None);
+
+        let cost = |s: &Option<Summary>| s.as_ref().unwrap().real_cost_usd;
+        let (all, month, week) = (
+            cost(&data.summary),
+            cost(&data.summary_30d),
+            cost(&data.summary_7d),
+        );
+        assert!(
+            week > 0.0 && week < month && month < all,
+            "{week} < {month} < {all}"
+        );
+        // Opus input costs the same per token: the three messages weigh 4, 6 and 7 million.
+        assert!((month / week - 6.0 / 4.0).abs() < 0.01, "{month} / {week}");
+        assert!((all / week - 7.0 / 4.0).abs() < 0.01, "{all} / {week}");
+        // Each view says which days it covers; the charts' days are the same ones.
+        let since = |s: &Option<Summary>| s.as_ref().unwrap().since.clone().unwrap();
+        assert_eq!(
+            since(&data.summary),
+            data.meta.period_start.clone().unwrap()
+        );
+        let n = data.cost_per_day.len();
+        assert_eq!(since(&data.summary_7d), data.cost_per_day[n - 7].date);
+        assert_eq!(since(&data.summary_30d), data.cost_per_day[n - 30].date);
+    }
+
+    #[test]
+    fn a_period_shorter_than_a_view_makes_that_view_the_whole_period() {
+        let sb = Sandbox::new();
+        sb.configure();
+        seed_days(&sb, &[(2, 1_000_000), (1, 3_000_000)]);
+        let (mut io, _) = scripted(false, "");
+        let l = load(&sb.env, &mut io, Some(sb.claude.clone()), "3d")
+            .unwrap()
+            .data;
+        let stats = model_stats(&l, &l.prices);
+        let latency = latency_stats(&l.events, l.spawn_overhead_us, l.range);
+        let data = build(&l, &stats, &latency, None, None);
+        let (all, week, month) = (
+            data.summary.unwrap(),
+            data.summary_7d.unwrap(),
+            data.summary_30d.unwrap(),
+        );
+        assert_eq!(week.real_cost_usd, all.real_cost_usd);
+        assert_eq!(month.real_cost_usd, all.real_cost_usd);
+        assert_eq!(
+            week.since, all.since,
+            "the views start where the period does"
+        );
+        // Without usage there is nothing in any view.
+        let empty = Sandbox::new();
+        empty.configure();
+        let l = loaded(&empty);
+        let stats = model_stats(&l, &l.prices);
+        let latency = latency_stats(&l.events, l.spawn_overhead_us, l.range);
+        let data = build(&l, &stats, &latency, None, None);
+        assert!(data.summary.is_none() && data.summary_7d.is_none() && data.summary_30d.is_none());
     }
 
     #[test]

@@ -132,7 +132,7 @@ fn enable(
     // Saved before the restart: a proxy that is started again (by us, or by a user service that
     // restarts it when it exits) must find the new port in the file.
     save(ctx, &text)?;
-    restart_on_another_port(io, ctx, port)?;
+    restart_if_stale(io, ctx, port, record)?;
     let content = if record {
         "recorded for the dashboard"
     } else {
@@ -205,21 +205,39 @@ fn ask_record_content(io: &mut Io, default: bool) -> Result<bool> {
     })
 }
 
-/// Stops a proxy of this installation that runs on another port than `port`, so that the
-/// reconcile starts one on the new port.
-fn restart_on_another_port(io: &mut Io, ctx: &ProxyCtx<'_>, port: u16) -> Result<()> {
-    let running = files(ctx.env)
+/// The port a proxy of this installation answers on and whether it records conversation content
+/// (`None` when it does not say: a proxy of an older version). `None` when none is running.
+fn running_proxy(ctx: &ProxyCtx<'_>) -> Option<(u16, Option<bool>)> {
+    let files = files(ctx.env);
+    let (_, port) = files
         .read_pid()
-        .map(|(_, running)| running)
-        .filter(|running| *running != port && healthy(*running, ADMIN_TIMEOUT));
-    if let Some(running) = running {
-        let text = format!(
-            "The tokred proxy is running on port {running}; restarting it on port {port}.\n"
-        );
-        write!(io.out(), "{text}")?;
-        stop(io, ctx)?;
-    }
-    Ok(())
+        .filter(|(_, port)| healthy(*port, ADMIN_TIMEOUT))?;
+    let recorded = files
+        .secret()
+        .ok()
+        .and_then(|secret| admin(port, &secret, "GET", "/__tokred/status").ok())
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|status| status["content_recorded"].as_bool());
+    Some((port, recorded))
+}
+
+/// Stops a proxy of this installation that does not match what was asked for (another port, or
+/// another answer about recording conversation content: it reads its settings only when it
+/// starts), so that the reconcile starts one that does.
+fn restart_if_stale(io: &mut Io, ctx: &ProxyCtx<'_>, port: u16, record: bool) -> Result<()> {
+    let Some((running, recorded)) = running_proxy(ctx) else {
+        return Ok(());
+    };
+    let wanted = if record { "recorded" } else { "not recorded" };
+    let why = if running != port {
+        format!("is running on port {running}; restarting it on port {port}")
+    } else if recorded != Some(record) {
+        format!("has to restart to apply the setting; conversation content will be {wanted}")
+    } else {
+        return Ok(());
+    };
+    writeln!(io.out(), "The tokred proxy {why}.")?;
+    stop(io, ctx)
 }
 
 /// Writes `text` as `tokred.toml`.
@@ -377,7 +395,7 @@ fn status(io: &mut Io, ctx: &ProxyCtx<'_>, json: bool) -> Result<()> {
     } else {
         Value::Null
     };
-    let base = std::env::var("ANTHROPIC_BASE_URL").ok();
+    let base = ctx.env.anthropic_base_url.clone();
     let points_here = base
         .as_deref()
         .is_some_and(|url| url.trim_end_matches('/') == base_url(port));
@@ -538,6 +556,15 @@ mod tests {
 
     /// With `obey` false the shutdown request is acknowledged but the proxy keeps running.
     fn fake_proxy_with(secret: String, obey: bool) -> (u16, Arc<AtomicBool>) {
+        fake_proxy_saying(secret, obey, r#"{"requests":3,"content_recorded":false}"#)
+    }
+
+    /// A fake proxy whose status answer is `status`.
+    fn fake_proxy_saying(
+        secret: String,
+        obey: bool,
+        status: &'static str,
+    ) -> (u16, Arc<AtomicBool>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let stopped = Arc::new(AtomicBool::new(false));
@@ -554,7 +581,7 @@ mod tests {
                 } else if request.starts_with("get /__tokred/health") {
                     (200, r#"{"ok":true}"#.to_owned())
                 } else if request.starts_with("get /__tokred/status") && authorized {
-                    (200, r#"{"requests":3}"#.to_owned())
+                    (200, status.to_owned())
                 } else if request.starts_with("post /__tokred/shutdown") && authorized {
                     flag.store(obey, Ordering::SeqCst);
                     (200, "{}".to_owned())
@@ -1194,6 +1221,50 @@ mod tests {
         assert!(out.contains("The tokred proxy stopped."), "{out}");
         assert!(stopped.load(Ordering::SeqCst));
         assert_eq!(saved(&sb).proxy.bind, format!("127.0.0.1:{new}"));
+    }
+
+    #[test]
+    fn a_running_proxy_is_restarted_when_the_content_setting_changes() {
+        // The bug: `--record-content false` was saved, but the running proxy kept recording.
+        for (says, record, restarts) in [
+            (r#"{"content_recorded":true}"#, false, true),
+            (r#"{"content_recorded":false}"#, true, true),
+            // An older proxy does not say what it records: restart, to be sure.
+            (r#"{"requests":3}"#, false, true),
+            (r#"{"content_recorded":true}"#, true, false),
+            (r#"{"content_recorded":false}"#, false, false),
+        ] {
+            let sb = claude_sandbox("{}");
+            let (port, stopped) = fake_proxy_saying(files(&sb.env).secret().unwrap(), true, says);
+            files(&sb.env).write_pid(1234, port).unwrap();
+            let (result, out) = enable_with(
+                &sb,
+                &config_on(port),
+                false,
+                "",
+                (Some(port), Some(record)),
+                &|_| PortState::Ours,
+            );
+            result.unwrap();
+            assert_eq!(
+                stopped.load(Ordering::SeqCst),
+                restarts,
+                "{says} {record}: {out}"
+            );
+            assert_eq!(
+                out.contains("restart to apply the setting"),
+                restarts,
+                "{out}"
+            );
+            if restarts {
+                let wanted = if record {
+                    "will be recorded"
+                } else {
+                    "will be not recorded"
+                };
+                assert!(out.contains(wanted), "{out}");
+            }
+        }
     }
 
     #[test]

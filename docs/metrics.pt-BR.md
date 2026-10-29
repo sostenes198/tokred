@@ -89,4 +89,6 @@ O `stats --json` traz os mesmos dados na chave `proxy` de nível superior, prese
 
 `tokred metrics` grava um arquivo HTML autocontido e offline (CSS/JS inline, gráficos SVG gerados em Rust, tema claro/escuro) em `<data>/reports/metrics.html`, sempre o mesmo arquivo, de forma atômica, e abre no navegador, a menos que `--no-open`. Seções sem dados mostram um aviso "ainda sem dados" em vez de sumirem. As seções do proxy (roteamento de modelos, overhead, cache misses por causa, custo por origem e tipo de agente) são a exceção: só aparecem quando o proxy registrou algo, então um relatório sem o proxy é exatamente o que sempre foi.
 
+Os botões **7 dias / 30 dias / Tudo** trocam juntos os cartões do resumo e os gráficos diários: cada visão tem os seus cartões (custo real, economias, tokens evitados, latência) sobre os últimos 7 ou 30 dias de calendário do período, os mesmos dias que os gráficos dela mostram, e diz quais dias cobre. A projeção das visões de 7 dias e do período todo vem dos últimos 7 dias, e a da visão de 30 dias, dos últimos 30. As outras seções (modelos, roteamento, guards, latência, auditoria) sempre cobrem o período todo.
+
 Os preços vêm do JSON público do LiteLLM com um fallback embutido; um modelo desconhecido é mapeado para o preço mais recente da sua família (opus/sonnet/haiku) e sinalizado.

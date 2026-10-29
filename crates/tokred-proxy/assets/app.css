@@ -153,7 +153,8 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: v
 
 .session .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .session .row + .row { margin-top: 2px; font-size: 12px; color: var(--muted); }
-.session .sid { font-family: var(--mono); font-weight: 600; }
+.session .sid { font-weight: 600; overflow-wrap: anywhere; }
+.session .ssub { font-family: var(--mono); }
 .session .ago { margin-left: auto; }
 .session .models { overflow-wrap: anywhere; }
 
@@ -208,7 +209,9 @@ code, .mono { font-family: var(--mono); }
   border-radius: 8px;
 }
 
-.summary .title { font-family: var(--mono); font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.summary .title { font-weight: 600; font-size: 15px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.summary .title .ident { font-family: var(--mono); font-weight: 400; font-size: 12px; overflow-wrap: anywhere; }
+.session .row[hidden] { display: none; }
 .stat { display: flex; flex-direction: column; }
 .stat .label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .stat .value { font-variant-numeric: tabular-nums; font-weight: 600; }

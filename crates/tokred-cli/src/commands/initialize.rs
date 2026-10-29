@@ -280,10 +280,8 @@ pub fn settings_dir(env: &Env, config: &Config) -> Option<PathBuf> {
 
 /// `ANTHROPIC_BASE_URL` as exported in this process (empty counts as unset).
 #[must_use]
-pub fn shell_base_url() -> Option<String> {
-    std::env::var("ANTHROPIC_BASE_URL")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
+pub fn shell_base_url(env: &Env) -> Option<String> {
+    env.anthropic_base_url.clone()
 }
 
 /// Reconciles the real settings file of `env` with `enabled`, starting the proxy through `exe`
@@ -303,7 +301,7 @@ pub fn reconcile(
     let report = Reconciler {
         enabled,
         port,
-        shell_value: shell_base_url(),
+        shell_value: shell_base_url(env),
         read_url: &|| Ok(read_base_url(&fs, &dir)?),
         write_url: &|url| Ok(write_base_url(&fs, &dir, url)?),
         known_urls: &|| proxy_files.known_base_urls(),
@@ -393,7 +391,7 @@ pub fn ensure_for_session(env: &Env, config: &Config, exe: &Path) -> bool {
     SessionCheck {
         enabled: config.proxy.enabled,
         port,
-        shell_value: shell_base_url(),
+        shell_value: shell_base_url(env),
         settings_value: &|| {
             settings_dir(env, config)
                 .and_then(|dir| read_base_url(&StdFileSystem, &dir).ok().flatten())

@@ -248,9 +248,7 @@ fn proxy_info(env: &Env, config: &Config, claude_dir: &Path) -> ProxyInfo {
         service_installed: super::proxy::service_state(env),
         running: crate::daemon::healthy(port, std::time::Duration::from_millis(300)),
         url: crate::daemon::base_url(port),
-        anthropic_base_url: std::env::var("ANTHROPIC_BASE_URL")
-            .ok()
-            .filter(|v| !v.is_empty()),
+        anthropic_base_url: env.anthropic_base_url.clone(),
         routing_mode: mode_text(config.routing.mode),
         compression_mode: mode_text(config.compression.mode),
         network: tokred_proxy::NetworkSettings::from_env(config.proxy.ca_bundle.as_deref())
@@ -662,7 +660,17 @@ mod tests {
 
         let path = sb.env.data.config_path();
         let text = std::fs::read_to_string(&path).unwrap();
-        std::fs::write(&path, text.replace("enabled = false", "enabled = true")).unwrap();
+        // A port nothing listens on, not the default one: a tokred proxy of the machine this runs
+        // on may be using that.
+        let free = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let text = text
+            .replace("enabled = false", "enabled = true")
+            .replace("127.0.0.1:1029", &format!("127.0.0.1:{free}"));
+        std::fs::write(&path, text).unwrap();
         let (result, out) = run_doctor(&sb, false);
         result.unwrap();
         assert!(out.contains("proxy:       not running"), "{out}");

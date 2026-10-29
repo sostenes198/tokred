@@ -59,7 +59,7 @@ fn fill(template: &str, values: &[(&str, &str)]) -> String {
 fn body(data: &ReportData) -> String {
     let toolbar = if sections::has_daily_series(data) {
         "<div class=\"toolbar\" id=\"period-toolbar\" role=\"group\" \
-         aria-label=\"Period of the daily charts\" hidden>Daily charts:\
+         aria-label=\"Period of the summary and the daily charts\" hidden>Summary and daily charts:\
          <button type=\"button\" data-period=\"7\" aria-pressed=\"false\">7 days</button>\
          <button type=\"button\" data-period=\"30\" aria-pressed=\"false\">30 days</button>\
          <button type=\"button\" data-period=\"all\" aria-pressed=\"true\">All</button></div>"
@@ -70,7 +70,7 @@ fn body(data: &ReportData) -> String {
         "<header><div><h1>tokred metrics</h1><p class=\"sub\">Period: {}</p></div>{toolbar}</header>\
          <main>{}{}{}{}{}{}{}{}{}</main>{}",
         html(&period(&data.meta)),
-        sections::summary(data.summary.as_ref()),
+        sections::summary(data),
         sections::cost(&data.cost_per_day),
         sections::models(&data.models),
         sections::routing(data.routing.as_ref()),
@@ -139,6 +139,8 @@ mod tests {
                 ..ReportMeta::default()
             },
             summary: Some(Summary::default()),
+            summary_7d: None,
+            summary_30d: None,
             cost_per_day: vec![DayCost {
                 date: HOSTILE.to_owned(),
                 real_usd: 1.0,

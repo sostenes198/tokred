@@ -26,6 +26,8 @@ fn live_only(live: &LiveSession) -> SessionView {
         cache_write: 0,
         subagents_running: 0,
         content_recorded: false,
+        title: None,
+        project: None,
     };
     for turn in live.turns.iter().filter(|turn| !turn.in_flight) {
         add_turn(&mut view, turn);
@@ -151,6 +153,8 @@ mod tests {
             cache_write: 40,
             subagents_running: 0,
             content_recorded: false,
+            title: None,
+            project: None,
         }
     }
 
@@ -220,10 +224,20 @@ mod tests {
             active: vec![view("s", 9_900, SessionStatus::Active)],
             recent: vec![view("quiet", 5_000, SessionStatus::Ended)],
         };
+        let mut named = db;
+        named.active[0].title = Some("Tokred spec implementation".to_owned());
+        named.active[0].project = Some("tokred".to_owned());
+        let db = named;
         let mut running = live("s", vec![turn("t1", 9_990, true)], 2);
         running.turns[0].sent = Some(vec![]);
         let list = merge_list(db, &[running], NOW);
         let s = &list.active[0];
+        assert_eq!(
+            s.title.as_deref(),
+            Some("Tokred spec implementation"),
+            "the live overlay keeps the name"
+        );
+        assert_eq!(s.project.as_deref(), Some("tokred"));
         assert_eq!((s.requests, s.cost_usd), (3, 1.0));
         assert_eq!(s.last_activity_at, 9_990);
         assert_eq!(s.subagents_running, 2);

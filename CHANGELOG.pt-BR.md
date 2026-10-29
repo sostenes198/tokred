@@ -6,7 +6,15 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+### Adicionado
+
+- O dashboard dá a cada sessão o nome que o Claude Code dá (o título que você escolheu ou o gerado, mais a pasta e um id curto), em vez de mostrar só o id da sessão.
+
 ### Corrigido
+
+- O `tokred proxy enable --record-content false` agora vale para um proxy que já está rodando: o proxy lê essa configuração só ao iniciar, então continuava gravando o conteúdo das conversas até ser reiniciado. O `enable` agora pergunta ao proxy em execução o que ele grava (`content_recorded` no status dele) e o reinicia quando isso difere do pedido, ou quando ele é antigo demais para dizer.
+
+- Os cartões do resumo do relatório de métricas (custo real, economias, tokens evitados, projeção, latência) agora acompanham os botões 7 dias / 30 dias / Tudo, com o período que cada um cobre; antes, só os gráficos diários mudavam. A barra diz "Summary and daily charts"; as seções de modelos, roteamento, guards, latência e auditoria continuam sobre o período todo.
 
 - O `tokred update` diz que ainda não há release estável quando só existem pré-releases (o "latest" do GitHub responde 404 nesse caso), em vez de falhar com `http status: 404`.
 

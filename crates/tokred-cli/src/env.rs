@@ -26,6 +26,9 @@ pub struct Env {
     pub home_dir: Option<PathBuf>,
     /// tokred data folder.
     pub data: DataLayout,
+    /// `$ANTHROPIC_BASE_URL` as exported to this process (empty counts as unset). Read once here
+    /// and not where it is used, so a test never depends on the environment of whoever runs it.
+    pub anthropic_base_url: Option<String>,
 }
 
 impl Env {
@@ -49,6 +52,9 @@ impl Env {
             default_claude_dir: home.as_ref().map(|h| h.join(".claude")),
             home_dir: home,
             data: DataLayout::new(resolve_data_dir(var("TOKRED_DATA_DIR"), platform_default)),
+            anthropic_base_url: std::env::var("ANTHROPIC_BASE_URL")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
         })
     }
 }

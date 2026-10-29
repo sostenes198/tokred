@@ -79,10 +79,40 @@ pub fn has_daily_series(data: &ReportData) -> bool {
     !data.cost_per_day.is_empty() || !data.cache_per_day.is_empty()
 }
 
-/// Section 1: summary cards.
+/// Section 1: summary cards. With a summary for the last 7 and 30 days they are rendered once
+/// per period view, like the daily charts, and the toolbar switches between them.
 #[must_use]
-pub fn summary(summary: Option<&Summary>) -> String {
-    let content = summary.map_or_else(
+pub fn summary(data: &ReportData) -> String {
+    let content = if data.summary_7d.is_none() && data.summary_30d.is_none() {
+        summary_cards(data.summary.as_ref())
+    } else {
+        let end = data.meta.period_end.as_deref();
+        panes(&|_, key| {
+            let chosen = match key {
+                "7" => data.summary_7d.as_ref(),
+                "30" => data.summary_30d.as_ref(),
+                _ => None,
+            };
+            let shown = chosen.or(data.summary.as_ref());
+            let period = shown.and_then(|s| s.since.as_deref()).zip(end).map_or_else(
+                String::new,
+                |(since, end)| {
+                    format!(
+                        "<p class=\"sub\">Period: {} to {}</p>",
+                        html(since),
+                        html(end)
+                    )
+                },
+            );
+            format!("{period}{}", summary_cards(shown))
+        })
+    };
+    section("summary", "Summary", false, &content)
+}
+
+/// The cards of one summary.
+fn summary_cards(summary: Option<&Summary>) -> String {
+    summary.map_or_else(
         || empty("The cards fill in once tokred has read your first transcripts."),
         |s| {
             let saving = s.routing_saving_usd + s.guard_saving_usd;
@@ -127,8 +157,7 @@ pub fn summary(summary: Option<&Summary>) -> String {
             ];
             format!("<div class=\"cards\">{}</div>", cards.concat())
         },
-    );
-    section("summary", "Summary", false, &content)
+    )
 }
 
 /// One summary card.
@@ -680,6 +709,62 @@ mod tests {
         let html = models(&[ModelUsage::default()]);
         assert_well_formed(&html).unwrap();
         assert!(html.contains("0.0%"));
+    }
+
+    fn card_summary(cost: f64, since: &str) -> Summary {
+        Summary {
+            real_cost_usd: cost,
+            since: Some(since.to_owned()),
+            ..Summary::default()
+        }
+    }
+
+    #[test]
+    fn the_summary_follows_the_period_views_when_it_has_one_per_period() {
+        let mut data = ReportData::default();
+        data.meta.period_end = Some("2026-10-29".to_owned());
+        data.summary = Some(card_summary(300.0, "2026-09-29"));
+        // Without the shorter views it is one set of cards, as before.
+        let plain = summary(&data);
+        assert!(!plain.contains("data-pane"), "{plain}");
+        assert!(plain.contains("$300.00"), "{plain}");
+        assert!(!plain.contains("Period:"), "{plain}");
+
+        data.summary_7d = Some(card_summary(7.0, "2026-10-23"));
+        data.summary_30d = Some(card_summary(30.0, "2026-09-30"));
+        let html = summary(&data);
+        for (pane, cost, since) in [
+            ("7", "$7.00", "2026-10-23"),
+            ("30", "$30.00", "2026-09-30"),
+            ("all", "$300.00", "2026-09-29"),
+        ] {
+            let start = html.find(&format!("data-pane=\"{pane}\"")).unwrap();
+            let end = html[start..]
+                .find("</section>")
+                .map_or(html.len(), |e| start + e);
+            let pane_html = &html[start..end];
+            assert!(pane_html.contains(cost), "{pane}: {pane_html}");
+            assert!(
+                pane_html.contains(&format!("Period: {since} to 2026-10-29")),
+                "{pane}: {pane_html}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_missing_short_view_shows_the_whole_period_and_the_dates_are_escaped() {
+        let mut data = ReportData::default();
+        data.meta.period_end = Some("<b>end</b>".to_owned());
+        data.summary = Some(card_summary(300.0, "<i>start</i>"));
+        data.summary_7d = Some(card_summary(7.0, "2026-10-23"));
+        let html = summary(&data);
+        // The 30-day view has no cards of its own: it shows the whole period's.
+        assert_eq!(html.matches("$300.00").count(), 2, "{html}");
+        assert!(html.contains("&lt;i&gt;start&lt;/i&gt;"), "{html}");
+        assert!(!html.contains("<i>start"), "{html}");
+        // Without any summary the views say there is nothing yet.
+        data.summary = None;
+        assert!(summary(&data).contains("No data yet"));
     }
 
     #[test]

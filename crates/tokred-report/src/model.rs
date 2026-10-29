@@ -16,8 +16,14 @@ use serde::{Deserialize, Serialize};
 pub struct ReportData {
     /// Footer information.
     pub meta: ReportMeta,
-    /// Section 1: summary cards (`None` = no data yet).
+    /// Section 1: summary cards over the whole period (`None` = no data yet).
     pub summary: Option<Summary>,
+    /// The same cards over the last 7 days, when the toolbar can switch to them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_7d: Option<Summary>,
+    /// The same cards over the last 30 days, when the toolbar can switch to them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_30d: Option<Summary>,
     /// Section 2: cost per day, ascending.
     pub cost_per_day: Vec<DayCost>,
     /// Section 3: usage per model.
@@ -68,6 +74,9 @@ pub struct Summary {
     pub monthly_projection_usd: f64,
     /// Total latency tokred added to the session, in milliseconds.
     pub latency_added_ms: f64,
+    /// First day these cards cover (`YYYY-MM-DD`), shown when the toolbar switches them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
 }
 
 /// Cost of one day (section 2).

@@ -33,6 +33,7 @@ Com `log_bodies = true`, o conteúdo é guardado no banco (tabela `captured_turn
 
 ## O que ele mostra
 
+- Uma sessão tem o nome que o Claude Code dá a ela: o título que você escolheu, ou o que o próprio Claude Code gerou (lido do fim do transcript da sessão em `projects/`, e atualizado a cada 30 segundos, porque o Claude Code só nomeia a sessão depois do primeiro turno), com a pasta onde ela roda e um id curto embaixo do nome. Uma sessão sem transcript mostra o id curto. Só transcripts dentro da pasta do Claude Code são lidos, e deles só o título e a pasta são usados.
 - Uma sessão está **ativa** enquanto há uma requisição em andamento ou a última foi há menos de 5 minutos, **ociosa** nos 55 minutos seguintes e **encerrada** depois disso.
 - Um subagente conta como **em execução** enquanto há uma requisição dele em andamento e por 60 segundos após a última.
 - Os custos usam a tabela de preços do `tokred pricing`; um modelo sem preço não mostra custo.

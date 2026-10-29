@@ -151,6 +151,81 @@ pub struct SessionView {
     pub subagents_running: u64,
     /// Message contents are stored for this session (`[proxy] log_bodies`).
     pub content_recorded: bool,
+    /// The name Claude Code shows for the session (the title you gave it, else the one it
+    /// generated), when its transcript is known.
+    #[serde(default)]
+    pub title: Option<String>,
+    /// The folder the session runs in (its last component), when its transcript is known.
+    #[serde(default)]
+    pub project: Option<String>,
+}
+
+/// The longest title kept, in characters.
+pub const MAX_TITLE_CHARS: usize = 120;
+
+/// What a session's transcript says about its name and where it runs.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SessionLabel {
+    /// See [`SessionView::title`].
+    pub title: Option<String>,
+    /// See [`SessionView::project`].
+    pub project: Option<String>,
+}
+
+/// Reads the name of a session out of (a part of) its transcript, which is JSON Lines.
+///
+/// The title is the last `custom-title` (you renamed the session), else the last `ai-title`
+/// (the one Claude Code generated), else the last `agent-name`. The project is the last component of
+/// the last `cwd`. A line that is cut off or is not JSON is skipped, so a slice that starts in
+/// the middle of a line is fine.
+#[must_use]
+pub fn session_label(transcript: &str) -> SessionLabel {
+    let (mut custom, mut generated, mut agent, mut cwd) = (None, None, None, None);
+    for line in transcript.lines() {
+        if let Some(path) = cwd_of(line) {
+            cwd = Some(path);
+        }
+        let Some((slot, key)) = [
+            (&mut custom, "customTitle"),
+            (&mut generated, "aiTitle"),
+            (&mut agent, "agentName"),
+        ]
+        .into_iter()
+        .find(|(_, key)| line.contains(&format!("\"{key}\""))) else {
+            continue;
+        };
+        let value: Option<serde_json::Value> = serde_json::from_str(line).ok();
+        let text = value
+            .as_ref()
+            .and_then(|value| value.get(key))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty());
+        if let Some(text) = text {
+            *slot = Some(text.chars().take(MAX_TITLE_CHARS).collect());
+        }
+    }
+    SessionLabel {
+        title: custom.or(generated).or(agent),
+        project: cwd.and_then(|path: String| {
+            path.rsplit(['/', '\\'])
+                .find(|part| !part.is_empty())
+                .map(str::to_owned)
+        }),
+    }
+}
+
+/// The value of the `"cwd"` key of a transcript line, when it has one (found without parsing the
+/// whole line, which can be very large).
+fn cwd_of(line: &str) -> Option<String> {
+    let start = line.find("\"cwd\":\"")? + "\"cwd\":".len();
+    let rest = &line[start..];
+    let mut end = 1;
+    let bytes = rest.as_bytes();
+    while end < bytes.len() && bytes[end] != b'"' {
+        end += if bytes[end] == b'\\' { 2 } else { 1 };
+    }
+    serde_json::from_str(rest.get(..=end)?).ok()
 }
 
 /// Token counts of a turn (`usage` of `T`).
@@ -407,6 +482,85 @@ pub trait DashboardSource: Send + Sync {
 mod tests {
     use super::*;
 
+    fn lines(parts: &[&str]) -> String {
+        parts.join("\n")
+    }
+
+    #[test]
+    fn a_title_you_gave_beats_the_generated_one_and_the_last_one_wins() {
+        let transcript = lines(&[
+            r#"{"type":"ai-title","aiTitle":"First idea","sessionId":"s"}"#,
+            r#"{"type":"agent-name","agentName":"Agent name","sessionId":"s"}"#,
+            r#"{"type":"ai-title","aiTitle":"  Tokred spec implementation  ","sessionId":"s"}"#,
+        ]);
+        assert_eq!(
+            session_label(&transcript).title.as_deref(),
+            Some("Tokred spec implementation")
+        );
+        let renamed = lines(&[
+            &transcript,
+            r#"{"type":"custom-title","customTitle":"My name","sessionId":"s"}"#,
+            r#"{"type":"ai-title","aiTitle":"Later generated","sessionId":"s"}"#,
+        ]);
+        assert_eq!(session_label(&renamed).title.as_deref(), Some("My name"));
+        // Without either title the agent name is the name.
+        let only_agent = r#"{"type":"agent-name","agentName":"Resolução de problema"}"#;
+        assert_eq!(
+            session_label(only_agent).title.as_deref(),
+            Some("Resolução de problema")
+        );
+    }
+
+    #[test]
+    fn empty_cut_and_foreign_lines_are_skipped() {
+        let transcript = lines(&[
+            r#"nt":"half a line","aiTitle":"cut"#,
+            "not json at all aiTitle",
+            r#"{"type":"ai-title","aiTitle":"   ","sessionId":"s"}"#,
+            r#"{"type":"ai-title","aiTitle":7,"sessionId":"s"}"#,
+            r#"{"type":"user","note":"mentions \"aiTitle\" in text"}"#,
+            "",
+        ]);
+        assert_eq!(session_label(&transcript), SessionLabel::default());
+        assert_eq!(session_label(""), SessionLabel::default());
+    }
+
+    #[test]
+    fn a_long_title_is_cut() {
+        let long = "x".repeat(MAX_TITLE_CHARS + 50);
+        let transcript = format!(r#"{{"type":"ai-title","aiTitle":"{long}"}}"#);
+        let title = session_label(&transcript).title.unwrap();
+        assert_eq!(title.chars().count(), MAX_TITLE_CHARS);
+    }
+
+    #[test]
+    fn the_project_is_the_last_folder_of_the_last_cwd() {
+        let transcript = lines(&[
+            r#"{"type":"user","cwd":"/Users/x/Repos/old","sessionId":"s"}"#,
+            r#"{"type":"assistant","message":{"text":"..."},"cwd":"/Users/x/Repos/tokred/","sessionId":"s"}"#,
+        ]);
+        assert_eq!(
+            session_label(&transcript).project.as_deref(),
+            Some("tokred")
+        );
+        let windows = r#"{"type":"user","cwd":"C:\\Users\\x\\my repo","sessionId":"s"}"#;
+        assert_eq!(session_label(windows).project.as_deref(), Some("my repo"));
+        let escaped = r#"{"type":"user","cwd":"/a/b \"quoted\"","sessionId":"s"}"#;
+        assert_eq!(
+            session_label(escaped).project.as_deref(),
+            Some("b \"quoted\"")
+        );
+        // Not a string, unterminated, or the root: no project.
+        for bad in [
+            r#"{"cwd":5}"#,
+            r#"{"cwd":"/never/ends"#,
+            r#"{"cwd":"/"}"#,
+            r#"{"cwd":""}"#,
+        ] {
+            assert_eq!(session_label(bad).project, None, "{bad}");
+        }
+    }
+
     #[test]
     fn the_status_follows_the_quiet_time() {
         let now = Timestamp(10_000);
@@ -494,6 +648,8 @@ mod tests {
             cache_write: 0,
             subagents_running: 0,
             content_recorded: false,
+            title: None,
+            project: None,
         };
         let mut detail = SessionDetail {
             session,

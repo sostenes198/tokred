@@ -108,6 +108,10 @@ async fn a_failing_or_panicking_hook_forwards_the_original_bytes() {
         assert_eq!(status["hook_failures"], 1);
         assert_eq!(status["messages"], 1);
         assert_eq!(status["hooks"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            status["content_recorded"], false,
+            "no dashboard: nothing is recorded"
+        );
         proxy.stop().await;
     }
 }

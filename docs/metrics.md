@@ -89,4 +89,6 @@ Everything else reads the merged rows, so the totals, the groups, the all-on-opu
 
 `tokred metrics` writes a self-contained, offline HTML file (inline CSS/JS, SVG charts generated in Rust, light/dark theme) to `<data>/reports/metrics.html`, always the same file, atomically, and opens it in the browser unless `--no-open`. Sections without data show a "no data yet" notice instead of disappearing. The proxy's sections (model routing, overhead, cache misses by cause, cost by origin and agent type) are the exception: they appear only when the proxy recorded something, so a report without the proxy is exactly the one it always was.
 
+The **7 days / 30 days / All** buttons switch the summary cards and the daily charts together: each view has its own cards (real cost, savings, tokens avoided, latency) over the last 7 or 30 calendar days of the period, the same days its charts show, and says which days it covers. The projection of the 7-day and the whole-period views comes from the last 7 days, and the 30-day view's from the last 30. The other sections (models, routing, guards, latency, audit) always cover the whole period.
+
 Prices come from the public LiteLLM JSON with an embedded fallback; an unknown model is mapped to the latest price of its family (opus/sonnet/haiku) and flagged.

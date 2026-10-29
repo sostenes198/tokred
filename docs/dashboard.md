@@ -33,6 +33,7 @@ With `log_bodies = true`, contents are stored in the database (table `captured_t
 
 ## What it shows
 
+- A session is named the way Claude Code names it: the title you gave it, else the one Claude Code generated (read from the end of the session's transcript under `projects/`, and refreshed every 30 seconds, because Claude Code only names a session after its first turn), with the folder it runs in and a short id under the name. A session without a transcript shows its short id. Only transcripts under the Claude Code folder are read, and only the title and the folder are taken from them.
 - A session is **active** while a request is in flight or its last one was less than 5 minutes ago, **idle** for the next 55 minutes and **ended** after that.
 - A subagent counts as **running** while a request of it is in flight and for 60 seconds after its last one.
 - Costs use the price table of `tokred pricing`; a model without a price shows no cost.
