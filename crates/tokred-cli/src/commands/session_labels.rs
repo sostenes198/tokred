@@ -47,13 +47,9 @@ impl Labels {
 
     /// The label of session `id`; empty when its transcript is not found or unreadable.
     pub fn label(&self, id: &str) -> SessionLabel {
-        let Some(path) = self.transcript(id) else {
+        let Some((path, modified, len)) = self.located(id) else {
             return SessionLabel::default();
         };
-        let Ok(meta) = std::fs::metadata(&path) else {
-            return SessionLabel::default();
-        };
-        let (modified, len) = (meta.modified().ok(), meta.len());
         let mut cache = self
             .cache
             .lock()
@@ -76,6 +72,14 @@ impl Labels {
             },
         );
         label
+    }
+
+    /// The transcript of session `id`, its modification time and its size; `None` when it is not
+    /// there or cannot be inspected.
+    fn located(&self, id: &str) -> Option<(PathBuf, Option<SystemTime>, u64)> {
+        let path = self.transcript(id)?;
+        let meta = std::fs::metadata(&path).ok()?;
+        Some((path, meta.modified().ok(), meta.len()))
     }
 
     /// The transcript of session `id` in whichever project folder holds it. The id comes from a
