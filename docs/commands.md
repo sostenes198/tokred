@@ -56,7 +56,7 @@ Removes the tokred hooks from `settings.json` and the agent files tokred install
 
 ## `tokred doctor [--claude-dir <path>] [--json] [--bench]`
 
-Shows the tokred version, binary path, Claude Code and data folders, database schema version, config status, rtk detection, a table of hooks (`ok`, `missing`, `outdated`, or a binary path that no longer exists), a table of agents (`current`, `outdated`, `edited by you`, `missing`, `.new` pending), and a list of problems and notes. A proxy section shows whether the [proxy](proxy.md) is running, its routing and compression modes, and whether `ANTHROPIC_BASE_URL` points to it or to another gateway. With `--bench` it also runs every hook many times with realistic input and measures the real latency from the outside (process start to exit); the result is saved and used by `stats latency`. `TOKRED_BENCH_RUNS` sets the runs per payload (default 50).
+Shows the tokred version, binary path, Claude Code and data folders, database schema version, config status, rtk detection, a table of hooks (`ok`, `missing`, `outdated`, or a binary path that no longer exists), a table of agents (`current`, `outdated`, `edited by you`, `missing`, `.new` pending), and a list of problems and notes. A proxy section shows whether the [proxy](proxy.md) is running, its routing and compression modes, and whether `ANTHROPIC_BASE_URL` points to it or to another gateway; when `HTTPS_PROXY` is set or extra CA files are configured, it also shows the proxy (host and port only, never the credentials) and the CA files. With `--bench` it also runs every hook many times with realistic input and measures the real latency from the outside (process start to exit); the result is saved and used by `stats latency`. `TOKRED_BENCH_RUNS` sets the runs per payload (default 50).
 
 ## `tokred stats [--since 7d] [--by model|day|project] [--json]`
 
@@ -84,7 +84,7 @@ Estimates (characters / 4) the weight of the context Claude Code loads before yo
 
 ## `tokred proxy start [--foreground] [--bind <host:port>]` / `stop` / `status [--json]`
 
-The optional [local proxy](proxy.md). `start` runs it in the background (the same binary, `proxy start --foreground`); `--foreground` keeps it in the terminal, which is what the user service uses. `--bind` overrides `[proxy] bind` (default `127.0.0.1:8787`). `stop` asks it to shut down and waits until it has. `status` shows whether it is running, whether the user service is installed, whether this terminal's `ANTHROPIC_BASE_URL` points to it, and the routing and compression modes.
+The optional [local proxy](proxy.md). `start` runs it in the background (the same binary, `proxy start --foreground`); `--foreground` keeps it in the terminal, which is what the user service uses. `--bind` overrides `[proxy] bind` (default `127.0.0.1:8787`). `stop` asks it to shut down and waits until it has. `status` shows whether it is running, whether the user service is installed, whether this terminal's `ANTHROPIC_BASE_URL` points to it, and the routing and compression modes. With `--json` the `network` field has the HTTP proxy (host and port only) and the extra CA files the proxy uses. It is a background process that does not keep the output pipes of its caller, so `out=$(tokred proxy start)` returns on every operating system.
 
 ## `tokred proxy service install` / `uninstall`
 

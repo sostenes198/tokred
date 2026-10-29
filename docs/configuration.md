@@ -75,6 +75,7 @@ upstream = "https://api.anthropic.com" # the only host requests are forwarded to
 persist_base_url = false               # reserved: not read yet
 retention_days = 90                    # reserved: not read yet
 log_bodies = false                     # reserved: not read yet
+# ca_bundle = "/etc/ssl/corp-ca.pem"   # optional (not written by default): extra CA certificates (PEM) to trust
 
 [routing]
 mode = "observe"                       # off | observe | enforce
@@ -113,5 +114,7 @@ response_cache = true                  # count exact repeated requests
 ```
 
 The `[modes]` values take effect when the corresponding hook gets its real behaviour (phases F3 to F5).
+
+`ca_bundle` in `[proxy]` is optional and absent by default: the path of a PEM file with extra certificate authorities to trust for the upstream, in addition to the built-in roots, the operating system's store and the files named by `NODE_EXTRA_CA_CERTS` and `SSL_CERT_FILE`. The proxy also honours `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` and `NO_PROXY` (and the lower-case names) from its environment; see [behind a corporate proxy](proxy.md#behind-a-corporate-proxy).
 
 The proxy sections only matter when the [proxy](proxy.md) runs. `tokred routing on|off` and `tokred compression on|off` set `mode` for you (restart the proxy to apply). `routing` and `compression` default to `observe`: they record what they would do and change nothing. `[routing]` never changes the main loop's model, whatever it says; see [routing](routing.md). `channel` in `[suggest]`: `stats` (default) makes them available in `tokred suggest`, `statusline` adds the status line, `message` also allows a one-line message at a safe moment (see [hooks](hooks.md)). `[shadow]` measurements never alter traffic.

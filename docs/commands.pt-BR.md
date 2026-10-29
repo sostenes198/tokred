@@ -56,7 +56,7 @@ Remove os hooks do tokred do `settings.json` e os arquivos de agente que o tokre
 
 ## `tokred doctor [--claude-dir <path>] [--json] [--bench]`
 
-Mostra a versão do tokred, o path do binário, as pastas do Claude Code e de dados, a versão do schema do banco, o estado da config, a detecção do rtk, uma tabela de hooks (`ok`, `missing`, `outdated`, ou path de binário que não existe mais), uma tabela de agentes (`current`, `outdated`, `edited by you`, `missing`, `.new` pendente) e uma lista de problemas e observações. Uma seção do proxy mostra se o [proxy](proxy.pt-BR.md) está rodando, seus modos de roteamento e compressão, e se o `ANTHROPIC_BASE_URL` aponta para ele ou para outro gateway. Com `--bench` também executa cada hook muitas vezes com entrada realista e mede a latência real por fora (do início do processo até o fim); o resultado é salvo e usado pelo `stats latency`. `TOKRED_BENCH_RUNS` define as execuções por payload (padrão 50).
+Mostra a versão do tokred, o path do binário, as pastas do Claude Code e de dados, a versão do schema do banco, o estado da config, a detecção do rtk, uma tabela de hooks (`ok`, `missing`, `outdated`, ou path de binário que não existe mais), uma tabela de agentes (`current`, `outdated`, `edited by you`, `missing`, `.new` pendente) e uma lista de problemas e observações. Uma seção do proxy mostra se o [proxy](proxy.pt-BR.md) está rodando, seus modos de roteamento e compressão, e se o `ANTHROPIC_BASE_URL` aponta para ele ou para outro gateway; quando `HTTPS_PROXY` está definida ou há arquivos de CA extras configurados, mostra também o proxy (só host e porta, nunca as credenciais) e os arquivos de CA. Com `--bench` também executa cada hook muitas vezes com entrada realista e mede a latência real por fora (do início do processo até o fim); o resultado é salvo e usado pelo `stats latency`. `TOKRED_BENCH_RUNS` define as execuções por payload (padrão 50).
 
 ## `tokred stats [--since 7d] [--by model|day|project] [--json]`
 
@@ -84,7 +84,7 @@ Estima (caracteres / 4) o peso do contexto que o Claude Code carrega antes de vo
 
 ## `tokred proxy start [--foreground] [--bind <host:porta>]` / `stop` / `status [--json]`
 
-O [proxy local](proxy.pt-BR.md) opcional. `start` o executa em segundo plano (o mesmo binário, `proxy start --foreground`); `--foreground` o mantém no terminal, que é o que o serviço de usuário usa. `--bind` substitui `[proxy] bind` (padrão `127.0.0.1:8787`). `stop` pede que ele encerre e espera até que isso aconteça. `status` mostra se está rodando, se o serviço de usuário está instalado, se o `ANTHROPIC_BASE_URL` deste terminal aponta para ele e os modos de roteamento e compressão.
+O [proxy local](proxy.pt-BR.md) opcional. `start` o executa em segundo plano (o mesmo binário, `proxy start --foreground`); `--foreground` o mantém no terminal, que é o que o serviço de usuário usa. `--bind` substitui `[proxy] bind` (padrão `127.0.0.1:8787`). `stop` pede que ele encerre e espera até que isso aconteça. `status` mostra se está rodando, se o serviço de usuário está instalado, se o `ANTHROPIC_BASE_URL` deste terminal aponta para ele e os modos de roteamento e compressão. Com `--json`, o campo `network` traz o proxy HTTP (só host e porta) e os arquivos de CA extras que o proxy usa. Ele é um processo em segundo plano que não mantém os pipes de saída de quem o chamou, então `out=$(tokred proxy start)` retorna em todos os sistemas operacionais.
 
 ## `tokred proxy service install` / `uninstall`
 

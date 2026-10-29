@@ -51,12 +51,22 @@ O `tokred proxy start` roda em segundo plano sem serviço; `--foreground` o mant
 
 Os logins por chave de API e por assinatura claude.ai funcionam (verificado no spike F7). Com assinatura, a credencial viaja no cabeçalho `authorization` e o proxy a repassa, junto com o valor OAuth do `anthropic-beta`, sem tocar. Medir tráfego de assinatura por um gateway local é uma configuração que a documentação do Claude Code descreve. Reescrever o modelo de requisições de assinatura não é tratado pelos termos da Anthropic, então o roteamento fica em `observe` a menos que você o ligue ([decisão](decisions.pt-BR.md)).
 
+## Atrás de um proxy corporativo
+
+O proxy chega à API do mesmo jeito que o Claude Code, quando a sua rede exige.
+
+- **Proxy HTTP.** Se `HTTPS_PROXY` estiver definida (também `ALL_PROXY` e `HTTP_PROXY`, nessa ordem, e os nomes em minúsculas), o proxy pede a ele um túnel com `CONNECT` até o host da API. `usuario:senha@` no endereço é enviado como autenticação basic e nunca é registrado em log. `NO_PROXY` funciona como no curl: nomes de host separados por vírgula (um sufixo também vale para subdomínios), endereços IP, faixas CIDR, `*`. Proxies SOCKS (`socks5://`) e `https://` não são suportados; o tokred avisa no log e no `tokred doctor` e conecta direto.
+- **Autoridades certificadoras.** Além das raízes embutidas, ele confia no repositório de certificados do sistema operacional e nos arquivos PEM indicados por `NODE_EXTRA_CA_CERTS` e `SSL_CERT_FILE` (as variáveis que o Claude Code lê) e por `ca_bundle` em `[proxy]` do `tokred.toml`. É disso que um proxy que inspeciona TLS precisa.
+- **Fail-open.** Um valor que não é um endereço de proxy, ou um arquivo de CA ausente ou sem certificado, é registrado uma vez (pelo nome da variável ou do arquivo, nunca pelo valor) e ignorado: o proxy conecta direto, ou com as raízes restantes. Um proxy que responde mas recusa o túnel (ou um certificado em que não se confia) resulta no `502` de sempre para um upstream inalcançável.
+- O `tokred doctor` e o `tokred proxy status` mostram o proxy (só host e porta) e os arquivos de CA extras em uso.
+
+As configurações são lidas quando o proxy sobe, do ambiente do processo que o inicia: defina as variáveis antes do `tokred proxy start` ou do `tokred claude` e, para o serviço do usuário, no ambiente em que o serviço roda (ou coloque o arquivo de CA em `ca_bundle`). Reinicie o proxy depois de mudá-las.
+
 ## Limites
 
-- O proxy conecta direto à API e confia nas raízes de certificado embutidas. Ele não lê `HTTPS_PROXY` nem um bundle de CA próprio, então não funciona atrás de um proxy corporativo que inspeciona TLS. Nesse caso use o Claude Code sem ele.
+- Numa rede corporativa só proxies `http://` são suportados (sem SOCKS), e as configurações de proxy são lidas uma vez, quando o proxy sobe.
 - Ele só lê o uso de uma resposta não comprimida. Pede uma ao servidor (`Accept-Encoding: identity`); se a resposta vier comprimida mesmo assim, ela é repassada sem alteração, só não é medida.
 - Uma requisição de compactação não traz cabeçalho que a distinga, então pode ser tomada por um prompt simples. O roteamento nunca troca o modelo do loop principal, então isso só afeta os conselhos.
-- No Windows, o `tokred proxy start` executado com a saída capturada por um pipe (por exemplo `out=$(tokred proxy start)`, ou uma etapa de CI que grava a saída) não retorna até o proxy parar: o Windows deixa o processo em segundo plano herdar o pipe. Rode-o num terminal, mande a saída para um arquivo ou `NUL`, ou use `tokred proxy service install`. O mesmo vale para o `tokred claude` quando ele precisa subir o proxy com a saída em pipe; suba o proxy antes nesse caso.
 - Os registros por requisição ainda não incluem o motivo de parada, os nomes das ferramentas nem a duração de cache usada.
 
 ## Configuração

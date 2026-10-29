@@ -75,6 +75,7 @@ upstream = "https://api.anthropic.com" # único host para onde as requisições 
 persist_base_url = false               # reservado: ainda não é lido
 retention_days = 90                    # reservado: ainda não é lido
 log_bodies = false                     # reservado: ainda não é lido
+# ca_bundle = "/etc/ssl/corp-ca.pem"   # opcional (não é gravado por padrão): certificados de CA extras (PEM) em que confiar
 
 [routing]
 mode = "observe"                       # off | observe | enforce
@@ -113,5 +114,7 @@ response_cache = true                  # conta requisições idênticas repetida
 ```
 
 Os valores de `[modes]` passam a valer quando o hook correspondente ganhar o comportamento real (fases F3 a F5).
+
+`ca_bundle` em `[proxy]` é opcional e não existe por padrão: o caminho de um arquivo PEM com autoridades certificadoras extras em que confiar para o upstream, além das raízes embutidas, do repositório do sistema operacional e dos arquivos indicados por `NODE_EXTRA_CA_CERTS` e `SSL_CERT_FILE`. O proxy também respeita `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` e `NO_PROXY` (e os nomes em minúsculas) do seu ambiente; veja [atrás de um proxy corporativo](proxy.pt-BR.md#atrás-de-um-proxy-corporativo).
 
 As seções do proxy só importam quando o [proxy](proxy.pt-BR.md) está rodando. `tokred routing on|off` e `tokred compression on|off` definem o `mode` para você (reinicie o proxy para aplicar). `routing` e `compression` começam em `observe`: registram o que fariam e não mudam nada. O `[routing]` nunca altera o modelo do loop principal, seja qual for o valor; veja [roteamento](routing.pt-BR.md). `channel` em `[suggest]`: `stats` (padrão) as deixa disponíveis no `tokred suggest`, `statusline` inclui a status line, `message` também permite uma mensagem de uma linha em um momento seguro (veja [hooks](hooks.pt-BR.md)). As medições de `[shadow]` nunca alteram o tráfego.

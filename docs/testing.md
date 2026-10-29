@@ -21,7 +21,8 @@ cargo test -p tokred -- --nocapture          # show what tests print
 | `#[cfg(test)]` modules | Pure logic: classification, pricing, routing decisions, compression, config |
 | `crates/<crate>/tests/` | Real SQLite files, real temp folders, the proxy against a fake upstream (forwarding, streaming, gzip) |
 | `crates/tokred-cli/tests/e2e.rs` | The real `tokred` binary: `configure`, hooks, `doctor`, `unconfigure` in a sandbox |
-| `crates/tokred-cli/tests/proxy_e2e.rs` | The real binary running the proxy: forwarding, recording, `Host` check, `tokred claude`, advice commands, the process exiting after `proxy stop` |
+| `crates/tokred-proxy/tests/network.rs` | The corporate-network path: a fake HTTP proxy answering `CONNECT` in front of a fake HTTPS upstream signed by a throwaway authority (`rcgen`), `NO_PROXY`, refused tunnels, bad values; `network_logs.rs` checks that credentials never reach the logs |
+| `crates/tokred-cli/tests/proxy_e2e.rs` | The real binary running the proxy: forwarding, recording, `Host` check, `tokred claude`, advice commands, the process exiting after `proxy stop`, `proxy start` with captured output (on Windows a detached proxy used to keep the caller waiting; the first CI run on Windows is the check of the `Start-Process` launch) |
 
 ### The full gate (what CI runs)
 
