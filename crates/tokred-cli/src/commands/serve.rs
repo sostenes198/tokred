@@ -423,7 +423,7 @@ mod tests {
         .unwrap();
         let names: Vec<_> = assembly.hooks.iter().map(|h| h.name()).collect();
         assert_eq!(names.len(), 4, "{names:?}");
-        assert_eq!(assembly.server.bind.port(), 8787);
+        assert_eq!(assembly.server.bind.port(), 1029);
         let Assembly {
             hooks,
             tracker,

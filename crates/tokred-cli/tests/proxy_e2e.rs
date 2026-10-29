@@ -33,7 +33,7 @@ impl Sandbox {
         let toml = std::fs::read_to_string(sb.data().join("tokred.toml")).unwrap();
         let toml = toml
             .replace(
-                "bind = \"127.0.0.1:8787\"",
+                "bind = \"127.0.0.1:1029\"",
                 &format!("bind = \"127.0.0.1:{port}\""),
             )
             .replace(

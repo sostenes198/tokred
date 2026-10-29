@@ -156,7 +156,7 @@ mod tests {
             Ok(7)
         };
         let launcher = Launcher {
-            port: 8787,
+            port: 1029,
             existing_base_url: existing.map(str::to_owned),
             healthy: &healthy,
             start_proxy: &start,
@@ -183,7 +183,7 @@ mod tests {
         let ran = world.ran.borrow();
         assert_eq!(
             ran[0].0.as_deref(),
-            Some("ANTHROPIC_BASE_URL=http://127.0.0.1:8787")
+            Some("ANTHROPIC_BASE_URL=http://127.0.0.1:1029")
         );
         assert_eq!(ran[0].1, [OsString::from("-p"), OsString::from("hi")]);
     }
@@ -200,7 +200,7 @@ mod tests {
     #[test]
     fn our_own_base_url_counts_as_no_other_gateway() {
         let world = World::new(true, false, true);
-        go(&world, Some("http://127.0.0.1:8787/"));
+        go(&world, Some("http://127.0.0.1:1029/"));
         assert!(world.ran.borrow()[0].0.is_some());
     }
 
@@ -229,7 +229,7 @@ mod tests {
         let silent = World::new(false, false, false);
         let (_, err) = go(&silent, None);
         assert!(
-            err.contains("did not answer on port 8787 within 5s"),
+            err.contains("did not answer on port 1029 within 5s"),
             "{err}"
         );
         assert!(silent.ran.borrow()[0].0.is_none());

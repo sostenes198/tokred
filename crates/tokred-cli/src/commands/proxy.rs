@@ -599,7 +599,7 @@ mod tests {
     #[test]
     fn the_status_text_names_the_service_and_where_this_terminal_points() {
         let value = json!({
-            "url": "http://127.0.0.1:8787",
+            "url": "http://127.0.0.1:1029",
             "service_installed": true,
             "routing_mode": "enforce",
             "compression_mode": "observe",
@@ -619,7 +619,7 @@ mod tests {
         );
         let text = render_status(&value, true, true);
         assert!(
-            text.contains("tokred proxy: running (http://127.0.0.1:8787)"),
+            text.contains("tokred proxy: running (http://127.0.0.1:1029)"),
             "{text}"
         );
         assert!(text.contains("user service:  installed"), "{text}");

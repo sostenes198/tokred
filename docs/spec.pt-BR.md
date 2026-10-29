@@ -226,7 +226,7 @@ O hook só **lê** a sugestão do banco (sem rede, dentro do orçamento de 50 ms
 Daemon HTTP local entre o Claude Code e a API. Opcional. Independente do `rtk-proxy`.
 
 ```
-Claude Code ──(ANTHROPIC_BASE_URL=http://127.0.0.1:8787)──► tokred proxy ──► api.anthropic.com
+Claude Code ──(ANTHROPIC_BASE_URL=http://127.0.0.1:1029)──► tokred proxy ──► api.anthropic.com
                                                               │
                                                               ├─ lê cabeçalhos de classe/sessão/agente
                                                               ├─ classifica e (se enforce) escolhe o modelo
@@ -236,7 +236,7 @@ Claude Code ──(ANTHROPIC_BASE_URL=http://127.0.0.1:8787)──► tokred pro
 
 ### 6.1 Repasse
 
-- Escuta só em loopback (`127.0.0.1`), porta padrão `8787`; recusa outro endereço sem `--bind` explícito. **Valida o cabeçalho `Host`** (defesa contra DNS rebinding) e responde `421` para hosts que não sejam loopback.
+- Escuta só em loopback (`127.0.0.1`), porta padrão `1029`; recusa outro endereço sem `--bind` explícito. **Valida o cabeçalho `Host`** (defesa contra DNS rebinding) e responde `421` para hosts que não sejam loopback.
 - Repassa só para `upstream` (HTTPS, rustls). Todos os cabeçalhos `anthropic-*`, `x-claude-code-*`, `Authorization`/`x-api-key` e os demais seguem **sem alteração** (sem lista fixa). Credenciais **nunca** vão para log ou banco.
 - Só `POST /v1/messages` passa pela política. Todo outro endpoint (`count_tokens`, `/v1/models`, etc.) é repassado intacto.
 - **Streaming:** a resposta é repassada evento por evento, sem bufferizar; o proxy observa os eventos em paralelo. Eventos `ping` e o cabeçalho `content-type: text/event-stream` seguem como vieram (o Claude Code tem um watchdog de ociosidade do stream). Erros da API (4xx, 5xx, 429) e seus corpos, e os cabeçalhos de rate limit, são repassados **exatamente**.
@@ -381,7 +381,7 @@ Os demais comandos (`configure`, `unconfigure`, `update`, `audit`, `pricing`, `c
 ```toml
 [proxy]
 enabled = false
-bind = "127.0.0.1:8787"
+bind = "127.0.0.1:1029"
 upstream = "https://api.anthropic.com"
 persist_base_url = false         # grava env.ANTHROPIC_BASE_URL no settings (exige serviço)
 retention_days = 90

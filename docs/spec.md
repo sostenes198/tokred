@@ -226,7 +226,7 @@ The hook only **reads** the suggestion from the database (no network, within the
 Local HTTP daemon between Claude Code and the API. Optional. Independent of `rtk-proxy`.
 
 ```
-Claude Code ──(ANTHROPIC_BASE_URL=http://127.0.0.1:8787)──► tokred proxy ──► api.anthropic.com
+Claude Code ──(ANTHROPIC_BASE_URL=http://127.0.0.1:1029)──► tokred proxy ──► api.anthropic.com
                                                               │
                                                               ├─ reads class/session/agent headers
                                                               ├─ classifies and (if enforce) chooses the model
@@ -236,7 +236,7 @@ Claude Code ──(ANTHROPIC_BASE_URL=http://127.0.0.1:8787)──► tokred pro
 
 ### 6.1 Forwarding
 
-- Listens on loopback only (`127.0.0.1`), default port `8787`; refuses any other address without an explicit `--bind`. **Validates the `Host` header** (defense against DNS rebinding) and responds `421` for hosts that are not loopback.
+- Listens on loopback only (`127.0.0.1`), default port `1029`; refuses any other address without an explicit `--bind`. **Validates the `Host` header** (defense against DNS rebinding) and responds `421` for hosts that are not loopback.
 - Forwards only to `upstream` (HTTPS, rustls). All `anthropic-*` and `x-claude-code-*` headers, `Authorization`/`x-api-key` and the rest pass **unchanged** (no fixed list). Credentials **never** go to the log or the database.
 - Only `POST /v1/messages` goes through the policy. Every other endpoint (`count_tokens`, `/v1/models`, etc.) is forwarded intact.
 - **Streaming:** the response is forwarded event by event, without buffering; the proxy observes the events in parallel. `ping` events and the `content-type: text/event-stream` header pass as they came (Claude Code has a stream idle watchdog). API errors (4xx, 5xx, 429) and their bodies, and the rate limit headers, are forwarded **exactly**.
@@ -381,7 +381,7 @@ The other commands (`configure`, `unconfigure`, `update`, `audit`, `pricing`, `c
 ```toml
 [proxy]
 enabled = false
-bind = "127.0.0.1:8787"
+bind = "127.0.0.1:1029"
 upstream = "https://api.anthropic.com"
 persist_base_url = false         # writes env.ANTHROPIC_BASE_URL to settings (requires service)
 retention_days = 90

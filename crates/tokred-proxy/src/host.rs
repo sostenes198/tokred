@@ -5,7 +5,7 @@ use std::net::{IpAddr, SocketAddr};
 
 use crate::error::ProxyError;
 
-/// Splits a `Host` value into its name and optional port. `[::1]:8787` keeps the brackets out.
+/// Splits a `Host` value into its name and optional port. `[::1]:1029` keeps the brackets out.
 fn split_host(host: &str) -> Option<(&str, Option<&str>)> {
     if let Some(rest) = host.strip_prefix('[') {
         let (name, after) = rest.split_once(']')?;
@@ -63,13 +63,13 @@ mod tests {
 
     #[test]
     fn loopback_hosts_with_the_bound_port_are_allowed() {
-        let bound = addr("127.0.0.1:8787");
+        let bound = addr("127.0.0.1:1029");
         for host in [
-            "127.0.0.1:8787",
-            "localhost:8787",
-            "LocalHost:8787",
-            "[::1]:8787",
-            "127.0.0.2:8787",
+            "127.0.0.1:1029",
+            "localhost:1029",
+            "LocalHost:1029",
+            "[::1]:1029",
+            "127.0.0.2:1029",
         ] {
             assert!(host_allowed(Some(host), bound), "{host}");
         }
@@ -77,16 +77,16 @@ mod tests {
 
     #[test]
     fn other_hosts_and_ports_are_refused() {
-        let bound = addr("127.0.0.1:8787");
+        let bound = addr("127.0.0.1:1029");
         for host in [
             None,
-            Some("evil.example:8787"),
+            Some("evil.example:1029"),
             Some("127.0.0.1:9999"),
             Some("127.0.0.1"),
             Some("localhost:abc"),
             Some("[::1"),
             Some("[::1]x"),
-            Some("10.0.0.1:8787"),
+            Some("10.0.0.1:1029"),
             Some(""),
         ] {
             assert!(!host_allowed(host, bound), "{host:?}");
@@ -101,11 +101,11 @@ mod tests {
 
     #[test]
     fn a_non_loopback_bind_also_answers_its_own_address() {
-        assert!(host_allowed(Some("10.0.0.1:8787"), addr("10.0.0.1:8787")));
-        assert!(!host_allowed(Some("10.0.0.2:8787"), addr("10.0.0.1:8787")));
-        assert!(host_allowed(Some("10.0.0.2:8787"), addr("0.0.0.0:8787")));
+        assert!(host_allowed(Some("10.0.0.1:1029"), addr("10.0.0.1:1029")));
+        assert!(!host_allowed(Some("10.0.0.2:1029"), addr("10.0.0.1:1029")));
+        assert!(host_allowed(Some("10.0.0.2:1029"), addr("0.0.0.0:1029")));
         assert!(
-            !host_allowed(Some("rebind.example:8787"), addr("0.0.0.0:8787")),
+            !host_allowed(Some("rebind.example:1029"), addr("0.0.0.0:1029")),
             "DNS names stay refused"
         );
     }
@@ -124,9 +124,9 @@ mod tests {
         assert!(check_bind(addr("127.0.0.1:0"), false).is_ok());
         assert!(check_bind(addr("[::1]:0"), false).is_ok());
         assert!(matches!(
-            check_bind(addr("0.0.0.0:8787"), false),
+            check_bind(addr("0.0.0.0:1029"), false),
             Err(ProxyError::NonLoopback(_))
         ));
-        assert!(check_bind(addr("0.0.0.0:8787"), true).is_ok());
+        assert!(check_bind(addr("0.0.0.0:1029"), true).is_ok());
     }
 }

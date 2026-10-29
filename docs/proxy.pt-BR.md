@@ -5,7 +5,7 @@
 O `tokred proxy` é um servidor local opcional entre o Claude Code e a API da Anthropic. Ele vê cada requisição e cada resposta. Por isso consegue medi-las com exatidão, rotear requisições de subagentes e auxiliares para um modelo mais barato, dar conselhos sobre o loop principal e manter resultados grandes de ferramentas fora do contexto sem perdê-los.
 
 ```
-Claude Code ──(ANTHROPIC_BASE_URL=http://127.0.0.1:8787)──► tokred proxy ──► api.anthropic.com
+Claude Code ──(ANTHROPIC_BASE_URL=http://127.0.0.1:1029)──► tokred proxy ──► api.anthropic.com
 ```
 
 Todo o resto do tokred (os subagentes, os hooks de guarda, `stats`, `audit`) funciona com ou sem o proxy.

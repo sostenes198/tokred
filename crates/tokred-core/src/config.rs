@@ -221,7 +221,7 @@ impl Default for ProxyConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            bind: "127.0.0.1:8787".to_owned(),
+            bind: "127.0.0.1:1029".to_owned(),
             upstream: "https://api.anthropic.com".to_owned(),
             persist_base_url: false,
             retention_days: 90,

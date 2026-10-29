@@ -40,11 +40,11 @@ mod tests {
 
     #[test]
     fn errors_are_readable() {
-        let addr: SocketAddr = "10.0.0.1:8787".parse().unwrap();
+        let addr: SocketAddr = "10.0.0.1:1029".parse().unwrap();
         assert!(
             ProxyError::NonLoopback(addr)
                 .to_string()
-                .contains("10.0.0.1:8787")
+                .contains("10.0.0.1:1029")
         );
         assert!(
             ProxyError::InvalidBind("x".to_owned())

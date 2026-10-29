@@ -90,7 +90,7 @@ mod tests {
     #[test]
     fn request_headers_lose_hop_by_hop_host_length_and_the_admin_secret() {
         let headers = map(&[
-            ("host", "127.0.0.1:8787"),
+            ("host", "127.0.0.1:1029"),
             ("content-length", "10"),
             ("connection", "keep-alive, X-Private-Hop"),
             ("keep-alive", "timeout=5"),

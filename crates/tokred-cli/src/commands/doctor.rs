@@ -228,7 +228,7 @@ fn mode_text(mode: tokred_core::config::TrafficMode) -> String {
 }
 
 fn proxy_info(env: &Env, config: &Config) -> ProxyInfo {
-    let port = crate::daemon::port_of(&config.proxy.bind).unwrap_or(8787);
+    let port = crate::daemon::port_of(&config.proxy.bind).unwrap_or(1029);
     let port = super::proxy::files(env)
         .read_pid()
         .map_or(port, |(_, port)| port);
@@ -453,7 +453,7 @@ mod tests {
     fn sample_proxy() -> ProxyInfo {
         ProxyInfo {
             running: false,
-            url: "http://127.0.0.1:8787".to_owned(),
+            url: "http://127.0.0.1:1029".to_owned(),
             anthropic_base_url: None,
             routing_mode: "observe".to_owned(),
             compression_mode: "observe".to_owned(),
@@ -464,7 +464,7 @@ mod tests {
     fn the_proxy_section_shows_state_modes_and_where_claude_points() {
         let off = proxy_lines(&sample_proxy());
         assert!(
-            off.contains("proxy:       not running (http://127.0.0.1:8787)"),
+            off.contains("proxy:       not running (http://127.0.0.1:1029)"),
             "{off}"
         );
         assert!(off.contains("routing observe, compression observe"));
@@ -485,7 +485,7 @@ mod tests {
 
         let here = ProxyInfo {
             running: true,
-            anthropic_base_url: Some("http://127.0.0.1:8787/".to_owned()),
+            anthropic_base_url: Some("http://127.0.0.1:1029/".to_owned()),
             ..sample_proxy()
         };
         let text = proxy_lines(&here);

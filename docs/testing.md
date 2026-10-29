@@ -100,9 +100,9 @@ sed -i '' 's#^upstream = .*#upstream = "http://127.0.0.1:9000"#' "$TOKRED_DATA_D
 tokred proxy start && tokred proxy status
 
 # a small request (no tools, one message: tokred sees it as "auxiliary"), then a "subagent" one (it carries an agent id)
-curl -s http://127.0.0.1:8787/v1/messages -H 'x-api-key: test' -H 'x-claude-code-session-id: s1' \
+curl -s http://127.0.0.1:1029/v1/messages -H 'x-api-key: test' -H 'x-claude-code-session-id: s1' \
   -H 'content-type: application/json' -d '{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}'
-curl -s http://127.0.0.1:8787/v1/messages -H 'x-api-key: test' -H 'x-claude-code-session-id: s1' \
+curl -s http://127.0.0.1:1029/v1/messages -H 'x-api-key: test' -H 'x-claude-code-session-id: s1' \
   -H 'x-claude-code-agent-id: a1' -H 'content-type: application/json' \
   -d '{"model":"claude-sonnet-4-5","max_tokens":16,"tools":[{"name":"Grep","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"find where main is defined"}]}'
 
@@ -114,7 +114,7 @@ What to check:
 
 - the replies you get are exactly what the fake returned (the proxy changes nothing in `observe`);
 - `sqlite3 "$TOKRED_DATA_DIR/tokred.db" "select origin, model_requested, model_effective, input, output from proxy_requests"` shows two rows (`auxiliary` and `subagent`) with 120 input and 15 output tokens;
-- a request with `Host: evil.example` is refused: `curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: evil.example' http://127.0.0.1:8787/v1/messages -d '{}'` prints `421`;
+- a request with `Host: evil.example` is refused: `curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: evil.example' http://127.0.0.1:1029/v1/messages -d '{}'` prints `421`;
 - stopping really ends the process: `pgrep -fl "proxy start --foreground"` prints nothing.
 
 ### The proxy with the real Claude Code

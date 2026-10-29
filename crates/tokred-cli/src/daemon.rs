@@ -389,20 +389,20 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let files = ProxyFiles::new(tmp.path().join("proxy"));
         assert_eq!(files.read_pid(), None);
-        files.write_pid(4242, 8787).unwrap();
-        assert_eq!(files.read_pid(), Some((4242, 8787)));
+        files.write_pid(4242, 1029).unwrap();
+        assert_eq!(files.read_pid(), Some((4242, 1029)));
         files.clear_pid();
         assert_eq!(files.read_pid(), None);
         files.clear_pid();
-        for bad in ["", "12", "x 8787", "12 port", "12 99999"] {
+        for bad in ["", "12", "x 1029", "12 port", "12 99999"] {
             assert_eq!(parse_pid(bad), None, "{bad:?}");
         }
     }
 
     #[test]
     fn urls_and_ports() {
-        assert_eq!(base_url(8787), "http://127.0.0.1:8787");
-        assert_eq!(port_of("127.0.0.1:8787").unwrap(), 8787);
+        assert_eq!(base_url(1029), "http://127.0.0.1:1029");
+        assert_eq!(port_of("127.0.0.1:1029").unwrap(), 1029);
         assert_eq!(port_of("[::1]:9000").unwrap(), 9000);
         assert!(port_of("localhost").is_err());
         assert!(port_of("x:y").is_err());

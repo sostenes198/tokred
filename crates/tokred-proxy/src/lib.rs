@@ -9,7 +9,7 @@
 //! use tokred_proxy::{Proxy, ServerConfig, Shutdown, spawn_writer};
 //!
 //! # fn main() -> Result<(), tokred_proxy::ProxyError> {
-//! let config = ServerConfig::new("127.0.0.1:8787".parse().unwrap(), "https://api.anthropic.com", "secret");
+//! let config = ServerConfig::new("127.0.0.1:1029".parse().unwrap(), "https://api.anthropic.com", "secret");
 //! let (sink, writer) = spawn_writer(Box::new(|_record| Ok(())));
 //! let proxy = Proxy::bind(config)?;
 //! let shutdown = Shutdown::new();

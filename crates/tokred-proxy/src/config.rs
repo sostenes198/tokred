@@ -104,7 +104,7 @@ mod tests {
     #[test]
     fn the_proxy_section_maps_to_a_server_config() {
         let config = ServerConfig::from_proxy_config(&ProxyConfig::default(), "s3cret").unwrap();
-        assert_eq!(config.bind, "127.0.0.1:8787".parse().unwrap());
+        assert_eq!(config.bind, "127.0.0.1:1029".parse().unwrap());
         assert_eq!(config.upstream, "https://api.anthropic.com");
         assert!(!config.allow_non_loopback);
         assert_eq!(config.session_cap, DEFAULT_SESSION_CAP);

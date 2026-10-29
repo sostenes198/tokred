@@ -70,7 +70,7 @@ l3_hits = 10
 
 [proxy]
 enabled = false                        # reserved: not read yet
-bind = "127.0.0.1:8787"                # address the proxy listens on
+bind = "127.0.0.1:1029"                # address the proxy listens on
 upstream = "https://api.anthropic.com" # the only host requests are forwarded to
 persist_base_url = false               # reserved: not read yet
 retention_days = 90                    # reserved: not read yet
