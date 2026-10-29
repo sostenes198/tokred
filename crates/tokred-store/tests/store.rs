@@ -28,6 +28,7 @@ fn open_creates_the_full_schema_and_is_reopenable() {
     let tables = store.table_names().unwrap();
     for expected in [
         "cache_entries",
+        "captured_turns",
         "classifications",
         "file_reads",
         "hook_events",
@@ -93,7 +94,7 @@ fn in_memory_store_has_the_schema() {
         store.schema_version().unwrap(),
         Store::latest_schema_version()
     );
-    assert_eq!(store.table_names().unwrap().len(), 17);
+    assert_eq!(store.table_names().unwrap().len(), 18);
 }
 
 #[test]

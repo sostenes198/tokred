@@ -54,6 +54,7 @@ pub fn apply_record(store: &Store, record: &tokred_core::proxy::ProxyRecord) -> 
             .map(|_| ()),
         R::Stored(stored) => store.put_stored_result(stored),
         R::Compressed(block) => store.insert_compressed_block(block).map(|_| ()),
+        R::Captured(turn) => store.insert_captured_turn(turn),
     }
     .map_err(failed)
 }
@@ -333,6 +334,13 @@ mod tests {
                 ts: now,
                 ..CompressedBlock::default()
             })),
+            ProxyRecord::Captured(Box::new(tokred_core::dashboard::CapturedTurn {
+                request_id: "r1".into(),
+                session_id: "x".into(),
+                ts: now,
+                tools_json: "[]".into(),
+                ..tokred_core::dashboard::CapturedTurn::default()
+            })),
         ];
         for record in &records {
             apply_record(&store, record).unwrap();
@@ -361,6 +369,12 @@ mod tests {
         );
         assert!(store.stored_result("st1", now).unwrap().is_some());
         assert_eq!(store.compressed_blocks("x").unwrap().len(), 1);
+        assert_eq!(store.session_turns("x", 5).unwrap().0.len(), 0);
+        assert!(
+            store
+                .prune_captured_turns(Timestamp(now.0 + 1), 90, 10)
+                .is_ok()
+        );
         assert_eq!(
             store
                 .shadow_savings(now, Timestamp(now.0 + 1))

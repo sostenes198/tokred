@@ -10,6 +10,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::compression::{CompressedBlock, ShadowRecord, StoredResult};
+use crate::dashboard::CapturedTurn;
 use crate::pricing::Usage;
 use crate::prompts::{PromptSummary, SuggestionRecord};
 use crate::routing::RoutingDecision;
@@ -378,6 +379,9 @@ pub enum ProxyRecord {
     Stored(Box<StoredResult>),
     /// The bytes sent for a replaced tool result in a session (keeps every turn identical).
     Compressed(Box<CompressedBlock>),
+    /// What the dashboard shows of a turn besides its request record (stop reason, tools and,
+    /// when `[proxy] log_bodies` is on, the message contents).
+    Captured(Box<CapturedTurn>),
 }
 
 /// Destination of [`ProxyRecord`]s. Must not block the caller.

@@ -5,6 +5,7 @@
 
 mod cache;
 mod compression;
+mod dashboard;
 mod hook_event;
 mod manifest;
 mod meta;
