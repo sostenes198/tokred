@@ -34,8 +34,8 @@ With `log_bodies = true`, contents are stored in the local database (table `capt
 
 ## What it shows
 
-- A session is named the way Claude Code names it: the title you gave it, else the one Claude Code generated, with the folder it runs in and a short id. The title is read from the end of the session's transcript under `projects/` and re-read while the session runs, because Claude Code only names a session after its first turn. A session without a transcript shows its short id. Only transcripts under the Claude Code folder are read, and only the title and the folder are taken from them.
-- A session is **active** while a request is in flight or its last one was less than 5 minutes ago, **idle** until an hour after its last activity, and **ended** after that.
+- A session is named the way Claude Code names it: the title you gave it, else the one Claude Code generated, with the folder it runs in and a short id. The title is read from the end of the session's transcript under `projects/` (from its start when the end has none) and re-read while the session runs, because Claude Code only names a session after its first turn. A session without a transcript shows its short id. Only transcripts under the Claude Code folder are read, and only the title and the folder are taken from them.
+- A session is **active** while a request is in flight or its last one was within the last 5 minutes, **idle** until an hour after its last activity, and **ended** after that.
 - A subagent counts as **running** while a request of it is in flight and for 60 seconds after its last one.
 - Costs use the price table of `tokred pricing`; a model without a price shows no cost.
 - A session detail has the newest 500 turns; `"truncated": true` says older ones exist in the database.
@@ -51,11 +51,11 @@ For people who script it. All routes are `GET`, answered by the proxy and never 
 | `/metrics` | The HTML report |
 | `/dashboard`, `/dashboard/app.css`, `/dashboard/app.js` | The single-page app |
 | `/dashboard/api/sessions` | `{"active": [S], "recent": [S]}`; `S.status` is `active` in the first list and `idle` or `ended` in the second |
-| `/dashboard/api/sessions/{id}` | `{"session": S, "turns": [T], "truncated"?: true}`, oldest turn first; a turn in flight has `in_flight: true` and the text received so far in `response.text` |
+| `/dashboard/api/sessions/{id}` | `{"session": S, "turns": [T], "truncated"?: true}`, oldest turn first; a turn in flight has `in_flight: true` and the text received so far in `response.text`. An unknown session answers `404` |
 | `/dashboard/events` (`?session=<id>`) | `text/event-stream` with the events below and a `: ping` comment every 15 seconds. Events are not replayed after a reconnect: read the API again |
 | `/favicon.ico`, `/dashboard/favicon.ico` | `204` |
 
-Session `S`: `id`, `started_at`, `last_activity_at` (unix seconds), `status`, `requests`, `models`, `cost_usd`, `input`, `output`, `cache_read`, `cache_write`, `subagents_running`, `content_recorded`.
+Session `S`: `id`, `started_at`, `last_activity_at` (unix seconds), `status`, `requests`, `models`, `cost_usd`, `input`, `output`, `cache_read`, `cache_write`, `subagents_running`, `content_recorded`, `title` and `project` (the folder name; both `null` when the transcript is not found).
 
 Turn `T` (one request and its response): `id`, `session_id`, `ts` (unix seconds), `origin` (`main`, `subagent` or `auxiliary`), `agent_id`, `agent_type`, `model_requested`, `model_effective`, `status`, `stop_reason`, `usage` (`input`, `output`, `cache_write`, `cache_read`), `cost_usd`, `duration_ms`, `ttfb_ms`, `tools`, `routing` (`outcome`, `reason`), `in_flight`, `sent` (`[{role, text}]` or `null`), `response` (`{text, thinking, tool_uses: [{name, input_summary}]}` or `null`).
 

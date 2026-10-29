@@ -34,8 +34,8 @@ Com `log_bodies = true`, os conteúdos ficam no banco local (tabela `captured_tu
 
 ## O que ele mostra
 
-- Uma sessão recebe o nome do jeito que o Claude Code a nomeia: o título que você deu, senão o gerado pelo Claude Code, com a pasta em que roda e um id curto. O título é lido do fim da transcrição da sessão em `projects/` e relido enquanto a sessão roda, porque o Claude Code só dá nome à sessão depois da primeira volta. Uma sessão sem transcrição mostra o id curto. Só transcrições dentro da pasta do Claude Code são lidas, e delas só se tiram o título e a pasta.
-- Uma sessão está **ativa** enquanto há uma requisição em andamento ou a última foi há menos de 5 minutos, **ociosa** até uma hora depois da última atividade, e **encerrada** depois disso.
+- Uma sessão recebe o nome do jeito que o Claude Code a nomeia: o título que você deu, senão o gerado pelo Claude Code, com a pasta em que roda e um id curto. O título é lido do fim do transcript da sessão em `projects/` (do começo, quando o fim não tem) e relido enquanto a sessão roda, porque o Claude Code só dá nome à sessão depois da primeira volta. Uma sessão sem transcript mostra o id curto. Só transcripts dentro da pasta do Claude Code são lidos, e deles só se tiram o título e a pasta.
+- Uma sessão está **ativa** enquanto há uma requisição em andamento ou a última foi nos últimos 5 minutos, **ociosa** até uma hora depois da última atividade, e **encerrada** depois disso.
 - Um subagente conta como **em execução** enquanto uma requisição dele está em andamento e por 60 segundos depois da última.
 - Os custos usam a tabela de preços do `tokred pricing`; um modelo sem preço não mostra custo.
 - O detalhe de uma sessão traz as 500 voltas mais recentes; `"truncated": true` indica que há voltas mais antigas no banco.
@@ -51,11 +51,11 @@ Para quem faz scripts. Todas as rotas são `GET`, respondidas pelo proxy e nunca
 | `/metrics` | O relatório HTML |
 | `/dashboard`, `/dashboard/app.css`, `/dashboard/app.js` | O aplicativo de página única |
 | `/dashboard/api/sessions` | `{"active": [S], "recent": [S]}`; `S.status` é `active` na primeira lista e `idle` ou `ended` na segunda |
-| `/dashboard/api/sessions/{id}` | `{"session": S, "turns": [T], "truncated"?: true}`, da volta mais antiga para a mais nova; uma volta em andamento tem `in_flight: true` e o texto recebido até agora em `response.text` |
+| `/dashboard/api/sessions/{id}` | `{"session": S, "turns": [T], "truncated"?: true}`, da volta mais antiga para a mais nova; uma volta em andamento tem `in_flight: true` e o texto recebido até agora em `response.text`. Uma sessão desconhecida responde `404` |
 | `/dashboard/events` (`?session=<id>`) | `text/event-stream` com os eventos abaixo e um comentário `: ping` a cada 15 segundos. Eventos não são reenviados após uma reconexão: leia a API de novo |
 | `/favicon.ico`, `/dashboard/favicon.ico` | `204` |
 
-Sessão `S`: `id`, `started_at`, `last_activity_at` (segundos unix), `status`, `requests`, `models`, `cost_usd`, `input`, `output`, `cache_read`, `cache_write`, `subagents_running`, `content_recorded`.
+Sessão `S`: `id`, `started_at`, `last_activity_at` (segundos unix), `status`, `requests`, `models`, `cost_usd`, `input`, `output`, `cache_read`, `cache_write`, `subagents_running`, `content_recorded`, `title` e `project` (o nome da pasta; ambos `null` quando o transcript não é encontrada).
 
 Volta `T` (uma requisição e sua resposta): `id`, `session_id`, `ts` (segundos unix), `origin` (`main`, `subagent` ou `auxiliary`), `agent_id`, `agent_type`, `model_requested`, `model_effective`, `status`, `stop_reason`, `usage` (`input`, `output`, `cache_write`, `cache_read`), `cost_usd`, `duration_ms`, `ttfb_ms`, `tools`, `routing` (`outcome`, `reason`), `in_flight`, `sent` (`[{role, text}]` ou `null`), `response` (`{text, thinking, tool_uses: [{name, input_summary}]}` ou `null`).
 

@@ -8,7 +8,7 @@ How to build, run, test and try tokred from the source tree. How the code is org
 
 - Rust 1.89 or newer (the workspace MSRV, checked in CI). `rust-toolchain.toml` selects stable with `rustfmt` and `clippy`.
 - For the full local gate: `cargo install cargo-deny cargo-llvm-cov`.
-- For the shell tests: `shellcheck`. The release smoke test also needs Python 3.7+ and `curl`.
+- For the shell tests: `shellcheck`. The release smoke test also needs Python 3.7+ and `curl`. The documentation check needs Python 3.
 
 ## Build and run
 
@@ -50,11 +50,15 @@ cargo deny check
 cargo +1.89 check --workspace --all-targets --locked
 ```
 
-The last one is the MSRV check. Use the version written in `[workspace.package] rust-version` of `Cargo.toml`.
+```sh
+python3 scripts/check-docs.py
+```
+
+`cargo +1.89 check` is the MSRV check: use the version written in `[workspace.package] rust-version` of `Cargo.toml`. `check-docs.py` checks the documentation: each document has its `.pt-BR.md` twin with the same headings and code blocks, links resolve, and a few house rules hold (see its header).
 
 ### Coverage
 
-The target is 100% of lines. CI measures it and uploads `lcov.info`; it does not fail on a drop, so check it yourself.
+Cover the lines you add. CI measures coverage and uploads `lcov.info`; it does not fail on a drop, so check it yourself.
 
 ```sh
 cargo llvm-cov --workspace --all-features --summary-only
@@ -93,7 +97,7 @@ cargo test -p tokred a_stopped_proxy
 | Unit | `#[cfg(test)]` modules | Pure logic: classification, pricing, routing, compression, config, merge functions |
 | Integration | `crates/<crate>/tests/` | Real SQLite files and temp folders; `tokred-proxy` against a fake upstream (forwarding, streaming, gzip, dashboard); the corporate-network path (`network.rs`: a fake HTTP proxy answering `CONNECT` in front of a fake HTTPS upstream signed by a throwaway authority, `NO_PROXY`, refused tunnels; `network_logs.rs`: credentials never reach the logs) |
 | Property | `proptest`, for example `crates/tokred-install/tests/merge_props.rs` | Configuring twice equals once; configure then unconfigure restores the original; foreign hooks survive; merging usage again changes nothing |
-| End to end | `crates/tokred-cli/tests/` | The real binary through `assert_cmd`: `e2e.rs` (configure, hooks, doctor, unconfigure, uninstall in a sandbox), `proxy_e2e.rs` (the proxy process: forwarding, recording, `Host` check, `tokred claude`, stopping, `proxy start` with captured output), `initialize_e2e.rs`, `dashboards.rs`, `commands.rs` |
+| End to end | `crates/tokred-cli/tests/` | The real binary through `assert_cmd`: `e2e.rs` (configure, hooks, doctor, unconfigure, uninstall in a sandbox), `proxy_e2e.rs` (the proxy process: forwarding, recording, `Host` check, `tokred claude`, stopping, `proxy start` with captured output, retention, the live dashboard), `initialize_e2e.rs`, `dashboards.rs` (the terminal dashboards, the HTML report, the cache, `doctor --bench`), `commands.rs` (the commands that use the network, against a local server) |
 | Snapshot | `insta`, next to the tests | Merged `settings.json`, `doctor --json`, the terminal sections, the JSON shape of the audit |
 | Installer | `tests/installer/install_test.sh`, `install_test.ps1` | The install and uninstall scripts against a fake release served from disk, in a throwaway home |
 | Release script | `tests/release_scripts/test.sh` | `scripts/release.sh` in a throwaway repository with a fake `gh`. Not run by CI: run it when you change the script |
@@ -136,19 +140,25 @@ shellcheck install/*.sh tests/installer/*.sh tests/release/*.sh
 
 - Run a suspicious suite a few times: `for i in 1 2 3; do cargo test -p tokred --no-fail-fast; done`.
 - macOS has no `timeout`; bound a run with `perl -e 'alarm 280; exec @ARGV' cargo test -p tokred`.
-- After an interrupted run, look for a proxy left behind with `pgrep -fl "proxy start --foreground"`; stop it with `pkill -f "proxy start --foreground"`.
+- After an interrupted run, look for a proxy left behind with `pgrep -fl "proxy start --foreground"`. If you also run tokred for real, that proxy shows up in the list too: stop only the others, by their pid with `kill <pid>`.
 
 ## Try it by hand
 
-Use a sandbox so nothing is written to your real `~/.claude` or data folder. Run this in every terminal you use for testing; the exports die with the terminal.
+Use a sandbox so nothing is written to your real `~/.claude` or data folder. Run these in every terminal you use for testing; the exports die with the terminal.
 
 ```sh
 cargo build
 ```
 
 ```sh
-export PATH="$PWD/target/debug:$PATH"
-export TOKRED_DATA_DIR=$(mktemp -d) CLAUDE_CONFIG_DIR=$(mktemp -d) TOKRED_OFFLINE=1
+unset ANTHROPIC_BASE_URL
+```
+
+```sh
+export PATH="$PWD/target/debug:$PATH" TOKRED_DATA_DIR=$(mktemp -d) CLAUDE_CONFIG_DIR=$(mktemp -d) TOKRED_OFFLINE=1
+```
+
+```sh
 mkdir "$CLAUDE_CONFIG_DIR/projects"
 ```
 
@@ -156,14 +166,20 @@ mkdir "$CLAUDE_CONFIG_DIR/projects"
 tokred configure --yes && tokred doctor
 ```
 
-`doctor` shows the hooks and agents installed in the sandbox. `TOKRED_OFFLINE=1` turns off the version check and the price sync. When you are done, run `tokred uninstall` and close the terminal.
+`doctor` shows the hooks and agents installed in the sandbox. The `unset` keeps a gateway from your own shell out of the sandbox. `TOKRED_OFFLINE=1` turns off the version check and the price sync. When you are done, stop the proxy if you started one (`tokred proxy stop`) and close the terminal. Do not run `tokred uninstall` here: it also removes the service, the `PATH` entry and the `claude` wrapper of your real home.
 
 ### A hook
 
-A hook reads JSON on stdin and does nothing unless the data folder and database already exist, so configure the sandbox first. An allowed call prints nothing and exits 0.
+A hook reads JSON on stdin, prints its decision (if any) as JSON and exits 0 whatever happens. It never creates the data folder or the database. The `guard-read` hook denies lockfiles, so this prints a `permissionDecision` of `deny` and `exit=0`:
 
 ```sh
 echo '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"Cargo.lock"}}' | tokred hook guard-read; echo "exit=$?"
+```
+
+An allowed call prints nothing:
+
+```sh
+echo '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"README.md"}}' | tokred hook guard-read; echo "exit=$?"
 ```
 
 `tokred doctor --bench` measures hook latency; `TOKRED_BENCH_RUNS=3` makes it quick. Before you implement a hook, read the [official hooks documentation](https://code.claude.com/docs/en/hooks) for the exact input and output format, and record any divergence in [decisions](decisions.md).
@@ -188,43 +204,43 @@ http.server.HTTPServer(("127.0.0.1", 9000), H).serve_forever()
 PY
 ```
 
-In terminal B (with the sandbox exports), point the proxy at it and start it:
+In terminal B (with the sandbox exports), point the proxy at it and start it on a port of your own, so a tokred you use for real on its default port is not involved:
 
 ```sh
 perl -pi -e 's#^upstream = .*#upstream = "http://127.0.0.1:9000"#' "$TOKRED_DATA_DIR/tokred.toml"
 ```
 
 ```sh
-tokred proxy enable --yes && tokred proxy status
+tokred proxy enable --port 1050 --yes && tokred proxy status
 ```
 
 Send a small request (no tools, one message: tokred sees it as `auxiliary`), then one that carries an agent id (a `subagent`):
 
 ```sh
-curl -s http://127.0.0.1:1029/v1/messages -H 'x-api-key: test' -H 'x-claude-code-session-id: s1' -H 'content-type: application/json' -d '{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}'
+curl -s http://127.0.0.1:1050/v1/messages -H 'x-api-key: test' -H 'x-claude-code-session-id: s1' -H 'content-type: application/json' -d '{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}'
 ```
 
 ```sh
-curl -s http://127.0.0.1:1029/v1/messages -H 'x-api-key: test' -H 'x-claude-code-session-id: s1' -H 'x-claude-code-agent-id: a1' -H 'content-type: application/json' -d '{"model":"claude-sonnet-4-5","max_tokens":16,"tools":[{"name":"Grep","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"find where main is defined"}]}'
+curl -s http://127.0.0.1:1050/v1/messages -H 'x-api-key: test' -H 'x-claude-code-session-id: s1' -H 'x-claude-code-agent-id: a1' -H 'content-type: application/json' -d '{"model":"claude-sonnet-4-5","max_tokens":16,"tools":[{"name":"Grep","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"find where main is defined"}]}'
 ```
 
 Check:
 
 - the replies are exactly what the fake returned (in `observe` the proxy changes nothing);
-- `tokred routing status` shows both requests classified, with the models kept;
+- `tokred routing status` lists two decisions, both `kept` (nothing is changed in `observe`);
 - `sqlite3 "$TOKRED_DATA_DIR/tokred.db" "select origin, model_requested, model_effective, input, output from proxy_requests"` shows two rows (`auxiliary` and `subagent`) with 120 input and 15 output tokens;
 - `tokred stats` has a **Proxy** section counting two requests, and `tokred stats --by origin` lists both origins;
 - `tokred dashboard --no-open` prints a one-time address for the [dashboard](dashboard.md); open it in a browser to see the session;
-- a wrong `Host` is refused: `curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: evil.example' http://127.0.0.1:1029/v1/messages -d '{}'` prints `421`.
+- a wrong `Host` is refused: `curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: evil.example' http://127.0.0.1:1050/v1/messages -d '{}'` prints `421`.
 
-Then stop everything: `tokred proxy stop`, `pgrep -fl "proxy start --foreground"` must print nothing, and stop the fake API with Ctrl-C in terminal A.
+Then stop everything: `tokred proxy stop` must say the proxy stopped, `tokred proxy status` must say it is not running, and stop the fake API with Ctrl-C in terminal A.
 
 ### The proxy with the real Claude Code
 
 You need your own login (an API key, or `claude` logged into a subscription). A throwaway `CLAUDE_CONFIG_DIR` means logging in again inside it; that is intended.
 
 ```sh
-tokred proxy enable --yes
+tokred proxy enable --port 1050 --yes
 ```
 
 ```sh
@@ -233,13 +249,13 @@ tokred claude
 
 Work for a minute with at least one subagent (for example ask it to "explore the repo"), then look at `tokred routing status`, `tokred suggest` and `tokred proxy status`. The `input`, `output` and cache figures of a request in `proxy_requests` must match the `usage` of the same message in `$CLAUDE_CONFIG_DIR/projects/**/*.jsonl`.
 
-`tokred compression on` registers the `tokred_retrieve` MCP server in Claude Code's user config (`~/.claude.json`, with a backup next to it). It is the only command that edits that file; when the sandbox folder has no `.claude.json` tokred falls back to the real one, so also `export HOME=$(mktemp -d)` before trying it.
+`tokred compression on` registers the `tokred_retrieve` MCP server in Claude Code's user config (`~/.claude.json`, with a backup next to it). Only `tokred compression on`, `tokred compression off` and `tokred uninstall` edit that file; when the sandbox folder has no `.claude.json` tokred falls back to the one in your home, so also `export HOME=$(mktemp -d)` before trying them.
 
 ## Continuous integration
 
 | Workflow and job | What it runs |
 |---|---|
-| CI `fmt`, `clippy`, `docs`, `deny`, `msrv` | The checks of the quality gate, on Linux |
+| CI `fmt`, `clippy`, `docs`, `deny`, `msrv`, `documentation` | The checks of the quality gate, on Linux (`docs` is `cargo doc`, `documentation` is `scripts/check-docs.py`) |
 | CI `test` | `cargo test` on Linux, macOS and Windows |
 | CI `coverage` | `cargo llvm-cov`, uploading `lcov.info` |
 | CI `shellcheck` | `install/*.sh`, `tests/installer/*.sh`, `tests/release/*.sh` |
@@ -255,5 +271,5 @@ A test that passes only on your operating system is not done.
 - **`cfg(unix)`-only helpers.** A helper used only by a `#[cfg(unix)]` test needs `#[cfg(unix)]` too, or it is dead code and `-D warnings` fails the Windows build.
 - **Windows detached processes.** A child inherits the parent's inheritable handles, so a captured `tokred proxy start` would wait for the proxy. The proxy is started through `Start-Process`, which does not inherit them (see [decisions](decisions.md)). Tests that run `proxy start` with captured output enforce a deadline on a thread rather than trusting the command's own timeout.
 - **macOS has no `timeout`:** use the `perl` form above.
-- **Line endings.** `.gitattributes` keeps shell scripts LF and PowerShell scripts CRLF on every checkout.
+- **Line endings.** `.gitattributes` keeps text files LF and PowerShell scripts CRLF on every checkout.
 - **Price snapshot.** `scripts/update-price-snapshot.sh` regenerates the embedded price list.

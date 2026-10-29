@@ -6,14 +6,14 @@ Como o tokred é construído, para quem o altera: os crates, as regras que segue
 
 O desenho é uma arquitetura limpa para Rust: regras de negócio puras no centro, I/O nas bordas, dependências apontando para dentro e um único ponto de composição (o binário).
 
-```
+```text
 tokred (crates/tokred-cli) ──► todos os outros crates
                                       │
   crates de casos de uso ─┐           ▼
   crates adaptadores     ─┴────► tokred-core   (tipos de domínio, modelo de config, portas; sem I/O)
 ```
 
-Os crates de casos de uso e de adaptadores dependem do `tokred-core` e nunca uns dos outros. Só o binário conhece todos.
+Os crates de casos de uso e de adaptadores dependem do `tokred-core` e nunca uns dos outros (só os seus testes podem usar o `tokred-store`). Só o binário conhece todos.
 
 ## Crates
 
@@ -22,7 +22,7 @@ Os crates de casos de uso e de adaptadores dependem do `tokred-core` e nunca uns
 | `tokred-core` | Domínio: tipos, erros, o modelo do `tokred.toml`, regras de caminhos, o modelo de eventos de hook, a política do cache em camadas e as portas (traits como `Clock`, `FileSystem` e os repositórios). **Sem I/O** |
 | `tokred-install` | `configure`, `unconfigure`, `doctor`: merge puro de settings, templates de agentes (`templates/`, embutidos no binário) e regras de instalação; o módulo `fs` é o adaptador de `std::fs` |
 | `tokred-hooks` | Os seis handlers de hook, a guarda de tempo e as cargas do benchmark. Fail-open |
-| `tokred-metrics` | Puro: ingestão das transcrições, o merge do uso das transcrições com o do proxy, custo, economia, projeção, latência e os resumos de roteamento e de guardas |
+| `tokred-metrics` | Puro: ingestão dos transcripts, o merge do uso dos transcripts com o do proxy, custo, economia, projeção, latência e os resumos de roteamento e de guardas |
 | `tokred-pricing` | Leitura da lista de preços, snapshot embutido de reserva, casos de uso de sincronização e o adaptador do LiteLLM |
 | `tokred-update` | Detecção do método de instalação, verificação de versão, autoatualização com checagem de checksum, adaptador do GitHub |
 | `tokred-audit` | Auditoria do contexto fixo: `CLAUDE.md` com imports, regras, skills, agentes, uso de MCP |
@@ -58,10 +58,10 @@ Os crates de casos de uso e de adaptadores dependem do `tokred-core` e nunca uns
 1. O proxy aceita a conexão em loopback e confere o cabeçalho `Host` (`421` se não bater).
 2. `/__tokred/*` são endpoints administrativos: `health` é aberto; `status`, `shutdown` e `dashboard-token` exigem o segredo.
 3. `/dashboard` e `/metrics` são respondidos localmente, atrás do login do navegador. Todo o resto é encaminhado.
-4. Para `POST /v1/messages` com corpo JSON, o pipeline de hooks roda: roteamento, resumos e sugestões, compressão. Um hook que falha ou dá panic descarta todas as suas alterações e os bytes originais são encaminhados.
+4. Para `POST /v1/messages` com corpo JSON, o pipeline de hooks roda: medição de cache de respostas, roteamento, compressão e, por fim, resumos de prompts e sugestões. Um hook que falha ou dá panic descarta todas as suas alterações e os bytes originais são encaminhados.
 5. A requisição segue ao upstream por `hyper` e `rustls` (pelo túnel de proxy HTTP e com autoridades certificadoras extras, quando configurados), e a resposta volta em streaming. Um tap lê `usage`, o motivo de parada e as chamadas de ferramentas conforme os bytes passam, sem armazenar em buffer.
 6. Se a API rejeitar uma requisição reescrita (400, 404 ou 422), a original é enviada no lugar.
-7. Quando a resposta termina, um registro (a linha da requisição, a decisão de roteamento, os resumos) é entregue a uma thread escritora que o grava no store, então o trabalho de banco nunca roda no caminho da requisição. O estado ao vivo do dashboard e seu barramento de eventos são atualizados com os mesmos dados.
+7. Quando a resposta termina, um registro (a linha da requisição, a decisão de roteamento, os resumos) é entregue a uma thread escritora que o grava no store, então o trabalho de banco nunca roda no caminho da requisição. Quando a fila da escritora está cheia, o registro é descartado e registrado no log, sem nunca atrasar a requisição. O estado ao vivo do dashboard e seu barramento de eventos são atualizados com os mesmos dados.
 
 ## O store local
 
@@ -78,7 +78,7 @@ O esquema é versionado com `PRAGMA user_version`. As migrações são strings S
 | `cache_entries` | O cache em camadas (abaixo) |
 | `installed_files` | Arquivos que o tokred instalou, com hash blake3 e versão |
 | `pricing` | USD por milhão de tokens, por modelo |
-| `usage`, `ingest_state` | Uso de tokens por mensagem vindo das transcrições, e os offsets da ingestão incremental |
+| `usage`, `ingest_state` | Uso de tokens por mensagem vindo dos transcripts, e os offsets da ingestão incremental |
 | `meta` | Pequeno estado chave/valor (verificação de versão, sincronização de preços, benchmark, marcador `tokred_version`, disjuntor da compressão) |
 | `proxy_requests` | Uma linha por requisição que o proxy viu: modelos, tokens, latência, motivo de parada, ferramentas, duração do cache, modo de roteamento, causa de falha de cache |
 | `routing_decisions`, `prompt_summaries`, `suggestions`, `shadow_savings` | Decisões de roteamento, resumos dos prompts do loop principal, sugestões e economias medidas |
@@ -95,9 +95,9 @@ O esquema é versionado com `PRAGMA user_version`. As migrações são strings S
 
 - As chaves incluem o hash do conteúdo de origem, então uma origem alterada invalida suas entradas: `<tipo>:<hash>:<assunto>`. Para contagens de arquivos, o conteúdo é a data de modificação da raiz do repositório mais o limite, o sinal mais barato de que o repositório mudou.
 - A promoção acontece na leitura (`cache_get`): conta um acerto, reavalia a camada e renova a expiração da L2. `cache_peek` lê sem contar. Uma entrada expirada é um erro de cache.
-- Um `l1_ttl` ou `l2_ttl` ilegível (qualquer coisa que não seja um número mais `s`, `m`, `h` ou `d`) volta ao padrão em vez de quebrar um hook.
+- Um `l1_ttl` ou `l2_ttl` ilegível (qualquer coisa que não seja um número positivo mais `s`, `m`, `h` ou `d`) volta ao padrão em vez de quebrar um hook.
 - A política são funções puras no `tokred-core` (`next_tier`, `expires_at`, `is_expired`, `record_hit`); o store só carrega e grava linhas.
-- `tokred cache stats` mostra entradas, entradas expiradas, acertos e bytes por camada; `tokred cache prune` remove as expiradas. A limpeza também roda a partir de `stats` e `update`, nunca dentro de um hook.
+- `tokred cache stats` mostra entradas, entradas expiradas, acertos e bytes por camada; `tokred cache prune` remove as expiradas; nada mais as limpa, e um hook nunca o faz.
 - Ele guarda as contagens de arquivos por raiz do `guard-search` (tipo `repo_files`), a classe de cada prompt visto pelo `route` (tipo `classification`, com chave pelo hash blake3 do prompt mais uma versão de regras) e os marcadores "já avisado" do `session-check` (tipo `session_warn`).
 
 ## Pasta de dados
@@ -117,7 +117,7 @@ O esquema é versionado com `PRAGMA user_version`. As migrações são strings S
 | `logs/` | Os logs do próprio tokred, rotacionados por dia, 7 dias mantidos |
 | `reports/` | Relatórios HTML gerados pelo `tokred metrics` |
 | `proxy/secret` | O segredo administrativo do proxy (permissão só do dono no Unix) |
-| `proxy/pid` | O pid do proxy em segundo plano |
+| `proxy/pid` | O pid e a porta do proxy em segundo plano |
 | `proxy/base_urls` | As URLs de proxy que o tokred gravou nas configurações do Claude Code, uma por linha, para que uma mudança de porta seja acompanhada |
 
 O binário e o wrapper `claude` ficam fora da pasta de dados, em `~/.tokred/bin` (Windows `%LOCALAPPDATA%\tokred\bin`); veja [installation](installation.pt-BR.md).

@@ -6,14 +6,14 @@ How tokred is built, for people who change it: the crates, the rules they follow
 
 The design is a clean architecture for Rust: pure business rules at the centre, I/O at the edges, dependencies pointing inwards, and a single composition point (the binary).
 
-```
+```text
 tokred (crates/tokred-cli) ──► every other crate
                                       │
   use-case crates ─┐                  ▼
   adapter crates  ─┴────────────► tokred-core   (domain types, config model, ports; no I/O)
 ```
 
-Use-case and adapter crates depend on `tokred-core` and never on each other. Only the binary knows all of them.
+Use-case and adapter crates depend on `tokred-core` and never on each other (only their tests may use `tokred-store`). Only the binary knows all of them.
 
 ## Crates
 
@@ -58,10 +58,10 @@ Use-case and adapter crates depend on `tokred-core` and never on each other. Onl
 1. The proxy accepts the connection on loopback and checks the `Host` header (`421` otherwise).
 2. `/__tokred/*` are admin endpoints: `health` is open, `status`, `shutdown` and `dashboard-token` need the secret.
 3. `/dashboard` and `/metrics` are answered locally, behind the browser sign-in. Everything else is forwarded.
-4. For `POST /v1/messages` with a JSON body, the hook pipeline runs: routing, summaries and suggestions, compression. A hook that errors or panics discards all its changes and the original bytes are forwarded.
+4. For `POST /v1/messages` with a JSON body, the hook pipeline runs: response-cache measurement, routing, compression, then prompt summaries and suggestions. A hook that errors or panics discards all its changes and the original bytes are forwarded.
 5. The request goes upstream over `hyper` and `rustls` (through the HTTP proxy tunnel and extra certificate authorities when configured), and the response streams back. A tap reads `usage`, the stop reason and the tool calls as the bytes pass, without buffering.
 6. If the API rejects a rewritten request (400, 404 or 422), the original is sent instead.
-7. When the response ends, one record (the request row, routing decision, summaries) is handed to a writer thread that writes it to the store, so database work never runs on the request path. The live dashboard state and its event bus are updated from the same data.
+7. When the response ends, one record (the request row, routing decision, summaries) is handed to a writer thread that writes it to the store, so database work never runs on the request path. When the writer's queue is full the record is dropped and logged, never delaying the request. The live dashboard state and its event bus are updated from the same data.
 
 ## The local store
 
@@ -95,9 +95,9 @@ The schema is versioned with `PRAGMA user_version`. Migrations are SQL strings i
 
 - Keys include the hash of the source content, so a changed source invalidates its entries: `<kind>:<hash>:<subject>`. For file counts the content is the repository root's modification time and the threshold, the cheapest signal that the repository changed.
 - Promotion happens on read (`cache_get`): it counts a hit, re-evaluates the tier and renews L2 expiry. `cache_peek` reads without counting. An expired entry is a miss.
-- An unreadable `l1_ttl` or `l2_ttl` (anything but a number plus `s`, `m`, `h` or `d`) falls back to its default instead of breaking a hook.
+- An unreadable `l1_ttl` or `l2_ttl` (anything but a positive number plus `s`, `m`, `h` or `d`) falls back to its default instead of breaking a hook.
 - The policy is pure functions in `tokred-core` (`next_tier`, `expires_at`, `is_expired`, `record_hit`); the store only loads and saves rows.
-- `tokred cache stats` shows entries, expired entries, hits and bytes per tier; `tokred cache prune` removes expired ones. Pruning also runs from `stats` and `update`, never inside a hook.
+- `tokred cache stats` shows entries, expired entries, hits and bytes per tier; `tokred cache prune` removes expired ones; nothing else prunes them, and a hook never does.
 - It holds the per-root file counts of `guard-search` (kind `repo_files`), the class of each prompt seen by `route` (kind `classification`, keyed by the blake3 hash of the prompt and a rules version) and the "already warned" markers of `session-check` (kind `session_warn`).
 
 ## Data folder
@@ -117,7 +117,7 @@ The schema is versioned with `PRAGMA user_version`. Migrations are SQL strings i
 | `logs/` | tokred's own logs, rotated daily, 7 days kept |
 | `reports/` | HTML reports written by `tokred metrics` |
 | `proxy/secret` | The proxy's admin secret (owner-only permissions on Unix) |
-| `proxy/pid` | The pid of the background proxy |
+| `proxy/pid` | The pid and port of the background proxy |
 | `proxy/base_urls` | The proxy URLs tokred has written to Claude Code's settings, one per line, so a changed port is followed |
 
 The binary and the `claude` wrapper live outside the data folder, under `~/.tokred/bin` (Windows `%LOCALAPPDATA%\tokred\bin`); see [installation](installation.md).
