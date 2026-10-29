@@ -146,7 +146,9 @@ $arch = $env:PROCESSOR_ARCHITEW6432
 if (-not $arch) { $arch = $env:PROCESSOR_ARCHITECTURE }
 switch ($arch) {
     'AMD64' { $cpu = 'x86_64' }
-    'ARM64' { $cpu = 'aarch64' }
+    # No native Windows ARM build is published (the `ring` crate does not cross-compile there in
+    # CI); Windows on ARM runs the x86_64 build through its emulation.
+    'ARM64' { $cpu = 'x86_64' }
     default { throw "unsupported CPU architecture: $arch" }
 }
 $target = "$cpu-pc-windows-msvc"

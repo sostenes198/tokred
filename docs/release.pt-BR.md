@@ -82,7 +82,7 @@ O `dist` se instala com `cargo install cargo-dist --locked` (ou `brew install ca
 
 ### Como a entrega funciona
 
-Um push de tag faz tudo. O `.github/workflows/release.yml`, gerado pelo `dist`, compila para macOS, Linux (musl) e Windows em x86_64 e aarch64 um arquivo com o seu `.sha256` e envia tudo para uma GitHub Release, junto com os quatro scripts de instalação copiados de `install/`:
+Um push de tag faz tudo. O `.github/workflows/release.yml`, gerado pelo `dist`, compila para macOS, Linux (musl) e Windows em x86_64 (e macOS e Linux também em aarch64) um arquivo com o seu `.sha256` e envia tudo para uma GitHub Release, junto com os quatro scripts de instalação copiados de `install/`:
 
 | Asset | O que é |
 |---|---|

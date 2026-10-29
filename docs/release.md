@@ -82,7 +82,7 @@ dist build --artifacts=global      # the checksums and the install scripts
 
 ### How delivery works
 
-One tag push does everything. The `dist`-generated `.github/workflows/release.yml` builds, for macOS, Linux (musl) and Windows on x86_64 and aarch64, an archive plus its `.sha256`, and uploads them to a GitHub Release together with the four install scripts copied from `install/`:
+One tag push does everything. The `dist`-generated `.github/workflows/release.yml` builds, for macOS, Linux (musl) and Windows on x86_64 (and macOS and Linux also on aarch64), an archive plus its `.sha256`, and uploads them to a GitHub Release together with the four install scripts copied from `install/`:
 
 | Asset | What it is |
 |---|---|

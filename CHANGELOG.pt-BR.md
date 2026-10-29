@@ -18,6 +18,8 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ### Alterado
 
+- Não é publicado um build nativo para Windows em ARM: o crate `ring` não faz cross-compilação para `aarch64-pc-windows-msvc` no CI. O `install.ps1` instala o build x86_64 no Windows em ARM, que o executa pela emulação.
+
 - O `tokred uninstall` remove o tokred por completo e não pergunta nada: o proxy e o serviço dele, os hooks, agentes e a URL do proxy no Claude Code, a pasta de dados e, depois, o binário, a entrada no `PATH` e o wrapper `claude` (o script de desinstalação vem embutido no binário). Se um passo falhar, o binário é mantido. `--yes` e `--purge` são aceitos e ignorados.
 - O `tokred unconfigure` remove só os hooks e agentes; ele não toca mais no `ANTHROPIC_BASE_URL` do proxy (só `tokred proxy enable` / `disable` e `tokred uninstall` fazem isso).
 - O `tokred configure` não configura mais o proxy: só mexe em hooks e agentes (mais o banco e o `tokred.toml` padrão) e não grava nenhum valor de `[proxy]` além dos padrões (`enabled = false`). O `tokred proxy enable` faz isso, com `--port` e `--record-content`; os scripts de instalação o executam depois do `configure`, e `--no-proxy` (`-NoProxy`, `TOKRED_NO_PROXY=1`) o pula. As flags `--proxy-port`, `--record-content` e `--no-record-content` do `configure` foram removidas, e um plano recusado sai com o código 2 (o script de instalação então também pula o proxy).

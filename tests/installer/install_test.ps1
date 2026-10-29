@@ -63,7 +63,8 @@ foreach ($name in @('TOKRED_HOME', 'TOKRED_DATA_DIR', 'CLAUDE_CONFIG_DIR', 'TOKR
 
 try {
     # ---------------------------------------------------------- fake release
-    $target = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
+    # Windows on ARM installs the x86_64 build too (no native ARM build is published).
+    $target = 'x86_64-pc-windows-msvc'
     $asset = "tokred-$target.zip"
     $release = Join-Path $work 'release'
     $pack = Join-Path $release "pack\tokred-$target"

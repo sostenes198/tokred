@@ -16,7 +16,7 @@ Os scripts são assets da release (`install.sh`, `install.ps1`, `uninstall.sh`, 
 
 ## O que o script faz
 
-1. Detecta a plataforma: macOS ou Linux (musl, então roda em qualquer distribuição) em x86_64 ou aarch64; Windows em x86_64 ou aarch64.
+1. Detecta a plataforma: macOS ou Linux (musl, então roda em qualquer distribuição) em x86_64 ou aarch64; Windows em x86_64 (o Windows em ARM executa esse build pela emulação: não há build nativo para ARM).
 2. Baixa `tokred-<target>.tar.gz` (Windows: `.zip`) e o `.sha256` da release e **confere o checksum**. Se não bater, tudo para antes de qualquer coisa ser gravada.
 3. Instala o binário em `${TOKRED_HOME:-$HOME/.tokred}/bin` (Windows: `%LOCALAPPDATA%\tokred\bin`).
 4. Adiciona essa pasta ao `PATH` e define o [wrapper `claude`](#o-wrapper-claude): nos perfis de shell que existem (`~/.bashrc`, `~/.bash_profile`, `~/.zshrc`, mais `~/.profile` e, com o fish instalado, `~/.config/fish/conf.d/tokred.fish`); no Windows, no `PATH` do usuário e no perfil do PowerShell. Tudo o que ele grava fica em um único bloco marcado (`# >>> tokred >>>` ... `# <<< tokred <<<`), que é substituído a cada execução (rodar o script duas vezes não muda nada) e removido pelo script de desinstalação.

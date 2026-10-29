@@ -16,7 +16,7 @@ The scripts are release assets (`install.sh`, `install.ps1`, `uninstall.sh`, `un
 
 ## What the script does
 
-1. Detects your platform: macOS or Linux (musl, so it runs on every distribution) on x86_64 or aarch64; Windows on x86_64 or aarch64.
+1. Detects your platform: macOS or Linux (musl, so it runs on every distribution) on x86_64 or aarch64; Windows on x86_64 (Windows on ARM runs that build through its emulation: there is no native ARM build).
 2. Downloads `tokred-<target>.tar.gz` (Windows: `.zip`) and its `.sha256` from the release, and **verifies the checksum**. A mismatch stops everything before anything is written.
 3. Installs the binary in `${TOKRED_HOME:-$HOME/.tokred}/bin` (Windows: `%LOCALAPPDATA%\tokred\bin`).
 4. Adds that folder to your `PATH` and defines the [`claude` wrapper](#the-claude-wrapper): in the shell profiles that exist (`~/.bashrc`, `~/.bash_profile`, `~/.zshrc`, plus `~/.profile` and, when fish is installed, `~/.config/fish/conf.d/tokred.fish`); on Windows in your user `PATH` and your PowerShell profile. Everything it writes sits inside one marked block (`# >>> tokred >>>` ... `# <<< tokred <<<`), which is replaced on every run, so running the script twice changes nothing, and removed by the uninstall script.

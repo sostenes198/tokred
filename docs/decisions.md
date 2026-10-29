@@ -352,3 +352,9 @@ Checked against Anthropic's Consumer Terms (Section 3, item 7) and the Claude Co
 - **Context:** a separate on/off command for hooks and agents was proposed (`tokred integration enable|disable`), with a remembered "off" state so that an upgrade would not reinstall what the user turned off. Checking the code showed the remembered state already existed in a broken form: `unconfigure` left the "configured by version X" marker in the database, so the first command of a newer binary re-applied the configuration and silently put back the hooks and agents the user had removed.
 - **Decision:** no new command. `tokred unconfigure` is the durable off (it removes hooks and agents, keeps agents you edited, and clears the marker) and `tokred configure` is the on (it installs the version of the binary that runs). The proxy has its own pair, `proxy enable` / `disable`, and the three are independent.
 - **Consequences:** nothing to store while off: the binary is the only source of the hook definitions and the agent templates, so an upgrade while off needs no refresh and `configure` always installs the current ones. An empty marker means "not configured" (`needs_reconfigure` ignores it), the same convention as the compression breaker mark.
+
+## 2026-10-29 — No native Windows ARM build
+
+- **Context:** the first release run (`v0.1.0-rc.1`) built five targets and failed on `aarch64-pc-windows-msvc`: the `ring` crate's build script ran the C compiler with an option it does not accept (`/imsvc`), and a failed target keeps the whole release from being published.
+- **Decision:** the target is removed from `dist-workspace.toml`; `install.ps1` installs the x86_64 build on Windows on ARM, which Windows runs through its emulation. A native build can come back when `ring` (or a pure-Rust provider) builds there.
+- **Consequences:** five archives per release; Windows on ARM users run an emulated build.
