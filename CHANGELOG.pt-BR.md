@@ -6,6 +6,8 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+## [1.2.0-rc.1] - 2026-10-29
+
 ### Adicionado
 
 - O `tokred doctor` e o `tokred compression status` dizem se vale a pena ligar o roteamento e a compressão, com base nos últimos 7 dias de medições (uma estimativa): para o roteamento, as requisições que ele teria alterado e a economia; para a compressão, a parcela dos tokens de entrada que ela teria tirado. O `doctor --json` traz isso em `proxy.savings`.

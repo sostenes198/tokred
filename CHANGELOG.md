@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.2.0-rc.1] - 2026-10-29
+
 ### Added
 
 - `tokred doctor` and `tokred compression status` say whether turning routing and compression on is worth it, from the last 7 days of measurements (an estimate): for routing, the requests it would have changed and the saving; for compression, the share of the input tokens it would have kept out. `doctor --json` carries it as `proxy.savings`.
