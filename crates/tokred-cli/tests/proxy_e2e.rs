@@ -920,6 +920,7 @@ fn an_open_event_stream_does_not_keep_the_proxy_from_stopping() {
 }
 
 /// What the running proxy says about itself, with this sandbox's admin secret.
+#[cfg(unix)]
 fn admin_status(sb: &Sandbox, port: u16) -> serde_json::Value {
     let secret = std::fs::read_to_string(sb.data().join("proxy/secret")).unwrap();
     let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
