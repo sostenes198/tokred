@@ -49,7 +49,7 @@ The default is `observe`: decisions are recorded with their estimated saving and
 
 ## Suggestions for the main loop
 
-tokred never changes your main model, but it tells you when a cheaper one would have done the job: after several simple prompts in a row (few turns, small output, little or no editing), it estimates what the cheaper model would have cost, including rebuilding the prompt cache, and shows the suggestion in `tokred suggest` and, if you choose, in the status line or as a one-line message at a moment when the cache is already cold. Switching is always your call (`/model`).
+tokred never changes your main model, but it tells you when a cheaper one would have done the job: after several simple prompts in a row (few turns, small output, little or no editing), it estimates what the cheaper model would have cost, including rebuilding the prompt cache, and shows the suggestion in `tokred suggest` and in `tokred stats` (the latest one not shown yet; `stats` never marks it as shown) and, if you choose, in the status line or as a one-line message at a moment when the cache is already cold. Switching is always your call (`/model`).
 
 ## Configuration
 

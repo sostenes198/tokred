@@ -50,7 +50,36 @@ Os hooks rodam de forma síncrona antes de o Claude Code continuar, então `tokr
 
 ## Com o proxy
 
-O `stats`, o `stats latency` e o relatório HTML continuam lendo seus números dos transcripts e dos hooks, como descrito acima. Quando o [proxy](proxy.pt-BR.md) opcional está rodando, ele registra no banco seus próprios dados, exatos, por requisição: modelo pedido e modelo efetivo, tokens (incluindo gravações de cache de 1 hora), tempo até o primeiro byte e tempo total, a provável causa de um cache miss do prompt e o tempo que o próprio proxy acrescentou (o overhead, com orçamento de p95 abaixo de 10 ms). Hoje esses dados aparecem em `tokred routing status` (decisões recentes de roteamento com a economia estimada), `tokred proxy status` (quantidade de requisições e a mediana e o p95 do overhead nas últimas 24 horas) e `tokred suggest` (sugestões para o loop principal); mostrar os números por requisição no `stats` e no relatório HTML está especificado na [spec](spec.pt-BR.md) e ainda não foi feito.
+Quando o [proxy](proxy.pt-BR.md) opcional está rodando, ele registra em `proxy_requests` seus próprios dados, exatos, por requisição: modelo pedido e modelo efetivo, tokens (incluindo gravações de cache de 1 hora), tempo até o primeiro byte e tempo total, a provável causa de um cache miss do prompt, a origem (loop principal, subagente, auxiliar, compactação), o tipo de agente de um subagente e o tempo que o próprio proxy acrescentou (o overhead, com orçamento de p95 abaixo de 10 ms). O `stats`, o `metrics` e o relatório HTML leem o proxy como **fonte primária** e os transcripts como reserva para o que o proxy não viu, numa única lista mesclada de linhas de uso.
+
+### Uma fonte, nenhuma requisição contada duas vezes
+
+Toda requisição que passou pelo proxy também está nos transcripts, então as duas listas são mescladas antes de qualquer cálculo (`merge_usage` no `tokred-metrics`):
+
+- **Pareamento.** Uma requisição do proxy é pareada com a linha do transcript que tem a mesma `message_key` (o id da mensagem da Anthropic e o id da requisição, no mesmo formato nos dois lados). Uma requisição do proxy **sem** chave (a resposta não trouxe id de mensagem, por exemplo uma stream interrompida) é pareada com a linha do transcript da mesma sessão cujos quatro contadores de tokens são iguais e cujo horário está a até 5 segundos da requisição, ou até 5 segundos depois do fim da resposta (a linha do transcript é escrita quando a resposta termina). Duas requisições que têm chave e são diferentes são duas requisições, nunca mescladas por horário.
+- **Um para um.** Uma requisição do proxy leva no máximo uma linha do transcript e vice-versa; as requisições sem chave são pareadas pela proximidade no tempo, a mais próxima primeiro. Duas requisições idênticas nos mesmos poucos segundos continuam sendo duas linhas.
+- **O proxy vence.** Um par vira uma linha com os números do proxy: o modelo que de fato respondeu (não o pedido), os tokens com a divisão do cache de 1 hora, o horário de chegada, a origem e o tipo de agente. Ela mantém o projeto do transcript.
+- **O que permanece.** Linhas só de transcript (requisições feitas com o proxy desligado) e linhas só do proxy (o projeto da sessão quando algum transcript a nomeia, senão `(proxy)`).
+- **O que é ignorado.** Uma requisição respondida com status não 2xx ou sem tokens não é uma mensagem; ela ainda conta para o overhead e para a contagem de requisições com falha.
+
+Todo o resto lê as linhas mescladas; então os totais, os grupos, o contrafactual "tudo no opus" (os tokens são precificados no modelo que respondeu, então o que o roteamento realmente mudou aparece na economia do roteamento), a projeção e a comparação antes/depois ficam exatos na parte que passou pelo proxy. Sem nenhuma linha do proxy, as linhas dos transcripts passam sem alteração e toda saída continua exatamente como descrita acima.
+
+### O que o `stats` acrescenta
+
+- `--by origin` agrupa o custo por quem enviou a requisição (`main`, `subagent`, `auxiliary`, `compaction`) e `--by agent-type` pelo tipo de agente das requisições de subagente (`Explore`, `Plan`, ...). Sem o proxy, `origin` recorre aos transcripts (`main` ou `subagent`) e todo tipo de agente é `(unknown)`.
+- Uma seção **Proxy** depois das tabelas de custo, só quando o proxy registrou algo no período:
+
+| Linha | Como |
+|---|---|
+| Data source | Mensagens medidas pelo proxy e mensagens conhecidas só pelos transcripts |
+| Requests | Requisições que o proxy tratou e quantas o upstream não respondeu com status 2xx |
+| Overhead | p50, p95, p99 e máx. de `proxy_overhead_us` em ms (rank mais próximo, como nos hooks) contra o orçamento de 10 ms; alerta quando o p95 passa dele (exatamente 10 ms está dentro do orçamento) |
+| Routing | Decisões do período: aplicadas (`enforce`), observadas (`observe`), mantidas, fallback, com a economia **estimada** das aplicadas e das observadas caso fossem aplicadas (`est_cost_from - est_cost_to` de cada decisão) |
+| Model routing | O modelo pedido contra o modelo que respondeu, por par: mensagens, tokens e custo no modelo que respondeu; os pares reescritos são marcados |
+| Cache misses | Mensagens do loop principal com `miss_cause` preenchida, e uma tabela por causa com os tokens que essas requisições gravaram de novo no cache |
+| Suggestion | A última sugestão ainda não mostrada no período, com um aviso para o `tokred suggest`; o `stats` nunca a marca como mostrada |
+
+O `stats --json` traz os mesmos dados na chave `proxy` de nível superior, presente só quando o proxy registrou algo.
 
 ## Spans e intervalos
 
@@ -58,6 +87,6 @@ O `stats`, o `stats latency` e o relatório HTML continuam lendo seus números d
 
 ## Relatório HTML
 
-`tokred metrics` grava um arquivo HTML autocontido e offline (CSS/JS inline, gráficos SVG gerados em Rust, tema claro/escuro) em `<data>/reports/metrics.html`, sempre o mesmo arquivo, de forma atômica, e abre no navegador, a menos que `--no-open`. Seções sem dados mostram um aviso "ainda sem dados" em vez de sumirem.
+`tokred metrics` grava um arquivo HTML autocontido e offline (CSS/JS inline, gráficos SVG gerados em Rust, tema claro/escuro) em `<data>/reports/metrics.html`, sempre o mesmo arquivo, de forma atômica, e abre no navegador, a menos que `--no-open`. Seções sem dados mostram um aviso "ainda sem dados" em vez de sumirem. As seções do proxy (roteamento de modelos, overhead, cache misses por causa, custo por origem e tipo de agente) são a exceção: só aparecem quando o proxy registrou algo, então um relatório sem o proxy é exatamente o que sempre foi.
 
 Os preços vêm do JSON público do LiteLLM com um fallback embutido; um modelo desconhecido é mapeado para o preço mais recente da sua família (opus/sonnet/haiku) e sinalizado.

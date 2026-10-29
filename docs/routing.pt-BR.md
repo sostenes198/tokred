@@ -49,7 +49,7 @@ O padrão é `observe`: as decisões ficam registradas com a economia estimada e
 
 ## Sugestões para o loop principal
 
-O tokred nunca troca o seu modelo principal, mas avisa quando um mais barato teria dado conta: depois de vários prompts simples seguidos (poucas voltas, pouca saída, pouca ou nenhuma edição), ele estima quanto o modelo mais barato teria custado, incluindo reconstruir o cache de prompt, e mostra a sugestão no `tokred suggest` e, se você quiser, na status line ou numa mensagem de uma linha num momento em que o cache já esfriou. A troca é sempre decisão sua (`/model`).
+O tokred nunca troca o seu modelo principal, mas avisa quando um mais barato teria dado conta: depois de vários prompts simples seguidos (poucas voltas, pouca saída, pouca ou nenhuma edição), ele estima quanto o modelo mais barato teria custado, incluindo reconstruir o cache de prompt, e mostra a sugestão no `tokred suggest` e no `tokred stats` (a última ainda não mostrada; o `stats` nunca a marca como mostrada) e, se você quiser, na status line ou numa mensagem de uma linha num momento em que o cache já esfriou. A troca é sempre decisão sua (`/model`).
 
 ## Configuração
 

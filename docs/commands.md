@@ -58,9 +58,11 @@ Removes the tokred hooks from `settings.json` and the agent files tokred install
 
 Shows the tokred version, binary path, Claude Code and data folders, database schema version, config status, rtk detection, a table of hooks (`ok`, `missing`, `outdated`, or a binary path that no longer exists), a table of agents (`current`, `outdated`, `edited by you`, `missing`, `.new` pending), and a list of problems and notes. A proxy section shows whether the [proxy](proxy.md) is running, its routing and compression modes, and whether `ANTHROPIC_BASE_URL` points to it or to another gateway. With `--bench` it also runs every hook many times with realistic input and measures the real latency from the outside (process start to exit); the result is saved and used by `stats latency`. `TOKRED_BENCH_RUNS` sets the runs per payload (default 50).
 
-## `tokred stats [--since 7d] [--by model|day|project] [--json]`
+## `tokred stats [--since 7d] [--by model|day|project|origin|agent-type] [--json]`
 
 The cost dashboard, printed in the terminal: totals (messages, tokens, real cost), what the same tokens would cost if everything ran on opus, the saving from routing and from the guards (**an estimate**, labelled as such), the prompt-cache hit rate, the monthly projection, an efficiency meter, and a numbered table with a share column and an impact bar. Models priced by family fallback are flagged. When data exists from before the first `configure`, the cost per session before and after is compared. Transcripts are ingested incrementally first, so it is fast after the first run. `--since` accepts hours, days and weeks (`12h`, `7d`, `2w`).
+
+With the [proxy](proxy.md) recording, the numbers come from its exact per-request data (merged with the transcripts for what it did not see, nothing counted twice; see [metrics](metrics.md)), `--by origin` and `--by agent-type` group the cost by who sent the request, and a **Proxy** section follows: data source, overhead against its 10 ms budget, routing decisions with their estimated saving, the model asked for against the one that answered, prompt-cache misses by cause, and the latest suggestion not shown yet. `--json` adds a `proxy` key.
 
 ## `tokred stats latency [--since 7d] [--by hook|day|session] [--json]`
 
@@ -68,7 +70,7 @@ How much time the tokred hooks added to Claude Code: runs, p50/p95/p99/max per h
 
 ## `tokred metrics [--since 30d] [--no-open]`
 
-Prints the same dashboard as `stats` and writes the self-contained HTML report to `<data>/reports/metrics.html` (always the same file, overwritten atomically), then opens it in the browser unless `--no-open`. The report works offline: no network, no external fonts or scripts.
+Prints the same dashboard as `stats` (with its Proxy section when the proxy recorded something) and writes the self-contained HTML report to `<data>/reports/metrics.html` (always the same file, overwritten atomically), then opens it in the browser unless `--no-open`. The report works offline: no network, no external fonts or scripts.
 
 ## `tokred audit [--project <path>] [--json]`
 

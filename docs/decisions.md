@@ -227,3 +227,27 @@ Checked against Anthropic's Consumer Terms (Section 3, item 7) and the Claude Co
 - **Context:** the first CI run of the proxy end-to-end tests hung on Windows only. The test harness captures the output of `tokred proxy start` through pipes; the detached proxy inherits those pipe handles (Windows passes every inheritable handle of the parent to a child, whatever the child's own standard handles are), so the harness never sees the end of the output until the proxy exits.
 - **Decision:** the tests start the proxy without capturing its output, and the limit is documented in [proxy](proxy.md). Closing the inherited handles needs `unsafe` or a platform crate, which the workspace does not allow today; an alternative to evaluate later is starting the process through the shell (`Start-Process`), which does not inherit handles. CI jobs now stop after 20 minutes so a hang fails with its log.
 - **Consequences:** a terminal, a file redirect, `NUL` or the user service all work; capturing the output of `proxy start` in a pipe on Windows blocks until the proxy stops.
+
+## 2026-10-29 — The proxy's requests and the transcripts are merged once, before any metric
+
+- **Context:** with the proxy running every request is in `proxy_requests` and in the transcripts (`usage`); adding the two counts each twice, and using only one loses either the exact data (model that answered, 1-hour cache split, latency) or the requests made while the proxy was off (spec 6.4 and 7.2).
+- **Decision:** `merge_usage` (pure, in `tokred-metrics`) runs once, where the data is loaded, so `stats`, the terminal dashboards, the HTML report, the projection and the before/after read one list. A proxy request is paired with the transcript row of the same `message_key`; only a proxy request **without** a key falls back to the same session, equal tokens (the four counters, not the 1-hour split) and a time within 5 seconds of the request or up to 5 seconds after the end of its response (the transcript line is written when the response ends, so a plain "within 5 s of the arrival" would miss any answer longer than 5 s). Pairing is one to one and nearest in time first, so two identical requests in the same seconds are never collapsed. A pair takes the proxy's numbers and the transcript's project and key; unpaired rows of both kinds stay. A request answered with a non-2xx status or without tokens is not a message. Two proxy rows with the same id, or the same message key, count once. `usage` rows gain the optional `origin` and `agent_type` (never stored) so `--by origin` and `--by agent-type` need no second data path; without the proxy `origin` falls back to `main`/`subagent` from the transcripts.
+- **Consequences:** a proxied request is counted once whatever the order of ingestion; the routing saving prices the model that really answered; with no proxy rows the transcript rows pass through untouched, so every output is what it was. A key that is present on both sides but different is two requests (never merged by time). Covered by unit tests, a snapshot and properties (nothing lost, nothing repeated, merging again changes nothing).
+
+## 2026-10-29 — `stats` shows the pending suggestion and never marks it shown
+
+- **Context:** the suggestion's `shown` flag is documented as set by the status line, the message or `stats`, but the status line deliberately never marks it (it is redrawn constantly) so it does not hide the suggestion from the one-line message; `stats --json` must also not write to the database.
+- **Decision:** `stats` shows the latest suggestion of the period that is not shown yet, with a pointer to `tokred suggest`, and does not change the flag. Docs ([proxy](proxy.md), [routing](routing.md)) list `tokred stats` among the places suggestions appear.
+- **Consequences:** `stats` is read-only and repeatable; the same suggestion stays in `stats` until the message channel shows it. The doc comment on `shown` mentioning `stats` is stale and should be read as "status line or message".
+
+## 2026-10-29 — The proxy sections of the HTML report appear only when the proxy recorded something
+
+- **Context:** the report's rule is that a section without data shows a "no data yet" notice; the task for this change is to keep every existing output (and snapshot) identical when the proxy tables are empty.
+- **Decision:** the new sections (model routing, overhead, cache misses by cause, cost by origin and agent type) are rendered only when the report has proxy data, and the data is embedded in the page only then (`proxy` is skipped when empty). Inside them an empty part (no cache misses, no decisions) is left out rather than shown empty.
+- **Consequences:** a report without the proxy is byte for byte what it was; the "no data yet" rule holds for the original eight sections.
+
+## 2026-10-29 — One function builds the report from the repositories
+
+- **Context:** the proxy will serve the same report at `/metrics`, and `tokred-proxy` may not depend on the store or the report crates.
+- **Decision:** `report_html(repos, prices, now, since, audit)` in `tokred-cli` takes the repository ports (usage, proxy requests, hook events, routing, suggestions, meta) and returns the HTML as a string: no transcript ingestion, no file or network access, no price sync. `tokred metrics` ingests the transcripts, then writes what `report_html` returns. The proxy reaches it through a trait in `tokred-core` implemented in `tokred-cli`.
+- **Consequences:** the file and the page cannot drift apart. The route itself is not part of this change.

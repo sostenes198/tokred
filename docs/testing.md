@@ -114,6 +114,7 @@ What to check:
 
 - the replies you get are exactly what the fake returned (the proxy changes nothing in `observe`);
 - `sqlite3 "$TOKRED_DATA_DIR/tokred.db" "select origin, model_requested, model_effective, input, output from proxy_requests"` shows two rows (`auxiliary` and `subagent`) with 120 input and 15 output tokens;
+- `tokred stats` shows a **Proxy** section counting the two requests (`2 messages measured by the proxy`), and `tokred stats --by origin` lists `auxiliary` and `subagent`;
 - a request with `Host: evil.example` is refused: `curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: evil.example' http://127.0.0.1:8787/v1/messages -d '{}'` prints `421`;
 - stopping really ends the process: `pgrep -fl "proxy start --foreground"` prints nothing.
 

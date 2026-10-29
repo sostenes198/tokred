@@ -27,13 +27,10 @@ pub fn run(
     let audit_report = audit::default_project()
         .ok()
         .map(|project| audit::build_report(env, &loaded.claude_dir, project));
-    let html = report_html(
-        &Repos::of(&loaded.store),
-        data.prices.clone(),
-        data.now,
-        since,
-        audit_report.as_ref(),
-    )?;
+    let repos = Repos::of(&loaded.store);
+    let prices = data.prices.clone();
+    let audit = audit_report.as_ref();
+    let html = report_html(&repos, prices, data.now, since, audit)?;
     let path = env.data.reports_dir().join("metrics.html");
     write_report(&StdFileSystem, &path, &html)?;
 
