@@ -49,7 +49,7 @@ $profileBackup = $null
 if (Test-Path -LiteralPath $profilePath) { $profileBackup = [System.IO.File]::ReadAllBytes($profilePath) }
 $userPathBackup = [Environment]::GetEnvironmentVariable('Path', 'User')
 $saved = @{}
-foreach ($name in @('TOKRED_HOME', 'TOKRED_DATA_DIR', 'CLAUDE_CONFIG_DIR', 'TOKRED_OFFLINE', 'TOKRED_RELEASE_BASE_URL', 'TOKRED_NO_ALIAS')) {
+foreach ($name in @('TOKRED_HOME', 'TOKRED_DATA_DIR', 'CLAUDE_CONFIG_DIR', 'TOKRED_OFFLINE', 'TOKRED_RELEASE_BASE_URL', 'TOKRED_NO_ALIAS', 'TOKRED_NO_PROXY')) {
     $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
 
@@ -76,10 +76,13 @@ try {
     $env:TOKRED_OFFLINE = '1'
     $env:TOKRED_RELEASE_BASE_URL = ([System.Uri]$release).AbsoluteUri
     $env:TOKRED_NO_ALIAS = $null
+    $env:TOKRED_NO_PROXY = $null
     $port = Get-Random -Minimum 20000 -Maximum 50000
 
+    # The installs below skip the proxy (so none is left running); the proxy step has its own
+    # section after the wrapper tests.
     # ---------------------------------------------------------- 1. install
-    & $psHost -NoProfile -ExecutionPolicy Bypass -File $installPs1 -Yes -Port $port
+    & $psHost -NoProfile -ExecutionPolicy Bypass -File $installPs1 -Yes -NoProxy -Port $port
     Assert-True ($LASTEXITCODE -eq 0) 'the install failed'
     $exe = Join-Path $tokredHome 'bin\tokred.exe'
     Assert-True (Test-Path -LiteralPath $exe) 'tokred.exe was not installed'
@@ -95,13 +98,17 @@ try {
     Ok 'PATH and the profile were updated'
 
     $toml = [System.IO.File]::ReadAllText((Join-Path $env:TOKRED_DATA_DIR 'tokred.toml'))
-    Assert-True ($toml.Contains("127.0.0.1:$port")) 'configure did not write the port'
+    Assert-True (-not $toml.Contains("127.0.0.1:$port")) '-NoProxy still wrote the port'
+    Assert-True ($toml.Contains('enabled = false')) '-NoProxy still enabled the proxy'
+    Assert-True (-not [System.IO.File]::ReadAllText((Join-Path $claudeDir 'settings.json')).Contains('ANTHROPIC_BASE_URL')) '-NoProxy still pointed Claude Code at the proxy'
     Assert-True (Test-Path -LiteralPath (Join-Path $claudeDir 'agents\tokred-dev.md')) 'configure did not install the agents'
-    Ok 'tokred configure ran with the port'
+    Ok 'tokred configure ran; -NoProxy left [proxy] untouched'
 
     # ---------------------------------------------------------- 2. idempotent
     $before = [System.IO.File]::ReadAllText($profilePath)
+    $env:TOKRED_NO_PROXY = '1'
     & $psHost -NoProfile -ExecutionPolicy Bypass -File $installPs1 -Yes -Port $port
+    $env:TOKRED_NO_PROXY = $null
     Assert-True ($LASTEXITCODE -eq 0) 'the second install failed'
     Assert-True ([System.IO.File]::ReadAllText($profilePath) -ceq $before) 'the profile changed on the second run'
     $entries = @([Environment]::GetEnvironmentVariable('Path', 'User').Split(';') | Where-Object { $_.TrimEnd('\') -ieq $binDir.TrimEnd('\') })
@@ -129,6 +136,18 @@ try {
     $lines = @(Get-Content -LiteralPath $log)
     Assert-True ($lines.Count -eq 1 -and $lines[0].Contains('claude')) 'claude did not run without tokred'
     Ok 'claude still runs when tokred is missing'
+
+    # ---------------------------------------------------------- 3b. the proxy step
+    & $psHost -NoProfile -ExecutionPolicy Bypass -File $installPs1 -Yes -Port $port
+    Assert-True ($LASTEXITCODE -eq 0) 'the install with the proxy failed'
+    $toml = [System.IO.File]::ReadAllText((Join-Path $env:TOKRED_DATA_DIR 'tokred.toml'))
+    Assert-True ($toml.Contains("127.0.0.1:$port")) 'proxy enable did not write the port'
+    Assert-True ($toml.Contains('enabled = true')) 'proxy enable did not enable the proxy'
+    Assert-True ($toml.Contains('log_bodies = false')) 'nobody answered the content question: it should not be recorded'
+    Assert-True ([System.IO.File]::ReadAllText((Join-Path $claudeDir 'settings.json')).Contains("http://127.0.0.1:$port")) 'Claude Code was not pointed at the proxy'
+    & $exe proxy stop
+    Assert-True ($LASTEXITCODE -eq 0) 'the proxy did not stop'
+    Ok 'the install runs tokred proxy enable: the port reaches [proxy] bind'
 
     # ---------------------------------------------------------- 4. uninstall
     & $psHost -NoProfile -ExecutionPolicy Bypass -File $uninstallPs1 -Yes
@@ -169,6 +188,10 @@ try {
     Write-Host 'all installer tests passed'
 }
 finally {
+    # A failed assertion must not leave the proxy of the proxy-step test running.
+    if ($exe -and (Test-Path -LiteralPath $exe)) {
+        try { & $exe proxy stop 2>&1 | Out-Null } catch { }
+    }
     foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }
     [Environment]::SetEnvironmentVariable('Path', $userPathBackup, 'User')
     if ($null -ne $profileBackup) {
