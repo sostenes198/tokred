@@ -26,6 +26,8 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ### Corrigido
 
+- `tokred uninstall` (e `tokred proxy status`) agora perguntam ao agendador do Windows se a tarefa de logon do proxy existe; a tarefa não tem arquivo, então era ignorada e ficava para trás.
+
 - No Windows, o `tokred proxy start` executado com a saída capturada (`out=$(tokred proxy start)`) não espera mais o proxy terminar: o proxy em segundo plano é iniciado por `Start-Process`, que não repassa os pipes de quem o chamou.
 - Gravações de cache com duração de 1 hora são precificadas pela própria tarifa (2x o input) em vez da tarifa de 5 minutos (1,25x); antes o `stats` as subestimava. O uso já registrado é corrigido automaticamente na próxima execução do `stats`.
 - O "modelo mais recente de uma família" (usado na comparação tudo-no-opus e para modelos desconhecidos) agora é ordenado pela versão antes da data, então ids atuais sem data como `claude-opus-5-5` não perdem mais para ids 4.x datados.

@@ -199,9 +199,13 @@ pub fn service_state(env: &Env) -> Option<bool> {
     Some(path.exists())
 }
 
-/// Whether the user service file of `kind` exists for this home folder.
+/// Whether the user service of `kind` is installed: its file exists for this home folder, or, for
+/// the Windows logon task (which has no file), the scheduler knows the task.
 pub fn service_installed(kind: Option<ServiceKind>, ctx: &ProxyCtx<'_>) -> bool {
     match (kind, &ctx.env.home_dir) {
+        (Some(ServiceKind::WindowsTask), _) => {
+            (ctx.run_command)(&crate::daemon::task_query_command()).is_ok()
+        }
         (Some(kind), Some(home)) => install_plan(kind, ctx.exe, home)
             .file
             .is_some_and(|(path, _)| path.exists()),
@@ -591,7 +595,12 @@ mod tests {
             assert_eq!(std::fs::read_to_string(path).unwrap(), *content);
         });
         assert_eq!(ran.borrow().len(), plan.commands.len());
-        assert_eq!(service_installed(Some(kind), &ctx), plan.file.is_some());
+        // The recording runner answers every command with success, so a logon task (no file)
+        // counts as installed too.
+        assert_eq!(
+            service_installed(Some(kind), &ctx),
+            plan.file.is_some() || kind == ServiceKind::WindowsTask
+        );
 
         let (mut io, out) = scripted(false, "");
         let uninstall = ProxyCommand::Service {
@@ -925,6 +934,32 @@ mod tests {
         let (mut io, _) = scripted(false, "");
         let err = run(&mut io, &ctx, &ProxyCommand::Stop).unwrap_err();
         assert!(err.to_string().contains("did not stop"), "{err}");
+    }
+
+    #[test]
+    fn a_windows_logon_task_is_found_by_asking_the_scheduler() {
+        let sb = Sandbox::new();
+        let config = Config::default();
+        let asked = std::cell::RefCell::new(Vec::new());
+        let present = |command: &[String]| -> Result<()> {
+            asked.borrow_mut().push(command.join(" "));
+            Ok(())
+        };
+        let ctx_present = ProxyCtx {
+            run_command: &present,
+            ..ctx(&sb, &config, &no_serve)
+        };
+        assert!(service_installed(
+            Some(ServiceKind::WindowsTask),
+            &ctx_present
+        ));
+        assert_eq!(*asked.borrow(), ["schtasks /Query /TN tokred-proxy"]);
+        // The default test runner refuses every command: the task is not there.
+        let ctx_absent = ctx(&sb, &config, &no_serve);
+        assert!(!service_installed(
+            Some(ServiceKind::WindowsTask),
+            &ctx_absent
+        ));
     }
 
     #[test]

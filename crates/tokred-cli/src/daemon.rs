@@ -328,6 +328,13 @@ pub fn install_plan(kind: ServiceKind, exe: &Path, home: &Path) -> ServicePlan {
     }
 }
 
+/// The command that succeeds when the Windows logon task of the proxy exists (that task has no
+/// file to look for, unlike the systemd unit and the launchd agent).
+#[must_use]
+pub fn task_query_command() -> Vec<String> {
+    owned(&["schtasks", "/Query", "/TN", SERVICE_NAME])
+}
+
 /// What `tokred proxy service uninstall` does: the commands to run, then the file to delete.
 #[must_use]
 pub fn uninstall_plan(kind: ServiceKind, home: &Path) -> ServicePlan {

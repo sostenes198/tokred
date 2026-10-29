@@ -127,6 +127,7 @@ mod tests {
     use std::cell::RefCell;
     use std::time::Duration;
 
+    use anyhow::ensure;
     use tokred_core::Config;
 
     use super::super::testing::{Sandbox, fake_health_server};
@@ -142,11 +143,28 @@ mod tests {
         request: Request,
         bind: &str,
     ) -> (Result<()>, String, Vec<Vec<String>>) {
+        uninstall_with(sb, interactive, input, request, bind, false)
+    }
+
+    /// [`uninstall`], where `task_exists` is what the Windows scheduler answers when asked for the
+    /// proxy's logon task (the question is not recorded: only the removal commands are).
+    fn uninstall_with(
+        sb: &Sandbox,
+        interactive: bool,
+        input: &str,
+        request: Request,
+        bind: &str,
+        task_exists: bool,
+    ) -> (Result<()>, String, Vec<Vec<String>>) {
         let mut config = Config::default();
         config.proxy.bind = bind.to_owned();
         let commands = RefCell::new(Vec::new());
         let record = |command: &[String]| -> Result<()> {
-            commands.borrow_mut().push(command.to_vec());
+            let query = command == crate::daemon::task_query_command();
+            if !query {
+                commands.borrow_mut().push(command.to_vec());
+            }
+            ensure!(!query || task_exists, "no such task");
             Ok(())
         };
         let never = |_: &str| -> Result<()> { Ok(()) };
@@ -256,12 +274,14 @@ mod tests {
         let exe = std::path::Path::new("/opt/tokred/bin/tokred");
         let home = sb.env.home_dir.clone().unwrap();
         let plan = crate::daemon::install_plan(kind, exe, &home);
-        let (file, _) = plan.file.unwrap();
-        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-        std::fs::write(&file, "service").unwrap();
+        // The Windows logon task has no file: the scheduler answers instead.
+        plan.file.iter().for_each(|(file, _)| {
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, "service").unwrap();
+        });
 
         let (result, out, commands) =
-            uninstall(&sb, false, "", request(&sb, true, false), NO_PROXY);
+            uninstall_with(&sb, false, "", request(&sb, true, false), NO_PROXY, true);
         result.unwrap();
         assert!(
             out.contains("Removed the tokred proxy user service."),
@@ -271,7 +291,9 @@ mod tests {
             !commands.is_empty(),
             "the service tool was asked to remove it"
         );
-        assert!(!file.exists());
+        plan.file
+            .iter()
+            .for_each(|(file, _)| assert!(!file.exists()));
     }
 
     #[test]

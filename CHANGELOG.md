@@ -26,6 +26,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- `tokred uninstall` (and `tokred proxy status`) now ask the Windows scheduler whether the proxy's logon task exists; the task has no file, so it used to be skipped and left behind.
+
 - On Windows, `tokred proxy start` run with its output captured (`out=$(tokred proxy start)`) no longer waits for the proxy to exit: the background proxy is started through `Start-Process`, which does not pass on the caller's pipes.
 - Cache writes with the 1-hour lifetime are priced at their own rate (2x input) instead of the 5-minute rate (1.25x); `stats` previously under-reported them. Existing usage is backfilled automatically on the next `stats` run.
 - The "latest model of a family" (used for the all-on-opus comparison and for unknown models) now ranks by version before date, so current undated ids such as `claude-opus-5-5` are no longer outranked by dated 4.x ids.
