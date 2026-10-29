@@ -1,4 +1,4 @@
-//! When a run of simple prompts turns into a suggestion (spec 5.6).
+//! When a run of simple prompts turns into a suggestion.
 //!
 //! A session's prompts are followed in order. A prompt that is simple **and** would have been
 //! cheaper on the next family extends the streak; anything else (a prompt that is not simple, a

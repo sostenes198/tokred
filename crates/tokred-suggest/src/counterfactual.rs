@@ -1,4 +1,4 @@
-//! What a prompt would have cost on the next cheaper model family (spec 5.6).
+//! What a prompt would have cost on the next cheaper model family.
 //!
 //! Only the **main loop** is re-priced: subagents and compaction keep their real cost on both
 //! sides, so they cancel out of the saving. Switching the main model rebuilds the whole prompt

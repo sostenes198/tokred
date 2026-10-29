@@ -1,4 +1,4 @@
-//! Reversible compression of large tool results (spec 6.6 and 6.7) and the `tokred mcp` server
+//! Reversible compression of large tool results and the `tokred mcp` server
 //! with the `tokred_retrieve` tool. No information is lost: every replaced text is stored and
 //! can be read back.
 //!

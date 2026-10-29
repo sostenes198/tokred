@@ -90,7 +90,7 @@ impl Verdict {
     }
 }
 
-/// The routing step of the proxy (spec section 5).
+/// The routing step of the proxy.
 pub struct RoutingHook {
     config: RoutingConfig,
     prices: PriceTable,
@@ -336,7 +336,7 @@ impl RoutingHook {
         found
     }
 
-    /// Confidence, tier, target and saving (spec 5.2 to 5.5).
+    /// Confidence, tier, target and saving.
     fn evaluate(
         &self,
         ctx: &RequestCtx<'_>,

@@ -1,4 +1,4 @@
-//! Response cache in shadow mode (spec 6.6): measures how many requests exactly repeat one seen
+//! Response cache in shadow mode: measures how many requests exactly repeat one seen
 //! in the last 24 hours, by the blake3 of the body's canonical JSON. Only hashes and counts are
 //! kept, in memory; nothing is ever altered.
 

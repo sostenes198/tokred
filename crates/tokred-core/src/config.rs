@@ -366,7 +366,7 @@ impl Default for SuggestConfig {
     }
 }
 
-/// `[compression]` section: reversible compression of large tool results (spec 6.7).
+/// `[compression]` section: reversible compression of large tool results.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CompressionConfig {

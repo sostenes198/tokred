@@ -100,7 +100,7 @@ pub struct SelfUpdated {
 }
 
 /// The target triple of the running platform, as used in `dist` asset names; `None` when no
-/// asset is published for it. Linux always maps to the musl build (spec section 14).
+/// asset is published for it. Linux always maps to the musl build.
 #[must_use]
 pub fn current_target() -> Option<String> {
     target_triple(std::env::consts::ARCH, std::env::consts::OS)

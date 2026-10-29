@@ -44,9 +44,9 @@ const HOOK_WORD: &str = " hook ";
 ///
 /// A command is tokred's when it runs an executable whose file name starts with `tokred`
 /// (`tokred`, `tokred.exe`, a versioned or renamed copy such as `tokred-0.4.0`), optionally
-/// quoted, followed by `hook <name>`. The spec describes this as "contains `tokred hook `", but
-/// its own example (`"/path/tokred" hook guard-read`) has a closing quote in between, so a plain
-/// substring match would never find the entries tokred itself writes.
+/// quoted, followed by `hook <name>`. A plain "contains `tokred hook `" test would never find the entries
+/// tokred itself writes: the command is `"/path/tokred" hook guard-read`, with a closing quote
+/// between the two.
 #[must_use]
 pub fn parse_tokred_command(command: &str) -> Option<&str> {
     let mut from = 0;

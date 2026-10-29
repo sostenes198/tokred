@@ -1,7 +1,7 @@
 //! `configure`: plan what will change, then apply it.
 //!
 //! Planning only reads; applying writes. The CLI shows the plan and asks for confirmation in
-//! between (spec section 5.0).
+//! between.
 
 use std::path::{Path, PathBuf};
 

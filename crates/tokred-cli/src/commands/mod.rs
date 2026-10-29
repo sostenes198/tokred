@@ -474,7 +474,7 @@ pub fn saved_claude_dir(fs: &dyn FileSystem, env: &Env) -> Result<Option<PathBuf
     Ok(config.claude.dir.map(PathBuf::from))
 }
 
-/// Finds the Claude Code folder: flag, saved value, `CLAUDE_CONFIG_DIR`, default (spec 5.0).
+/// Finds the Claude Code folder: flag, saved value, `CLAUDE_CONFIG_DIR`, default.
 ///
 /// An explicit flag must be valid. Without one, the first valid candidate wins; when none is
 /// valid and the terminal is interactive, the user is asked for a path.

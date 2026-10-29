@@ -1,5 +1,5 @@
 //! Non-destructive registration of the `tokred mcp` server (the `tokred_retrieve` tool of
-//! reversible compression, spec 6.7) in Claude Code's user-scope configuration.
+//! reversible compression) in Claude Code's user-scope configuration.
 //!
 //! Claude Code keeps user-scope MCP servers in the top-level `mcpServers` object of
 //! `~/.claude.json` (or `<CLAUDE_CONFIG_DIR>/.claude.json`), next to many keys that are none of

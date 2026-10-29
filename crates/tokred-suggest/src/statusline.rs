@@ -1,4 +1,4 @@
-//! The line printed by `tokred statusline` (spec 5.6, channel 2).
+//! The line printed by `tokred statusline`.
 //!
 //! Claude Code runs the `statusLine` command after each assistant message (debounced at
 //! 300 ms) with a JSON object on stdin and shows what it prints; ANSI colors are allowed. The

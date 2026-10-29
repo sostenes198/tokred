@@ -1,4 +1,4 @@
-//! Classification in layers (spec 5.2). Each layer returns a [`Classification`]: the task
+//! Classification in layers. Each layer returns a [`Classification`]: the task
 //! class, a confidence, the layer and a reason. The keyword data is the `route` hook's
 //! (pt-BR and en), with hit counts kept so the confidence can be graded.
 //!
@@ -143,7 +143,7 @@ impl Classification {
     }
 }
 
-/// Tools that change nothing (spec 5.2, layer 3). Anything else raises the risk.
+/// Tools that change nothing (the third layer of classification). Anything else raises the risk.
 const READ_ONLY_TOOLS: &[&str] = &[
     "Read",
     "Grep",

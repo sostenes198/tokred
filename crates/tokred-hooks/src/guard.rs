@@ -97,7 +97,7 @@ fn estimated_read_bytes(size: u64, limit: Option<u64>) -> u64 {
     limit.map_or(size, |lines| size.min(lines.saturating_mul(AVG_LINE_BYTES)))
 }
 
-/// `guard-read` (spec 7.3).
+/// `guard-read`.
 pub fn guard_read(input: &HookInput, deps: &HookDeps<'_>) -> Result<HookResponse, HookError> {
     let mode = deps.config.modes.guard_read;
     if mode == Mode::Off || input.tool_name.as_deref() != Some("Read") {
@@ -216,7 +216,7 @@ fn is_match_all(pattern: &str) -> bool {
     matches!(pattern.trim(), "*" | "**" | "**/*" | "**/*.*" | "*.*")
 }
 
-/// `guard-search` (spec 7.4).
+/// `guard-search`.
 pub fn guard_search(input: &HookInput, deps: &HookDeps<'_>) -> Result<HookResponse, HookError> {
     let mode = deps.config.modes.guard_search;
     let tool = input.tool_name.as_deref();

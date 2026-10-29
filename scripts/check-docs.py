@@ -8,6 +8,7 @@ Exit status 0 when everything is fine, 1 otherwise (every problem is listed). St
 Rules:
   * every English document has a `.pt-BR.md` twin and the other way round;
   * the first line of each is the language switcher pointing at its twin;
+  * the twins have the same headings (same levels, same order) and the same number of code blocks;
   * every relative link resolves to a file, and `#anchor`s match a heading of the target;
   * the installer is never compared to another tool, and no document talks about phases or a spec;
   * another tool's name appears only in the one compatibility note (docs/hooks-and-agents);
@@ -39,8 +40,8 @@ def documents():
         relative = path.relative_to(ROOT)
         if any(part in SKIP_DIRS for part in relative.parts):
             continue
-        # Notes for the reader of the repository only: templates and the like.
-        if relative.parts[:1] == (".github",):
+        # Not documentation: GitHub's templates, and the agent files tokred installs (the product).
+        if relative.parts[:1] in {(".github",), ("crates",)}:
             continue
         yield path
 
@@ -73,6 +74,17 @@ def headings(path):
         elif not in_code and re.match(r"#{1,6} ", line):
             found.add(slug(line.lstrip("#")))
     return found
+
+
+def strip_fences(text):
+    """The text without the lines inside code blocks (a `# comment` there is not a heading)."""
+    out, fence = [], False
+    for line in text.splitlines():
+        if line.startswith("```"):
+            fence = not fence
+        elif not fence:
+            out.append(line)
+    return "\n".join(out)
 
 
 def code_blocks(text):
@@ -109,6 +121,17 @@ def check():
         )
         if first != wanted:
             problems.append(f"{relative}: first line must be `{wanted}`")
+
+        # The two languages say the same thing in the same shape (checked from the English side).
+        if not is_pt and twin.exists():
+            other = twin.read_text(encoding="utf-8")
+            shape = lambda t: ([len(m) for m in re.findall(r"^(#{1,6}) ", strip_fences(t), re.M)],
+                               code_blocks(t))
+            (levels_en, blocks_en), (levels_pt, blocks_pt) = shape(text), shape(other)
+            if levels_en != levels_pt:
+                problems.append(f"{relative}: the headings differ from the Portuguese twin ({len(levels_en)} vs {len(levels_pt)}, or another order of levels)")
+            if len(blocks_en) != len(blocks_pt):
+                problems.append(f"{relative}: {len(blocks_en)} code blocks, the Portuguese twin has {len(blocks_pt)}")
 
         # House rules.
         for pattern, why in FORBIDDEN:

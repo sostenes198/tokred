@@ -82,7 +82,7 @@ pub enum AgentAction {
     Overwrite,
 }
 
-/// Decides what to do with an agent file (spec section 5.3).
+/// Decides what to do with an agent file.
 ///
 /// * `desired_hash` – hash of the content to install;
 /// * `current_hash` – hash of the file on disk, `None` if absent;

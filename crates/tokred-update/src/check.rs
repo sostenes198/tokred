@@ -1,4 +1,4 @@
-//! The once-a-day "new version available" check (spec section 14). Never run from a hook.
+//! The once-a-day "new version available" check. Never run from a hook.
 
 use tokred_core::config::UpdateMode;
 use tokred_core::meta::MetaRepo;

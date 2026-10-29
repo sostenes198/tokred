@@ -1,4 +1,4 @@
-//! The model catalog (spec 7.3): per model, its family, tier and the request features it
+//! The model catalog: per model, its family, tier and the request features it
 //! accepts. Data, not code: the embedded `data/models.json` can be replaced by an updated file
 //! without touching the policy.
 

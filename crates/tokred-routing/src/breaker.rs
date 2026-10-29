@@ -1,4 +1,4 @@
-//! Circuit breaker (spec 5.5): when too many of the last [`WINDOW`] rewrites were rejected by
+//! Circuit breaker: when too many of the last [`WINDOW`] rewrites were rejected by
 //! the API, rewriting stops for the cooldown.
 
 use std::collections::VecDeque;

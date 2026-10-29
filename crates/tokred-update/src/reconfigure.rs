@@ -1,4 +1,4 @@
-//! Reapplying the configuration after the binary changed version (spec section 14).
+//! Reapplying the configuration after the binary changed version.
 
 use tokred_core::error::StoreError;
 use tokred_core::meta::MetaRepo;

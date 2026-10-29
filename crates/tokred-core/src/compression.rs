@@ -1,4 +1,4 @@
-//! Reversible compression of large tool results and shadow-mode measurements (spec 6.6, 6.7).
+//! Reversible compression of large tool results and shadow-mode measurements.
 //! No information is lost: every replaced block is kept and can be read back with the
 //! `tokred_retrieve` tool.
 //!

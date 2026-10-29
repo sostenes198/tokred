@@ -1,4 +1,4 @@
-//! How tokred was installed, judged from where its own executable lives (spec section 14).
+//! How tokred was installed, judged from where its own executable lives.
 //!
 //! The install script puts the binary in one folder, `$TOKRED_HOME/bin` (`~/.tokred/bin` by
 //! default, `%LOCALAPPDATA%\tokred\bin` on Windows). A binary there updates itself; a binary

@@ -56,7 +56,7 @@ pub fn load_config(env: &Env) -> Config {
         .unwrap_or_default()
 }
 
-/// After the binary changed version, re-applies hooks and agents quietly (spec section 14).
+/// After the binary changed version, re-applies hooks and agents quietly.
 pub fn reapply_configuration(env: &Env, io: &mut Io, version: &str) {
     let Ok(Some(store)) = existing_store(env) else {
         return;

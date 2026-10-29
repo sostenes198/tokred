@@ -15,7 +15,7 @@ use crate::span::TimeRange;
 use crate::stats::Stats;
 use crate::util::{day_string, len_u64, round6, to_f64};
 
-/// A hook whose p95 passes this many milliseconds raises an alert (spec principle 4).
+/// A hook whose p95 passes this many milliseconds raises an alert.
 pub const BUDGET_MS: f64 = 50.0;
 const BUDGET_US: u64 = 50_000;
 

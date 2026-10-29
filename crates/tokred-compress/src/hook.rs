@@ -1,4 +1,4 @@
-//! The reversible compression step of the proxy pipeline (spec 6.6 and 6.7).
+//! The reversible compression step of the proxy pipeline.
 //!
 //! The rules that keep the prompt cache and preserved thinking consistent:
 //!

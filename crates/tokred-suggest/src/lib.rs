@@ -1,4 +1,4 @@
-//! Summaries of the main loop's prompts and suggestions of a cheaper model (spec 5.6). The main
+//! Summaries of the main loop's prompts and suggestions of a cheaper model. The main
 //! loop's model is never changed: tokred only measures and advises, and the user decides.
 //!
 //! - [`PromptTracker`] is a [`tokred_core::proxy::ProxyHook`]: it follows each session's user

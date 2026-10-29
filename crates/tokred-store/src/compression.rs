@@ -1,5 +1,5 @@
 //! `stored_results`, `compressed_blocks` and `shadow_savings` repositories (reversible
-//! compression and shadow mode, spec 6.6 and 6.7).
+//! compression and shadow mode).
 
 use rusqlite::{OptionalExtension, params};
 use tokred_core::compression::{CompressedBlock, ShadowRecord, ShadowSavings, StoredResult};

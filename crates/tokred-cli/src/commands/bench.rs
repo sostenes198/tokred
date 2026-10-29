@@ -23,7 +23,7 @@ use crate::env::Env;
 
 /// Hook runs per payload unless `TOKRED_BENCH_RUNS` says otherwise.
 pub const DEFAULT_RUNS: usize = 50;
-/// The latency budget of a hook, in milliseconds (spec section 2).
+/// The latency budget of a hook, in milliseconds.
 pub const BUDGET_MS: f64 = 50.0;
 
 /// Runs one hook and returns how long it took, spawn to exit.

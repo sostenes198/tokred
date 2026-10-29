@@ -23,7 +23,7 @@ pub const REASON_ALREADY_WARNED: &str = "already_warned";
 /// `reason` of a `session-check` below the limit.
 pub const REASON_BELOW_LIMIT: &str = "below_limit";
 
-/// `session-start` (spec 7.6): registers the session and, on `clear`/`compact`, marks a cut so
+/// `session-start`: registers the session and, on `clear`/`compact`, marks a cut so
 /// that `guard-read` allows reads again. It prints nothing: on `SessionStart` anything written
 /// to stdout would be added to the model's context. It has no mode of its own.
 pub fn session_start(input: &HookInput, deps: &HookDeps<'_>) -> Result<HookResponse, HookError> {
@@ -83,7 +83,7 @@ pub fn last_context_tokens(tail: &[u8]) -> Option<u64> {
     })
 }
 
-/// `session-check` (spec 7.5): above `context_warn_tokens`, shows the *user* (never the model)
+/// `session-check`: above `context_warn_tokens`, shows the *user* (never the model)
 /// a suggestion to /compact or /clear. It never blocks the stop and warns once per session,
 /// again only after the context grew by half the limit or after a clear/compact.
 ///

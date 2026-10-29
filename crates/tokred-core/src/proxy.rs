@@ -177,7 +177,7 @@ impl Origin {
     }
 }
 
-/// Classifies a request (spec 5.1 and the F7 spike results).
+/// Classifies a request.
 ///
 /// 1. `agent-id` present: a subagent.
 /// 2. Compaction headers, or `request-class: compaction`: compaction.
@@ -355,7 +355,7 @@ pub struct ProxyRequestRecord {
     pub status: u16,
     /// What altered the request, if anything.
     pub notes: HookNotes,
-    /// Likely cause of a main-loop cache miss (spec 6.5), when there was one.
+    /// Likely cause of a main-loop cache miss, when there was one.
     pub miss_cause: Option<String>,
     /// blake3 of the `tools` block.
     pub tools_hash: String,

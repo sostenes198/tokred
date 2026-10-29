@@ -1,4 +1,4 @@
-//! The `/__tokred/*` endpoints (spec 6.8). They are answered by the proxy and never forwarded.
+//! The `/__tokred/*` endpoints. They are answered by the proxy and never forwarded.
 //! `health` is open; `status` and `shutdown` need the `x-tokred-secret` header.
 
 use hyper::{HeaderMap, Method, StatusCode};

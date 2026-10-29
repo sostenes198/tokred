@@ -43,7 +43,7 @@ use crate::upstream::Upstream;
 /// Body of every response the proxy returns.
 pub(crate) type ProxyBody = UnsyncBoxBody<Bytes, hyper::Error>;
 
-/// Statuses that trigger the resend of the original body after a rewrite (spec 5.5).
+/// Statuses that trigger the resend of the original body after a rewrite.
 const REJECTIONS: [u16; 3] = [400, 404, 422];
 
 /// Counters shown by `/__tokred/status`.

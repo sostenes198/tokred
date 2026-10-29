@@ -1,5 +1,5 @@
 //! Header handling. Only hop-by-hop headers are removed; everything else, including unknown
-//! `anthropic-*` and `x-claude-code-*` headers and credentials, passes unchanged (spec 6.1, the
+//! `anthropic-*` and `x-claude-code-*` headers and credentials, passes unchanged (the
 //! gateway guide's "forward as open lists"). Header values are never logged.
 //!
 //! The one header that is rewritten is `Accept-Encoding`: the real API compresses its responses

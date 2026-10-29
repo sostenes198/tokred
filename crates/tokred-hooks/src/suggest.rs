@@ -1,4 +1,4 @@
-//! The cheaper-model suggestion shown on `UserPromptSubmit` (spec 5.6, channel 3).
+//! The cheaper-model suggestion shown on `UserPromptSubmit`.
 //!
 //! The proxy stores suggestions; this hook only shows one. It does so when `[suggest] channel`
 //! is `message`, the session has a suggestion that was never shown, and the moment is safe:

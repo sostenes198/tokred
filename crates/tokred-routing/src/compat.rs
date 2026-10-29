@@ -1,4 +1,4 @@
-//! Parameter compatibility (spec 5.5): the request is turned into a list of needs (each beta,
+//! Parameter compatibility: the request is turned into a list of needs (each beta,
 //! each model-dependent field) and a target is acceptable only when it meets all of them.
 //! Anything the catalog does not know is a need no model meets, so the request keeps its model.
 

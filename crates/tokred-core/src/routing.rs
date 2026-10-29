@@ -1,4 +1,4 @@
-//! Model routing for subagents and auxiliary requests (spec section 5). The main loop's model is
+//! Model routing for subagents and auxiliary requests. The main loop's model is
 //! never changed: see [`crate::proxy::rewrite_ticket`].
 //!
 //! This module holds the data shared with the store and the CLI; the policy itself lives in the

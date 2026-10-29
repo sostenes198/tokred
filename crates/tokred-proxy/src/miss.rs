@@ -1,4 +1,4 @@
-//! Cache-miss explanation (spec 6.5): when a main-loop request reads much less from the prompt
+//! Cache-miss explanation: when a main-loop request reads much less from the prompt
 //! cache than the previous one in its session left there, name the likely cause by comparing
 //! the two requests. Only segment hashes and counts are kept, in memory, for a bounded number
 //! of sessions.

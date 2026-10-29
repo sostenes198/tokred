@@ -1,4 +1,4 @@
-//! The local proxy (spec section 6): listens on loopback, forwards every request to the
+//! The local proxy: listens on loopback, forwards every request to the
 //! configured upstream with streaming, runs the hook pipeline of `tokred_core::proxy` on
 //! `POST /v1/messages`, observes the responses to measure usage and latency, and hands one
 //! [`ProxyRecord`](tokred_core::proxy::ProxyRecord) per message request to a

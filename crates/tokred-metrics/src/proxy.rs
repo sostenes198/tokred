@@ -1,4 +1,4 @@
-//! What only the proxy knows (spec 6.4 and 7.2): where the numbers came from, the model each
+//! What only the proxy knows: where the numbers came from, the model each
 //! request asked for against the one that answered, what routing saved, what the proxy itself
 //! cost, why the prompt cache missed, and the suggestion waiting to be read (pure).
 //!
@@ -20,7 +20,7 @@ use crate::latency::{ms, percentile};
 use crate::span::TimeRange;
 use crate::util::{len_u64, ratio, round6};
 
-/// What the proxy may add to a request, p95, in milliseconds (spec 6.7).
+/// What the proxy may add to a request, p95, in milliseconds.
 pub const OVERHEAD_BUDGET_MS: f64 = 10.0;
 
 /// The request the proxy answered with a 2xx status and that has tokens.

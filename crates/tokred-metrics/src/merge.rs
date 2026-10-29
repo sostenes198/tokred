@@ -1,4 +1,4 @@
-//! One usage source out of two (spec 6.4 and 7.2): the rows the proxy measured and the rows read
+//! One usage source out of two: the rows the proxy measured and the rows read
 //! from the transcripts.
 //!
 //! With the proxy running, every request is in both places, so adding the two would count it

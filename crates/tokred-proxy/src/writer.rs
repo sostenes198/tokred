@@ -1,4 +1,4 @@
-//! The single writer of proxy records (spec 4.2): requests queue records on a bounded channel
+//! The single writer of proxy records: requests queue records on a bounded channel
 //! and one thread applies them (usually to SQLite). When the queue is full the record is
 //! dropped and logged; a request never waits for storage.
 

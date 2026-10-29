@@ -14,7 +14,7 @@ pub const PRICE_SYNCED_AT: &str = "price_synced_at";
 /// [`sync_due`] so an offline machine does not retry on every command.
 pub const PRICE_SYNC_ATTEMPT_AT: &str = "price_sync_attempt_at";
 
-/// Minimum time between automatic syncs (spec section 14).
+/// Minimum time between automatic syncs.
 const SYNC_INTERVAL_SECS: i64 = 24 * 60 * 60;
 
 /// Result of [`sync_prices`].

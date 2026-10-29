@@ -1,5 +1,5 @@
 //! Address rules: which hosts count as loopback, which `Host` headers the proxy answers (the
-//! DNS-rebinding defence of spec 6.1) and where it may listen.
+//! DNS-rebinding defence) and where it may listen.
 
 use std::net::{IpAddr, SocketAddr};
 

@@ -2,7 +2,7 @@ name: Release smoke
 run-name: Release smoke ${{ inputs.tag || github.event.workflow_run.head_branch }}
 
 # Installs tokred from the PUBLISHED GitHub release of a tag (its own install.sh / install.ps1) and
-# checks every feature against real state (see docs/testing.md, "Release smoke test"). A release is
+# checks every feature against real state (see docs/release.md, "Release smoke test"). A release is
 # not announced until this workflow is green for its tag.
 #
 # The scripts under tests/release come from the branch this workflow runs on (the default branch for

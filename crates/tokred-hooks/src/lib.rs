@@ -8,7 +8,7 @@
 //! binary is the single place that wires the adapters together. [`run_hook`] is the runtime:
 //! it reads stdin, runs the handler, writes the answer and then records the execution.
 //!
-//! Output formats follow <https://code.claude.com/docs/en/hooks>; see `docs/hooks.md`.
+//! Output formats follow <https://code.claude.com/docs/en/hooks>; see `docs/hooks-and-agents.md`.
 
 pub mod bench;
 pub mod classify;

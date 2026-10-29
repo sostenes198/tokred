@@ -6,7 +6,7 @@ use crate::OpenError;
 
 /// Migration `N` is `MIGRATIONS[N - 1]`; the schema version is the number applied.
 const MIGRATIONS: &[&str] = &[
-    // v1: full schema from spec section 8.
+    // v1: the first schema.
     "
     CREATE TABLE sessions(
         id TEXT PRIMARY KEY, project TEXT, started_at INTEGER, last_seen INTEGER,
@@ -52,7 +52,7 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE pricing ADD COLUMN cache_write_1h REAL;
     DELETE FROM ingest_state;
     ",
-    // v4: the local proxy (spec section 7.1). Fields a workstream needs later go in the JSON
+    // v4: the local proxy. Fields a workstream needs later go in the JSON
     // `detail`/`notes` columns instead of new migrations.
     "
     CREATE TABLE proxy_requests(

@@ -1,4 +1,4 @@
-//! Model routing policy (spec section 5): classifies subagent and auxiliary requests and picks
+//! Model routing policy: classifies subagent and auxiliary requests and picks
 //! a cheaper model when it is safe and worth it. The main loop's model is never changed.
 //!
 //! * [`RoutingHook`] is the proxy step ([`tokred_core::proxy::ProxyHook`]). Built from the

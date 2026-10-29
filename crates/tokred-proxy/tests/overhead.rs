@@ -1,4 +1,4 @@
-//! Proxy overhead (spec 3.3 and 8.4): time from receiving a request to sending it upstream,
+//! Proxy overhead: time from receiving a request to sending it upstream,
 //! with a realistic main-loop body, must stay under 10 ms at the 95th percentile. Debug builds
 //! (plain `cargo test`, coverage) are only held to a loose bound; the budget applies to release
 //! builds: `cargo test --release -p tokred-proxy --test overhead`.

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::ports::FileSystem;
 
-/// Candidate Claude Code folders, in priority order (spec section 5.0):
+/// Candidate Claude Code folders, in priority order:
 /// the `--claude-dir` flag, the saved config value, `CLAUDE_CONFIG_DIR`, then the default.
 #[must_use]
 pub fn claude_dir_candidates(
@@ -36,7 +36,7 @@ pub fn resolve_data_dir(env: Option<PathBuf>, platform_default: PathBuf) -> Path
 
 /// Home folder used for the default Claude Code folder (`<home>/.claude`).
 ///
-/// On Windows the spec says `%USERPROFILE%\.claude`, so that variable wins over the OS lookup.
+/// On Windows Claude Code uses `%USERPROFILE%\.claude`, so that variable wins over the OS lookup.
 /// This also lets tests redirect the folder: the OS lookup ignores environment variables on
 /// Windows, which would otherwise point a sandboxed run at the developer's real profile.
 #[must_use]
@@ -53,7 +53,7 @@ pub fn home_dir(
 }
 
 /// Platform default of the tokred data folder: `<base>/tokred`, where `<base>` is
-/// `%APPDATA%` on Windows (spec: `%APPDATA%\tokred`) and the OS data folder elsewhere.
+/// `%APPDATA%` on Windows (`%APPDATA%\tokred`) and the OS data folder elsewhere.
 #[must_use]
 pub fn platform_data_dir(
     is_windows: bool,

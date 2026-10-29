@@ -13,7 +13,7 @@ use crate::version::parse;
 pub const LATEST_RELEASE_URL: &str =
     "https://api.github.com/repos/sostenes198/tokred/releases/latest";
 
-/// Time budget of the daily version check (spec section 14).
+/// Time budget of the daily version check.
 pub const CHECK_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Time budget of a binary download.
@@ -44,7 +44,7 @@ impl Default for GithubReleaseSource {
 }
 
 impl GithubReleaseSource {
-    /// Source for the real repository with the 2 s timeout of the spec.
+    /// Source for the real repository with a 2 s timeout.
     #[must_use]
     pub fn new() -> Self {
         Self {

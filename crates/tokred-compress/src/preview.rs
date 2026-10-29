@@ -1,4 +1,4 @@
-//! The deterministic replacement of a large text tool result (spec 6.7): the first and last lines
+//! The deterministic replacement of a large text tool result: the first and last lines
 //! of the original plus a one-line marker carrying the id that `tokred_retrieve` reads back.
 //!
 //! Everything here is pure: the same text and rules always give the same bytes (no clock, no
@@ -26,7 +26,7 @@ pub fn retrieve_id(hash: &str) -> String {
     hash.chars().take(ID_LEN).collect()
 }
 
-/// Estimated tokens of a text: bytes / 4 (the estimate the spec uses everywhere).
+/// Estimated tokens of a text: bytes / 4 (the estimate used everywhere).
 #[must_use]
 pub fn estimated_tokens(bytes: usize) -> u64 {
     u64::try_from(bytes / 4).unwrap_or(u64::MAX)

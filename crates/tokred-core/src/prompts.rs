@@ -1,4 +1,4 @@
-//! Main-loop prompts and model suggestions (spec 5.6). The main loop's model is never changed:
+//! Main-loop prompts and model suggestions. The main loop's model is never changed:
 //! tokred only measures each prompt and suggests a cheaper model when the work was simple.
 //!
 //! This module holds the data shared with the store, the hooks and the CLI; the logic lives in

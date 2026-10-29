@@ -1,4 +1,4 @@
-//! The "simple prompt" criteria (spec 5.6), applied retrospectively to a finished prompt.
+//! The "simple prompt" criteria, applied retrospectively to a finished prompt.
 //!
 //! Only tool *names* reach the proxy's records (never their arguments), so "a small edit" is
 //! approximated as "at most one edit tool call".

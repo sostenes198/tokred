@@ -12,7 +12,7 @@ use crate::io::{HookInput, context, deny, prompt_answer};
 use crate::ports::{EventNote, HookDeps, HookResponse};
 use crate::suggest::suggestion_message;
 
-/// `route` (spec 7.1), the `UserPromptSubmit` hook: classifies the prompt and, when the class
+/// `route`, the `UserPromptSubmit` hook: classifies the prompt and, when the class
 /// changed since the previous actionable prompt of the session, suggests the right subagent in
 /// one line of context for the model.
 ///
@@ -77,7 +77,7 @@ fn classify_prompt(
     Ok((line, Some(note)))
 }
 
-/// `enforce` (spec 7.2): compares the chosen tokred subagent with the session's last
+/// `enforce`: compares the chosen tokred subagent with the session's last
 /// classification. Agents that are not tokred's are always allowed.
 pub fn enforce(input: &HookInput, deps: &HookDeps<'_>) -> Result<HookResponse, HookError> {
     let mode = deps.config.modes.enforce;
