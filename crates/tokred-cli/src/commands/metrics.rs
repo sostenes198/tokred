@@ -3,13 +3,15 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
+use tokred_audit::report::AuditReport;
 use tokred_core::meta::MetaRepo;
 use tokred_install::StdFileSystem;
+use tokred_metrics::Stats;
 use tokred_metrics::latency_stats;
 use tokred_pricing::PRICE_SYNCED_AT;
 use tokred_report::{Opener, render_html, write_report};
 
-use super::data::load;
+use super::data::{Loaded, load, load_from};
 use super::report_data::{build, model_stats};
 use super::{audit, show};
 use crate::env::Env;
@@ -26,23 +28,10 @@ pub fn run(
     opener: &dyn Opener,
 ) -> Result<()> {
     let loaded = load(env, io, dir_flag, since)?;
-    let stats = model_stats(&loaded, &loaded.prices);
-    let latency = latency_stats(&loaded.events, loaded.spawn_overhead_us, loaded.range);
     let audit_report = audit::default_project()
         .ok()
         .map(|project| audit::build_report(env, &loaded.claude_dir, project));
-    let last_sync = loaded
-        .store
-        .meta_get(PRICE_SYNCED_AT)?
-        .and_then(|v| v.parse::<i64>().ok());
-
-    let html = render_html(&build(
-        &loaded,
-        &stats,
-        &latency,
-        audit_report.as_ref(),
-        last_sync,
-    ));
+    let (html, stats) = render(&loaded, audit_report.as_ref())?;
     let path = env.data.reports_dir().join("metrics.html");
     write_report(&StdFileSystem, &path, &html)?;
 
@@ -53,6 +42,25 @@ pub fn run(
         writeln!(io.err(), "could not open the report in a browser: {err}")?;
     }
     Ok(())
+}
+
+/// The HTML report and the per-model statistics it was built from.
+fn render(loaded: &Loaded, audit_report: Option<&AuditReport>) -> Result<(String, Stats)> {
+    let stats = model_stats(loaded, &loaded.prices);
+    let latency = latency_stats(&loaded.events, loaded.spawn_overhead_us, loaded.range);
+    let last_sync = loaded
+        .store
+        .meta_get(PRICE_SYNCED_AT)?
+        .and_then(|v| v.parse::<i64>().ok());
+    let html = render_html(&build(loaded, &stats, &latency, audit_report, last_sync));
+    Ok((html, stats))
+}
+
+/// The HTML report of the last `since` for the Claude Code folder `claude_dir`, without the
+/// project audit (the proxy has no project of its own), for the proxy's `/metrics`.
+pub fn html_report(env: &Env, claude_dir: PathBuf, since: &str) -> Result<String> {
+    let loaded = load_from(env, claude_dir, since)?;
+    render(&loaded, None).map(|(html, _)| html)
 }
 
 #[cfg(test)]

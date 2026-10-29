@@ -10,17 +10,20 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use tokred_compress::{CompressionHook, ResponseCacheShadow};
 use tokred_core::compression::CompressedBlock;
+use tokred_core::dashboard::RECENT_SESSIONS;
 use tokred_core::meta::MetaRepo;
+use tokred_core::pricing::PriceTable;
 use tokred_core::prompts::{PromptRepo, SuggestionRepo};
 use tokred_core::routing::RoutingRepo;
 use tokred_core::{Clock, Config, Timestamp};
 use tokred_pricing::load_table;
-use tokred_proxy::{ApplyRecord, ServerConfig, Shutdown, spawn_writer};
+use tokred_proxy::{ApplyRecord, DecisionTap, ServerConfig, Shutdown, spawn_writer};
 use tokred_routing::RoutingHook;
 use tokred_store::Store;
 use tokred_suggest::{PromptTracker, TrackerSettings};
 
 use super::SystemClock;
+use super::dashboard_source::StoreSource;
 use super::proxy::files;
 use crate::env::Env;
 
@@ -28,6 +31,8 @@ use crate::env::Env;
 const FLUSH_EVERY: Duration = Duration::from_secs(30);
 /// Days of compressed blocks re-read at start-up, so a restart keeps replacing the same bytes.
 const SEED_DAYS: i64 = 7;
+/// How often the retention rules of captured turns are enforced while the proxy runs.
+const PRUNE_EVERY: Duration = Duration::from_secs(3600);
 
 /// Whether the `tokred` MCP server is registered in any of Claude Code's user config files.
 #[must_use]
@@ -71,6 +76,10 @@ pub struct Assembly {
     pub compression: Arc<CompressionHook>,
     /// The record sink, and the writer thread that stores what it receives.
     pub sink: Arc<tokred_proxy::ChannelSink>,
+    /// Remembers routing decisions for the dashboard (the routing hook records through it).
+    pub decisions: Arc<DecisionTap>,
+    /// The price table the hooks use (the dashboard prices turns with it too).
+    pub prices: PriceTable,
     /// Ends with the writer's report.
     pub writer: std::thread::JoinHandle<tokred_proxy::WriterReport>,
 }
@@ -115,6 +124,7 @@ pub fn assemble(
         sink.clone(),
     ));
     let compression = Arc::new(compression);
+    let decisions = DecisionTap::new(sink.clone());
     let hooks: Vec<Arc<dyn tokred_core::proxy::ProxyHook>> = vec![
         Arc::new(ResponseCacheShadow::new(
             config.shadow.response_cache,
@@ -122,8 +132,8 @@ pub fn assemble(
         )),
         Arc::new(RoutingHook::new(
             config.routing.clone(),
-            prices,
-            sink.clone(),
+            prices.clone(),
+            decisions.clone(),
         )),
         compression.clone(),
         tracker.clone(),
@@ -134,6 +144,8 @@ pub fn assemble(
         tracker,
         compression,
         sink,
+        decisions,
+        prices,
         writer,
     })
 }
@@ -176,10 +188,17 @@ pub fn run(env: &Env, config: &Config, claude_dir: Option<&Path>, bind: &str) ->
         tracker,
         compression,
         sink,
+        decisions,
+        prices,
         writer,
     } = assemble(&config, &env.data.db_path(), &secret, registered, now)?;
 
-    let proxy = tokred_proxy::Proxy::bind(server)?;
+    let retention = Retention::from_config(&config);
+    prune_captured(&env.data.db_path(), retention.days);
+    let source = StoreSource::new(env.clone(), claude_dir.map(Path::to_path_buf), prices);
+    let proxy = tokred_proxy::Proxy::bind(server)?
+        .with_dashboard(Arc::new(source), config.proxy.log_bodies)
+        .with_decisions(decisions);
     let port = proxy.local_addr().port();
     proxy_files.write_pid(std::process::id(), port)?;
     tracing::info!(port, registered, "tokred proxy started");
@@ -191,6 +210,7 @@ pub fn run(env: &Env, config: &Config, claude_dir: Option<&Path>, bind: &str) ->
         shutdown.clone(),
         env.data.db_path(),
         FLUSH_EVERY,
+        retention,
     );
 
     let record_sink: Arc<dyn tokred_core::proxy::RecordSink> = sink.clone();
@@ -223,17 +243,58 @@ fn load_blocks(store: &Mutex<Store>, conversation: &str) -> Vec<CompressedBlock>
         .unwrap_or_default()
 }
 
-/// Runs [`flush_loop`] on a thread of its own, saving the compression breaker with every tick.
+/// How long the dashboard's captured turns are kept and how often that is enforced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Retention {
+    /// `[proxy] retention_days`.
+    days: u32,
+    /// Time between two prunes while the proxy runs.
+    every: Duration,
+}
+
+impl Retention {
+    fn from_config(config: &Config) -> Self {
+        Self {
+            days: config.proxy.retention_days,
+            every: PRUNE_EVERY,
+        }
+    }
+}
+
+/// Applies the retention rules of the dashboard's captured turns; failures are only logged.
+fn prune_captured(db: &Path, keep_days: u32) {
+    let pruned = Store::open(db)
+        .map_err(|error| error.to_string())
+        .and_then(|store| {
+            store
+                .prune_captured_turns(SystemClock.now(), keep_days, RECENT_SESSIONS)
+                .map_err(|error| error.to_string())
+        });
+    match pruned {
+        Ok(0) => {}
+        Ok(changed) => tracing::info!(changed, "pruned captured turns"),
+        Err(error) => tracing::warn!(%error, "could not prune captured turns"),
+    }
+}
+
+/// Runs [`flush_loop`] on a thread of its own, saving the compression breaker with every tick
+/// and pruning the captured turns once per `retention.every`.
 fn spawn_flusher(
     tracker: Arc<PromptTracker>,
     compression: Arc<CompressionHook>,
     shutdown: Shutdown,
     db: PathBuf,
     every: Duration,
+    retention: Retention,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
+        let last_prune = std::cell::Cell::new(std::time::Instant::now());
         flush_loop(&tracker, &shutdown, every, &|| {
             persist_breaker(&compression, &db);
+            if last_prune.get().elapsed() >= retention.every {
+                last_prune.set(std::time::Instant::now());
+                prune_captured(&db, retention.days);
+            }
         });
     })
 }
@@ -443,10 +504,11 @@ mod tests {
             tracker,
             compression,
             sink,
+            decisions,
             writer,
             ..
         } = assembly;
-        drop((hooks, tracker, compression, sink));
+        drop((hooks, tracker, compression, sink, decisions));
         let report = writer.join().unwrap();
         assert_eq!(report.written, 0);
     }
@@ -496,6 +558,89 @@ mod tests {
         drop(tracker);
         let _ = writer.join();
         assert!(shutdown.is_triggered());
+    }
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use tokred_core::dashboard::CapturedTurn;
+
+    use super::super::testing::Sandbox;
+    use super::*;
+
+    fn captured(id: &str, ts: i64) -> CapturedTurn {
+        CapturedTurn {
+            request_id: id.to_owned(),
+            session_id: "s".to_owned(),
+            ts: Timestamp(ts),
+            tools_json: "[]".to_owned(),
+            ..CapturedTurn::default()
+        }
+    }
+
+    fn rows(db: &Path) -> i64 {
+        rusqlite::Connection::open(db)
+            .unwrap()
+            .query_row("SELECT count(*) FROM captured_turns", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn captured_turns_are_pruned_at_start_and_by_the_flusher() {
+        let sb = Sandbox::new();
+        sb.configure();
+        let db = sb.env.data.db_path();
+        let now = SystemClock.now().0;
+        let store = sb.store();
+        store
+            .insert_captured_turn(&captured("old", now - 200 * 86_400))
+            .unwrap();
+        store.insert_captured_turn(&captured("new", now)).unwrap();
+        prune_captured(&db, 90);
+        assert_eq!(rows(&db), 1, "the old turn is gone, the new one stays");
+        prune_captured(&db, 90);
+        prune_captured(&sb.path("no/such/dir/t.db"), 90);
+
+        store
+            .insert_captured_turn(&captured("old2", now - 200 * 86_400))
+            .unwrap();
+        let (sink, _writer) = spawn_writer(Box::new(|_| Ok(())));
+        let tracker = Arc::new(PromptTracker::new(
+            PriceTable::default(),
+            TrackerSettings::from_config(&Config::default().suggest),
+            Arc::new(sink),
+        ));
+        let (sink, _w) = spawn_writer(Box::new(|_| Ok(())));
+        let compression = Arc::new(CompressionHook::new(
+            &Config::default().compression,
+            &Config::default().shadow,
+            false,
+            Arc::new(sink),
+        ));
+        let shutdown = Shutdown::new();
+        let flusher = spawn_flusher(
+            tracker,
+            compression,
+            shutdown.clone(),
+            db.clone(),
+            Duration::from_millis(50),
+            Retention {
+                days: 90,
+                every: Duration::from_millis(100),
+            },
+        );
+        std::thread::sleep(Duration::from_millis(500));
+        shutdown.trigger();
+        flusher.join().unwrap();
+        assert_eq!(rows(&db), 1, "the flusher pruned the turn that went stale");
+    }
+
+    #[test]
+    fn retention_follows_the_configuration() {
+        let mut config = Config::default();
+        config.proxy.retention_days = 7;
+        let retention = Retention::from_config(&config);
+        assert_eq!((retention.days, retention.every), (7, PRUNE_EVERY));
     }
 }
 
@@ -592,6 +737,10 @@ mod breaker_tests {
             shutdown.clone(),
             db.clone(),
             Duration::from_millis(50),
+            Retention {
+                days: 90,
+                every: Duration::from_millis(100),
+            },
         );
         std::thread::sleep(Duration::from_millis(300));
         shutdown.trigger();

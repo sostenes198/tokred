@@ -22,7 +22,7 @@ use crate::env::Env;
 use crate::io::Io;
 
 /// Timeout of one health or admin request.
-const ADMIN_TIMEOUT: Duration = Duration::from_secs(2);
+pub(super) const ADMIN_TIMEOUT: Duration = Duration::from_secs(2);
 /// How long `start` and `stop` wait for the proxy to come up or go away.
 pub const SETTLE_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -92,7 +92,7 @@ fn start_background(io: &mut Io, ctx: &ProxyCtx<'_>, bind: &str) -> Result<()> {
     Ok(())
 }
 
-fn admin(port: u16, secret: &str, method: &str, path: &str) -> Result<String> {
+pub(super) fn admin(port: u16, secret: &str, method: &str, path: &str) -> Result<String> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(ADMIN_TIMEOUT))
         .build()
