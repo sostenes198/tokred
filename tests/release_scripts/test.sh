@@ -163,6 +163,14 @@ ok "promote refuses a missing pre-release, a red CI and a smoke test that did no
 PATH="$FAKE_BIN:$PATH" RELEASE_SKIP_LOCK=1 sh "$SCRIPT" promote 0.2.0-rc.1 >/dev/null || die "a green RC was not promoted"
 ok "promote goes ahead when everything is green"
 
+# An RC is only cut on a commit whose CI passed.
+repo=$(new_repo four-b)
+cd "$repo"
+fails_with "no successful CI run" env FAKE_CI=0 PATH="$FAKE_BIN:$PATH" RELEASE_SKIP_LOCK=1 sh "$SCRIPT" rc 0.2.0-rc.1
+assert_eq "$(git status --porcelain)" "" "a refused RC leaves the files as they were"
+PATH="$FAKE_BIN:$PATH" RELEASE_SKIP_LOCK=1 sh "$SCRIPT" rc 0.2.0-rc.1 >/dev/null || die "an RC on a green commit failed"
+ok "an RC is refused on a commit without a green CI"
+
 # ------------------------------------------------------------ 4. other guards
 repo=$(new_repo five)
 cd "$repo"

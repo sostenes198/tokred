@@ -153,6 +153,8 @@ do_rc() {
     clean_tree
     on_main_in_sync
     tag_exists "v$VERSION" && die "the tag v$VERSION already exists"
+    step "CI passed on the commit to release"
+    check_ci "$(git rev-parse HEAD)"
     OLD=$(current_version)
     [ -n "$OLD" ] || die "could not read the version from Cargo.toml"
     EDITING=1
@@ -168,9 +170,17 @@ do_rc() {
 
 gh_json() { gh "$@" || die "gh failed: gh $*"; }
 
-check_github() {
+# check_ci SHA: a successful CI run (push) exists for the commit.
+check_ci() {
     [ "${RELEASE_SKIP_CI_CHECK:-0}" = "1" ] && return 0
     command -v gh >/dev/null 2>&1 || die "the GitHub CLI (gh) is needed to read the CI and smoke results"
+    ok=$(gh_json run list --workflow CI --commit "$1" --json conclusion,event \
+        --jq '[.[]|select(.event=="push" and .conclusion=="success")]|length')
+    [ "$ok" -ge 1 ] || die "no successful CI run on $1"
+}
+
+check_github() {
+    [ "${RELEASE_SKIP_CI_CHECK:-0}" = "1" ] && return 0
     sha=$(git rev-parse "v$VERSION^{commit}")
 
     step "The RC exists as a pre-release"
@@ -178,9 +188,7 @@ check_github() {
     [ "$pre" = "true" ] || die "v$VERSION is not published as a pre-release on GitHub"
 
     step "CI passed on the RC commit"
-    ok=$(gh_json run list --workflow CI --commit "$sha" --json conclusion,event \
-        --jq '[.[]|select(.event=="push" and .conclusion=="success")]|length')
-    [ "$ok" -ge 1 ] || die "no successful CI run on $sha"
+    check_ci "$sha"
 
     step "Release smoke passed for v$VERSION"
     state=$(gh_json run list --workflow release-smoke.yml --limit 50 --json displayTitle,conclusion \
