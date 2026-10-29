@@ -59,6 +59,40 @@ impl ProxyFiles {
         Ok(secret)
     }
 
+    /// The URLs tokred has written to Claude Code's settings, one per line. A value that is in
+    /// there (or is the current proxy URL) is tokred's to change or remove; any other value
+    /// belongs to the user.
+    #[must_use]
+    pub fn base_urls_path(&self) -> PathBuf {
+        self.dir.join("base_urls")
+    }
+
+    /// The URLs recorded by [`Self::remember_base_url`] (none when there is no file).
+    #[must_use]
+    pub fn known_base_urls(&self) -> Vec<String> {
+        std::fs::read_to_string(self.base_urls_path())
+            .unwrap_or_default()
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// Records that tokred wrote `url` to Claude Code's settings (once per distinct value).
+    pub fn remember_base_url(&self, url: &str) -> Result<()> {
+        let mut known = self.known_base_urls();
+        if known.iter().any(|known| known == url) {
+            return Ok(());
+        }
+        known.push(url.to_owned());
+        std::fs::create_dir_all(&self.dir)
+            .with_context(|| format!("could not create {}", self.dir.display()))?;
+        let path = self.base_urls_path();
+        std::fs::write(&path, known.join("\n") + "\n")
+            .with_context(|| format!("could not write {}", path.display()))
+    }
+
     /// Records the running proxy.
     pub fn write_pid(&self, pid: u32, port: u16) -> Result<()> {
         std::fs::create_dir_all(&self.dir)

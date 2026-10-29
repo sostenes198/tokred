@@ -9,6 +9,7 @@ mod configure;
 mod data;
 mod doctor;
 mod housekeeping;
+mod initialize;
 mod metrics;
 mod pricing;
 mod proxy;
@@ -44,7 +45,9 @@ use self::housekeeping::{Network, Switches};
 
 /// Runs the parsed command.
 pub fn run(cli: Cli, io: &mut Io) -> Result<()> {
-    let env = Env::from_process()?;
+    let Some(env) = usable_env(Env::from_process(), &cli.command, io)? else {
+        return Ok(());
+    };
     let version = env!("CARGO_PKG_VERSION");
     let exe = std::env::current_exe()
         .ok()
@@ -93,6 +96,24 @@ pub fn run(cli: Cli, io: &mut Io) -> Result<()> {
         housekeeping::background_chores(&env, io, &net, switches, &exe_text, version);
     }
     result
+}
+
+/// The `session-start` safety net: starts the proxy in the background when it is enabled, this
+/// session is pointed at it and it is not running. Never waits. Returns whether it tried to.
+pub fn ensure_proxy_for_session(env: &Env, config: &Config) -> bool {
+    std::env::current_exe().is_ok_and(|exe| initialize::ensure_for_session(env, config, &exe))
+}
+
+/// `tokred initialize` never fails: without a usable environment it warns and does nothing.
+fn usable_env(env: Result<Env>, command: &Command, io: &mut Io) -> Result<Option<Env>> {
+    match env {
+        Ok(env) => Ok(Some(env)),
+        Err(error) if matches!(command, Command::Initialize { .. }) => {
+            writeln!(io.err(), "tokred: initialize skipped: {error:#}")?;
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 /// A URL override from the environment (mirrors, tests), else the built-in one.
@@ -171,6 +192,7 @@ fn dispatch(
         Command::Cache { command } => cache::run(env, io, &command),
         Command::Proxy { command } => run_proxy(env, io, exe, &command),
         Command::Claude { args } => run_claude(env, io, exe, &args),
+        Command::Initialize { verbose, json, .. } => initialize::run(env, io, verbose, json),
         Command::Routing { command } => advice::routing(env, io, &command),
         Command::Compression { command } => run_compression(env, io, &command),
         Command::Suggest { since, json } => advice::suggest(env, io, &since, json),
@@ -212,6 +234,7 @@ fn run_claude(env: &Env, io: &mut Io, exe: Option<&Path>, args: &[OsString]) -> 
         crate::daemon::spawn_detached(exe, &["proxy", "start", "--foreground"]).map(|_| ())
     };
     let launcher = claude::Launcher {
+        enabled: config.proxy.enabled,
         port,
         existing_base_url: std::env::var("ANTHROPIC_BASE_URL").ok(),
         healthy: &|port| crate::daemon::healthy(port, probe),
@@ -564,6 +587,32 @@ mod tests {
     use super::testing::Sandbox;
     use super::*;
     use crate::io::testing::scripted;
+
+    #[test]
+    fn initialize_never_fails_without_an_environment_but_other_commands_do() {
+        let sb = Sandbox::new();
+        let init = Command::Initialize {
+            quiet: false,
+            verbose: false,
+            json: false,
+        };
+        let (mut io, _out, err) = crate::io::testing::scripted_with_err(false, "");
+        let none = usable_env(Err(anyhow::anyhow!("no home folder")), &init, &mut io).unwrap();
+        assert!(none.is_none());
+        assert_eq!(err.text(), "tokred: initialize skipped: no home folder\n");
+        assert!(usable_env(Err(anyhow::anyhow!("x")), &Command::Statusline, &mut io).is_err());
+        assert!(
+            usable_env(Ok(sb.env.clone()), &init, &mut io)
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn the_session_start_safety_net_does_nothing_while_the_proxy_is_disabled() {
+        let sb = Sandbox::new();
+        assert!(!ensure_proxy_for_session(&sb.env, &Config::default()));
+    }
 
     #[test]
     fn a_child_exit_names_its_code() {

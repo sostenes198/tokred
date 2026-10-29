@@ -25,8 +25,10 @@ pub fn run(env: &Env, io: &mut Io, dir_flag: Option<PathBuf>, purge: bool) -> Re
     )?;
     // Release the database file before a possible purge (required on Windows).
     drop(store);
+    let config = super::housekeeping::load_config(env);
+    let url = super::initialize::remove_own_url(env, &config, &claude_dir)?;
 
-    let shown = render_report(&claude_dir, &report);
+    let shown = render_report(&claude_dir, &report, url.as_deref());
     write!(io.out(), "{shown}")?;
     if purge {
         let outcome = purge_data_folder(&fs, env)?;
@@ -36,7 +38,7 @@ pub fn run(env: &Env, io: &mut Io, dir_flag: Option<PathBuf>, purge: bool) -> Re
     Ok(())
 }
 
-fn render_report(claude_dir: &Path, report: &UnconfigureReport) -> String {
+fn render_report(claude_dir: &Path, report: &UnconfigureReport, url: Option<&str>) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "tokred unconfigure ({})", show(claude_dir));
     let _ = writeln!(
@@ -44,6 +46,12 @@ fn render_report(claude_dir: &Path, report: &UnconfigureReport) -> String {
         "  hooks removed from settings.json: {}",
         report.hooks_removed
     );
+    if let Some(url) = url {
+        let _ = writeln!(
+            out,
+            "  ANTHROPIC_BASE_URL removed from settings.json: {url}"
+        );
+    }
     let _ = writeln!(out, "  agents removed: {}", report.agents_removed.len());
     for kept in &report.agents_kept {
         let _ = writeln!(
@@ -111,6 +119,37 @@ mod tests {
         assert!(!out.contains("kept"));
         assert!(!sb.agent("tokred-dev.md").exists());
         assert!(sb.env.data.root().exists(), "no --purge, data stays");
+    }
+
+    #[test]
+    fn removes_tokreds_proxy_url_but_not_the_users_gateway() {
+        let sb = configured();
+        let set = |url: &str| {
+            tokred_install::base_url::write_base_url(&StdFileSystem, &sb.claude, Some(url))
+                .unwrap();
+        };
+        set("http://127.0.0.1:8787");
+        let (result, out) = unconfigure_cmd(&sb, false);
+        result.unwrap();
+        assert!(
+            out.contains("ANTHROPIC_BASE_URL removed from settings.json: http://127.0.0.1:8787"),
+            "{out}"
+        );
+        assert!(
+            !std::fs::read_to_string(sb.settings())
+                .unwrap()
+                .contains("ANTHROPIC_BASE_URL")
+        );
+
+        set("https://gateway.example");
+        let (result, out) = unconfigure_cmd(&sb, false);
+        result.unwrap();
+        assert!(!out.contains("ANTHROPIC_BASE_URL"), "{out}");
+        assert!(
+            std::fs::read_to_string(sb.settings())
+                .unwrap()
+                .contains("gateway.example")
+        );
     }
 
     #[test]

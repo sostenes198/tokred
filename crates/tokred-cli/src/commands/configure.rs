@@ -58,7 +58,7 @@ pub fn run(
     logging::init(&env.data.logs_dir());
     let config_path = env.data.config_path();
     let existing = fs.read_to_string(&config_path)?.unwrap_or_default();
-    let merged = tokred_core::config::merge_config(&existing, Some(&claude_dir))
+    let merged = merge_with_proxy_default(&existing, &claude_dir)
         .with_context(|| format!("could not update {}", config_path.display()))?;
     if merged != existing {
         fs.write_atomic(&config_path, merged.as_bytes())?;
@@ -81,6 +81,20 @@ pub fn run(
     let summary = render_summary(&plan, &report);
     write!(io.out(), "{summary}")?;
     Ok(())
+}
+
+/// Merges the defaults into `tokred.toml` and, when the user had no `[proxy] enabled` value yet,
+/// turns the proxy features on (an explicit value, either way, is kept).
+fn merge_with_proxy_default(
+    existing: &str,
+    claude_dir: &Path,
+) -> Result<String, tokred_core::ConfigError> {
+    let had_value = tokred_core::config::proxy_enabled_is_set(existing);
+    let merged = tokred_core::config::merge_config(existing, Some(claude_dir))?;
+    if had_value {
+        return Ok(merged);
+    }
+    tokred_core::config::set_config_value(&merged, "proxy", "enabled", toml::Value::Boolean(true))
 }
 
 /// Asks for confirmation; refuses to guess when nobody can answer.
@@ -238,6 +252,29 @@ mod tests {
         let text = render_plan(&sb.claude, &off_path, true, &plan);
         assert!(text.contains("/tmp/tokred (not found on PATH"), "{text}");
         assert!(text.contains("rtk detected"));
+    }
+
+    #[test]
+    fn a_fresh_configure_enables_the_proxy_features_but_an_explicit_value_is_kept() {
+        let dir = Path::new("/c");
+        let fresh = merge_with_proxy_default("", dir).unwrap();
+        let enabled = |text: &str| {
+            tokred_core::Config::from_toml_str(text)
+                .unwrap()
+                .proxy
+                .enabled
+        };
+        assert!(enabled(&fresh));
+        // Running it again does not change anything.
+        assert_eq!(merge_with_proxy_default(&fresh, dir).unwrap(), fresh);
+
+        // A file without the key (other [proxy] settings) gets it; an explicit false stays.
+        assert!(enabled(
+            &merge_with_proxy_default("[proxy]\nbind = \"127.0.0.1:1\"\n", dir).unwrap()
+        ));
+        let off = "[proxy]\nenabled = false\n";
+        assert!(!enabled(&merge_with_proxy_default(off, dir).unwrap()));
+        assert!(merge_with_proxy_default("[[[", dir).is_err());
     }
 
     #[test]
