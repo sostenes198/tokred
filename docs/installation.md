@@ -22,18 +22,18 @@ The scripts are release assets and live in [`install/`](../install/); read them 
 
 ### A specific version or a pre-release
 
-The commands above install the latest stable release. A pre-release is installed only when you name its version, without the leading `v` (the versions are listed on the [releases page](https://github.com/sostenes198/tokred/releases)). The script from `main` installs any version.
+The commands above install the latest stable release. A pre-release is installed only when you name its version. Replace `X.Y.Z` with a version from the [releases page](https://github.com/sostenes198/tokred/releases), such as the number of a release tag (a leading `v` is optional). The script from `main` installs any version.
 
 **macOS and Linux**
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/sostenes198/tokred/main/install/install.sh | sh -s -- --version <version>
+curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/sostenes198/tokred/main/install/install.sh | sh -s -- --version X.Y.Z
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-$env:TOKRED_VERSION = '<version>'; irm https://raw.githubusercontent.com/sostenes198/tokred/main/install/install.ps1 | iex
+$env:TOKRED_VERSION = 'X.Y.Z'; irm https://raw.githubusercontent.com/sostenes198/tokred/main/install/install.ps1 | iex
 ```
 
 Until the first stable release is published, the `latest` URLs return 404, for the install and the uninstall scripts alike. Use the commands of this section, and in the uninstall commands replace `https://github.com/sostenes198/tokred/releases/latest/download/` with `https://raw.githubusercontent.com/sostenes198/tokred/main/install/`.
@@ -107,7 +107,7 @@ tokred update
 ```
 
 ```sh
-tokred update --version <version>
+tokred update --version X.Y.Z
 ```
 
 `tokred update` looks at where the running binary lives. In the install folder (put there by the script) it downloads the archive for your platform, verifies its SHA-256, replaces the binary and re-applies the configuration. Anywhere else (built from source, copied by hand) it says a new version exists and asks you to reinstall with the script, which does the same job. Without `--version` it installs the latest stable release; with it, exactly that version (a pre-release or an older one). Your port and content-recording choices are kept. When the binary changes version by other means (for example a new `cargo install`), the first `doctor`, `stats`, `metrics`, `audit`, `pricing` or `cache` command re-applies the configuration quietly.

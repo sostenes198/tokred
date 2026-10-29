@@ -22,18 +22,18 @@ Os scripts são assets da release e ficam em [`install/`](../install/); leia-os 
 
 ### Uma versão específica ou uma pré-release
 
-Os comandos acima instalam a release estável mais recente. Uma pré-release só é instalada quando você informa a versão dela, sem o `v` inicial (as versões estão listadas na [página de releases](https://github.com/sostenes198/tokred/releases)). O script da `main` instala qualquer versão.
+Os comandos acima instalam a release estável mais recente. Uma pré-release só é instalada quando você informa a versão dela. Troque `X.Y.Z` por uma versão da [página de releases](https://github.com/sostenes198/tokred/releases), como o número de uma tag de release (um `v` inicial é opcional). O script da `main` instala qualquer versão.
 
 **macOS e Linux**
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/sostenes198/tokred/main/install/install.sh | sh -s -- --version <version>
+curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/sostenes198/tokred/main/install/install.sh | sh -s -- --version X.Y.Z
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-$env:TOKRED_VERSION = '<version>'; irm https://raw.githubusercontent.com/sostenes198/tokred/main/install/install.ps1 | iex
+$env:TOKRED_VERSION = 'X.Y.Z'; irm https://raw.githubusercontent.com/sostenes198/tokred/main/install/install.ps1 | iex
 ```
 
 Até a primeira release estável ser publicada, as URLs `latest` retornam 404, tanto para o script de instalação quanto para o de desinstalação. Use os comandos desta seção e, nos comandos de desinstalação, troque `https://github.com/sostenes198/tokred/releases/latest/download/` por `https://raw.githubusercontent.com/sostenes198/tokred/main/install/`.
@@ -107,7 +107,7 @@ tokred update
 ```
 
 ```sh
-tokred update --version <version>
+tokred update --version X.Y.Z
 ```
 
 O `tokred update` olha onde o binário em execução está. Na pasta de instalação (colocado lá pelo script), ele baixa o arquivo da sua plataforma, verifica o SHA-256, substitui o binário e reaplica a configuração. Em qualquer outro lugar (compilado do código-fonte, copiado à mão), ele avisa que existe uma versão nova e pede que você reinstale com o script, que faz o mesmo trabalho. Sem `--version`, instala a release estável mais recente; com ele, exatamente aquela versão (uma pré-release ou uma mais antiga). Sua porta e sua escolha sobre gravar conteúdo são mantidas. Quando o binário muda de versão por outros meios (por exemplo, um novo `cargo install`), o primeiro comando `doctor`, `stats`, `metrics`, `audit`, `pricing` ou `cache` reaplica a configuração em silêncio.

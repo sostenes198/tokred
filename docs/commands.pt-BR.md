@@ -171,7 +171,7 @@ tokred pricing sync
 tokred pricing show [--json]
 ```
 
-`sync` atualiza a tabela de preços a partir da lista pública do LiteLLM; se ela não puder ser alcançada, o snapshot embutido continua em uso. `show` imprime a tabela (USD por milhão de tokens). Os preços também são sincronizados automaticamente, no máximo uma vez por dia, como descrito em [configuração](configuration.pt-BR.md#tarefas-em-segundo-plano). Como os preços são usados está em [métricas](metrics.pt-BR.md).
+`sync` atualiza a tabela de preços a partir da lista pública do LiteLLM; se ela não puder ser alcançada, o snapshot embutido continua em uso. `show` imprime a tabela (USD por milhão de tokens). Os preços também são sincronizados automaticamente, no máximo uma vez por dia, como descrito em [configuração](configuration.pt-BR.md). Como os preços são usados está em [métricas](metrics.pt-BR.md).
 
 ## cache
 
@@ -263,7 +263,7 @@ Faz o `settings.json` do Claude Code concordar com `[proxy] enabled`. O wrapper 
 tokred claude [ARGS...]
 ```
 
-Inicia o proxy se preciso e executa o Claude Code por ele, só nesta execução: nada é gravado nas configurações do Claude Code. Todo argumento vai para o `claude` sem alteração. Se o proxy não puder iniciar, se o `ANTHROPIC_BASE_URL` já apontar para outro gateway, ou se `[proxy] enabled = false`, o Claude Code roda como antes e o tokred diz o motivo no stderr.
+Inicia o proxy se preciso e executa o Claude Code por ele, só nesta execução: nada é gravado nas configurações do Claude Code. Todo argumento vai para o `claude` sem alteração, exceto `-h`, `--help`, `-V` e `--version`, que o próprio tokred responde (coloque `--` antes deles para repassá-los). Se o proxy não puder iniciar, se o `ANTHROPIC_BASE_URL` já apontar para outro gateway, ou se `[proxy] enabled = false`, o Claude Code roda como antes e o tokred diz o motivo no stderr.
 
 ## dashboard
 
