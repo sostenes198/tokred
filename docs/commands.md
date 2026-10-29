@@ -84,7 +84,7 @@ Estimates (characters / 4) the weight of the context Claude Code loads before yo
 
 ## `tokred proxy start [--foreground] [--bind <host:port>]` / `stop` / `status [--json]`
 
-The optional [local proxy](proxy.md). `start` runs it in the background (the same binary, `proxy start --foreground`); `--foreground` keeps it in the terminal, which is what the user service uses. `--bind` overrides `[proxy] bind` (default `127.0.0.1:8787`). `stop` asks it to shut down and waits until it has. `status` shows whether it is running, whether the user service is installed, whether this terminal's `ANTHROPIC_BASE_URL` points to it, and the routing and compression modes. With `--json` the `network` field has the HTTP proxy (host and port only) and the extra CA files the proxy uses. It is a background process that does not keep the output pipes of its caller, so `out=$(tokred proxy start)` returns on every operating system.
+The optional [local proxy](proxy.md). `start` runs it in the background (the same binary, `proxy start --foreground`); `--foreground` keeps it in the terminal, which is what the user service uses. `--bind` overrides `[proxy] bind` (default `127.0.0.1:8787`). `stop` asks it to shut down and waits until it has. `status` shows whether it is running, whether the user service is installed, whether this terminal's `ANTHROPIC_BASE_URL` points to it, and the routing and compression modes. With `--json` the `network` field has the HTTP proxy (host and port only) and the extra CA files the proxy uses. It is a background process that does not keep the output pipes of its caller, so `out=$(tokred proxy start)` returns (on Windows it is started through PowerShell's `Start-Process` for that reason).
 
 ## `tokred proxy service install` / `uninstall`
 

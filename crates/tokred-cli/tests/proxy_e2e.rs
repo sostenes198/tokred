@@ -65,12 +65,9 @@ impl Sandbox {
 }
 
 impl Sandbox {
-    /// Starts the background proxy and waits until it answers.
-    ///
-    /// The output is not captured: on Windows the detached proxy would inherit the pipes a
-    /// capturing harness gives its child and keep them open, so the harness would wait for the
-    /// proxy to exit.
-    fn start_proxy(&self) {
+    /// Runs `tokred <args>` with no standard streams attached (nothing to inherit) and returns
+    /// whether it succeeded.
+    fn run_detached(&self, args: &[&str]) -> bool {
         let command = self.tokred();
         let mut plain = std::process::Command::new(command.get_program());
         for (name, value) in command.get_envs() {
@@ -79,14 +76,26 @@ impl Sandbox {
                 None => plain.env_remove(name),
             };
         }
-        let status = plain
-            .args(["proxy", "start"])
+        plain
+            .args(args)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()
-            .unwrap();
-        assert!(status.success(), "`proxy start` failed: {status}");
+            .unwrap()
+            .success()
+    }
+
+    /// Starts the background proxy and waits until it answers.
+    ///
+    /// The output is not captured: on Windows the detached proxy would inherit the pipes a
+    /// capturing harness gives its child and keep them open, so the harness would wait for the
+    /// proxy to exit (the test below covers the captured case on its own).
+    fn start_proxy(&self) {
+        assert!(
+            self.run_detached(&["proxy", "start"]),
+            "`proxy start` failed"
+        );
     }
 }
 
@@ -488,32 +497,58 @@ fn status_and_doctor_show_the_corporate_network_settings_without_credentials() {
     }
 }
 
+/// Stops the proxy of a sandbox when the test ends, even when it fails.
+struct StopProxy<'a>(&'a Sandbox);
+
+impl Drop for StopProxy<'_> {
+    fn drop(&mut self) {
+        self.0.run_detached(&["proxy", "stop"]);
+    }
+}
+
 /// Regression: the background proxy must not keep the pipes of a caller that captures the output
 /// of `proxy start` open (on Windows a detached child inherits them, and `$(tokred proxy start)`
-/// then waited for the proxy to exit). `assert_cmd` captures both streams; the timeout turns a
-/// hang into a failure instead of stalling the job. The sandbox folder has a space in its name.
+/// then waited for the proxy to exit).
+///
+/// `assert_cmd`'s own timeout cannot catch that: it kills the command, but then waits for the end
+/// of the captured streams, which the proxy still holds. So the command runs on a thread and
+/// this test waits for its result with a deadline; on a miss it stops the proxy (which releases
+/// the pipes and lets the thread end) and fails with the reason.
 #[test]
 fn proxy_start_with_captured_output_returns_while_the_proxy_keeps_running() {
     let (upstream, _seen) = fake_upstream();
     let port = free_port();
     let sb = Sandbox::new(&upstream, port);
-    let timeout = std::time::Duration::from_secs(60);
+    let _stop = StopProxy(&sb);
+    let deadline = std::time::Duration::from_secs(60);
+
+    let mut start = sb.tokred();
+    start.args(["proxy", "start"]).timeout(deadline);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(start.output());
+    });
+    let Ok(output) = receiver.recv_timeout(deadline) else {
+        sb.run_detached(&["proxy", "stop"]);
+        panic!(
+            "`tokred proxy start` with captured output did not return within {deadline:?}: \
+             the background proxy inherited the pipes of its caller"
+        );
+    };
+    let output = output.unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("The tokred proxy is running"), "{text}");
 
     sb.tokred()
-        .args(["proxy", "start"])
-        .timeout(timeout)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("The tokred proxy is running"));
-    sb.tokred()
         .args(["proxy", "status"])
-        .timeout(timeout)
+        .timeout(deadline)
         .assert()
         .success()
         .stdout(predicate::str::contains("tokred proxy: running"));
     sb.tokred()
         .args(["proxy", "stop"])
-        .timeout(timeout)
+        .timeout(deadline)
         .assert()
         .success()
         .stdout(predicate::str::contains("stopped"));
