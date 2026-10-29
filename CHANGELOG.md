@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.0.0-rc.1] - 2026-10-29
+
 ### Changed
 
 - The release pipeline deletes the release candidates of a version (their pre-releases and tags) once its final release passes the smoke test, and that test now proves `tokred update --version` by replacing the binary of a second installation with another published version and back.

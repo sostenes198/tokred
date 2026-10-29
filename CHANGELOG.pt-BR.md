@@ -6,6 +6,8 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+## [1.0.0-rc.1] - 2026-10-29
+
 ### Alterado
 
 - A pipeline de release apaga os candidatos a release de uma versão (os pre-releases e as tags) quando o release final dela passa no smoke test, e esse teste agora comprova o `tokred update --version` substituindo o binário de uma segunda instalação por outra versão publicada e voltando.
