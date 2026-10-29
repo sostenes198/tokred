@@ -115,3 +115,31 @@ jobs:
           name: smoke-logs-${{ strategy.job-index }}-${{ matrix.image == 'alpine:3.20' && 'alpine' || matrix.image == 'debian:12-slim' && 'debian' || 'fedora' }}
           path: smoke-logs
           if-no-files-found: ignore
+
+  # A release candidate only exists until its final version is out: once the smoke test of a stable
+  # release has passed everywhere, the pre-releases (and tags) of that same version are deleted.
+  cleanup-candidates:
+    name: delete the release candidates
+    needs: [native, containers]
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Delete the pre-releases of this version
+        run: |
+          # Only a stable tag (vX.Y.Z); anything else, including another version's candidates, stays.
+          if ! printf '%s\n' "$SMOKE_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "$SMOKE_TAG is not a stable release: nothing to delete"
+            exit 0
+          fi
+          tags=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isPrerelease \
+            --jq ".[] | select(.isPrerelease and (.tagName | startswith(\"$SMOKE_TAG-rc.\"))) | .tagName")
+          for tag in $tags; do
+            echo "deleting $tag"
+            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+          done

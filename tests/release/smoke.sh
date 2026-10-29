@@ -624,6 +624,59 @@ else
     if sb "$TOKRED" --version >"$OUT/version-after-update.out" 2>&1 </dev/null; then ok "the binary still runs after tokred update ($(cat "$OUT/version-after-update.out"))"; else die "the binary does not run after tokred update"; fi
 fi
 
+# ------------------------------------------------------------------ 6b. update replaces the binary
+
+# `tokred update --version` really swaps the running binary. A second installation, with folders of
+# its own (so a database migration on the way down cannot disturb the checks above), goes to another
+# published version and back, and must run after each move.
+step "6b. tokred update --version replaces the binary (to another published version and back)"
+if [ "${SMOKE_SKIP_UPDATE:-0}" = "1" ]; then
+    skip "step 6b skipped (SMOKE_SKIP_UPDATE=1)"
+else
+    LIST_URL="https://api.github.com/repos/$REPO/releases?per_page=30"
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+        curl -s --max-time 30 -H "Authorization: Bearer $GITHUB_TOKEN" -o "$OUT/releases.json" "$LIST_URL" || true
+    else
+        curl -s --max-time 30 -o "$OUT/releases.json" "$LIST_URL" || true
+    fi
+    # The newest other published version that has binaries (v0.1.0-rc.1 has no `update --version`).
+    OTHER=$("$PY" -I -c 'import json, sys
+try:
+    releases = json.load(open(sys.argv[1]))
+except (OSError, ValueError):
+    releases = []
+for release in releases if isinstance(releases, list) else []:
+    tag = release.get("tag_name", "")
+    if release.get("draft") or tag in (sys.argv[2], "v0.1.0-rc.1") or not release.get("assets"):
+        continue
+    print(tag[1:])
+    break' "$OUT/releases.json" "$TAG" 2>/dev/null || true)
+    if [ -z "$OTHER" ]; then
+        skip "no other published version to switch to (or the GitHub API did not answer): step 6b not checked"
+    else
+        S2="$W/swap"
+        mkdir -p "$S2/home" "$S2/data" "$S2/claude"
+        # `update` re-applies the configuration afterwards, which needs a Claude Code folder to configure.
+        printf '{}\n' >"$S2/claude/settings.json"
+        sb2() {
+            env -i PATH="$BASEPATH" HOME="$S2/home" TOKRED_HOME="$S2/th" TOKRED_DATA_DIR="$S2/data" \
+                CLAUDE_CONFIG_DIR="$S2/claude" LANG=C TERM=dumb NO_COLOR=1 TOKRED_RELEASES_URL="$RELEASES_API" "$@"
+        }
+        RC=0
+        sb2 sh "$DL/install.sh" --yes --version "$VERSION" --no-modify-path --no-alias --no-proxy --no-configure \
+            >"$OUT/swap-install.out" 2>&1 </dev/null || RC=$?
+        rc_is 0 "a second install.sh, with folders of its own, succeeded" swap-install
+        SWAP="$S2/th/bin/tokred"
+        for target in "$OTHER" "$VERSION"; do
+            RC=0
+            sb2 "$SWAP" update --version "$target" >"$OUT/swap-$target.out" 2>&1 </dev/null || RC=$?
+            rc_is 0 "tokred update --version $target succeeds" "swap-$target"
+            sb2 "$SWAP" --version >"$OUT/swap-$target.version" 2>&1 </dev/null || die "the binary does not run after the update to $target"
+            assert_has "$OUT/swap-$target.version" "$target" "the replaced binary reports $target"
+        done
+    fi
+fi
+
 # ------------------------------------------------------------------ 7. uninstall, both ways
 
 # assert_clean LABEL [edited-agent]: nothing of tokred is left. With the second argument the one agent

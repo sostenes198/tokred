@@ -18,6 +18,7 @@ scripts/release.sh promote 0.2.0-rc.1 ──► tag v0.2.0 ──► workflow Re
 2. **Compilar.** A tag inicia o workflow `Release`, que compila os arquivos e publica um **pre-release** no GitHub.
 3. **Testar o release publicado.** Quando o `Release` termina com sucesso, o `Release smoke` instala o tokred a partir dele em sistemas reais (veja Smoke test do release, abaixo).
 4. **Promover.** Com o smoke test verde, `scripts/release.sh promote 0.2.0-rc.1` define a versão final `0.2.0` sobre o mesmo commit, faz o commit, cria a tag `v0.2.0` e dá push. Os mesmos dois workflows rodam de novo para o release final.
+5. **Limpar.** Quando o `Release smoke` do release final está verde, o último job apaga os candidatos a release dessa versão (`v0.2.0-rc.*`), com seus releases e tags. Um candidato só existe até a versão final sair; os candidatos de outras versões nunca são tocados.
 
 Não anuncie uma versão (uma mensagem, um link no README) enquanto algum job do `Release smoke` da tag dela estiver vermelho.
 
@@ -101,7 +102,8 @@ Os arquivos são `tests/release/smoke.sh` (`sh` POSIX), `smoke.ps1` (Windows Pow
 | 3. Tráfego pelo proxy | Contra o upstream falso: requisições de loop principal e de subagente em streaming voltam como os bytes do falso; o link do dashboard funciona uma vez; a API de sessões e o detalhe de volta estão certos; `/metrics` é HTML; um `Host` errado é 421; `stats --json` tem a seção do proxy; desligar a gravação de conteúdo é aplicado |
 | 4. `unconfigure` e `configure` | O unconfigure remove hooks e agentes não editados e mantém as chaves do usuário e a URL do proxy; o configure traz tudo de volta |
 | 5. Chave do proxy | `proxy disable` remove só a URL do tokred e deixa a de terceiros; o wrapper não religa; `proxy enable` mantém a porta salva |
-| 6. Update | Com só pre-releases publicados, `tokred update` sai com 1 e diz que não existe release estável. Quando existe um release estável, verifica que o comando sai com 0 e informa que está atualizado ou que há versão mais nova; se o binário foi substituído corretamente não é verificado |
+| 6. Update | Com só pre-releases publicados, `tokred update` sai com 1 e diz que não existe release estável. Quando existe um release estável, verifica que o comando sai com 0 e informa que está atualizado ou que há versão mais nova; o binário não é substituído aqui |
+| 6b. Substituir o binário | Uma segunda instalação, com pastas próprias, executa `tokred update --version` para outra versão publicada e volta, e o binário precisa rodar e informar a versão certa depois de cada troca (é pulado quando não há outra versão publicada para trocar) |
 | 7. Desinstalação, duas vezes | Com o binário instalado e, depois de reinstalar, com o script de desinstalação do release: nada sobra, o `settings.json` é igual ao documento inicial e os perfis ficam byte a byte como o usuário tinha. Duas coisas ficam por desenho e são impressas como notas: `settings.json.tokred.bak` e uma pasta `agents/` vazia (um agente que o usuário editou também é mantido) |
 | 8. Limpeza | Sempre (um trap): o proxy e o upstream falso são parados. Depois de uma falha, as últimas 30 linhas de cada log são impressas |
 
@@ -116,12 +118,12 @@ Opções, documentadas no topo de cada script: `SMOKE_TAG`, `SMOKE_REPO`, `SMOKE
 
 ### O que ele não consegue cobrir
 
-O próprio Claude Code com um login real: as requisições têm o formato das do Claude Code e vão para uma API falsa, então tráfego de assinatura, saída real do modelo e a inicialização do Claude Code não são testados. Ele também não testa um binário que ainda não foi publicado (os testes do instalador em [development](development.pt-BR.md) cobrem os scripts) nem o ramo do `tokred update` que substitui o binário.
+O próprio Claude Code com um login real: as requisições têm o formato das do Claude Code e vão para uma API falsa, então tráfego de assinatura, saída real do modelo e a inicialização do Claude Code não são testados. Ele também não testa um binário que ainda não foi publicado (os testes do instalador em [development](development.pt-BR.md) cobrem os scripts).
 
 ## Quando algo dá errado
 
 - **Um job de compilação falha.** Corrija na `main` e corte um novo RC. Nada é publicado se a falha foi antes do job `host`; para reaproveitar uma tag que nunca foi publicada, apague-a (`git push origin :refs/tags/v0.2.0-rc.1` e `git tag -d v0.2.0-rc.1`).
-- **Um release ruim saiu.** Publique uma nova versão de correção; o `latest` passa a apontar para ela. Para retirar o ruim, apague o release no GitHub (a tag pode ficar ou sair).
+- **Um release ruim saiu.** Publique uma nova versão de correção; o `latest` passa a apontar para ela. Para retirar o ruim, apague o release no GitHub (a tag pode ficar ou sair). Os candidatos a release de uma versão são apagados pela pipeline quando o release final dela passa no smoke test.
 - **Um script de instalação tem um bug.** Corrija na `main` e corte um novo release; a cópia de `install/` na `main` entrega a correção na hora para quem usa essa URL.
 
 ## O que o `dist-workspace.toml` controla

@@ -597,6 +597,58 @@ claude 'one' 'two words' 'a`$HOME'
         Assert-True ((((& $exe --version) -join ' ').Trim()).StartsWith('tokred ')) 'the binary still runs after tokred update' 'the binary does not run after tokred update'
     }
 
+    # ---------------------------------------------------------- 6b. update replaces the binary
+    # `tokred update --version` really swaps the running binary (on Windows an .exe in use cannot be
+    # overwritten). A second installation, with folders of its own, goes to another published version
+    # and back, and must run after each move.
+    Step '6b. tokred update --version replaces the binary (to another published version and back)'
+    if ($env:SMOKE_SKIP_UPDATE -eq '1') { Skip 'step 6b skipped (SMOKE_SKIP_UPDATE=1)' }
+    else {
+        $listFile = Join-Path $out 'releases.json'
+        $listArgs = @('-H', 'User-Agent: tokred-release-smoke')
+        if ($env:GITHUB_TOKEN) { $listArgs += @('-H', "Authorization: Bearer $($env:GITHUB_TOKEN)") }
+        [void](Http-Code ($listArgs + @('-o', $listFile, "https://api.github.com/repos/$Repo/releases?per_page=30")))
+        $other = ''
+        try {
+            # The newest other published version that has binaries (v0.1.0-rc.1 has no `update --version`).
+            $releases = @([System.IO.File]::ReadAllText($listFile) | ConvertFrom-Json)
+            foreach ($release in $releases) {
+                if ($release.draft -or $release.tag_name -eq $tag -or $release.tag_name -eq 'v0.1.0-rc.1' -or -not $release.assets) { continue }
+                $other = "$($release.tag_name)".TrimStart('v')
+                break
+            }
+        }
+        catch { $other = '' }
+        if (-not $other) { Skip 'no other published version to switch to (or the GitHub API did not answer): step 6b not checked' }
+        else {
+            $swap = Join-Path $work 'swap'
+            foreach ($name in @('home', 'data', 'claude')) { New-Item -ItemType Directory -Force -Path (Join-Path $swap $name) | Out-Null }
+            # `update` re-applies the configuration afterwards, which needs a Claude Code folder to configure.
+            [System.IO.File]::WriteAllText((Join-Path $swap 'claude\settings.json'), "{}`n", (New-Object System.Text.UTF8Encoding($false)))
+            $saved = @{}
+            foreach ($name in @('TOKRED_HOME', 'TOKRED_DATA_DIR', 'CLAUDE_CONFIG_DIR', 'TOKRED_OFFLINE', 'TOKRED_RELEASES_URL')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
+            try {
+                $env:TOKRED_HOME = Join-Path $swap 'th'
+                $env:TOKRED_DATA_DIR = Join-Path $swap 'data'
+                $env:CLAUDE_CONFIG_DIR = Join-Path $swap 'claude'
+                $env:TOKRED_OFFLINE = $null
+                $env:TOKRED_RELEASES_URL = $releasesApi
+                $script:rc = Invoke-Native (Join-Path $out 'swap-install.out') $psHost @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $dl 'install.ps1'), '-Yes', '-Version', $version, '-NoModifyPath', '-NoAlias', '-NoProxy', '-NoConfigure')
+                Rc-Is 0 'a second install.ps1, with folders of its own, succeeded' 'swap-install'
+                $swapExe = Join-Path $swap 'th\bin\tokred.exe'
+                foreach ($target in @($other, $version)) {
+                    $script:rc = Invoke-Native (Join-Path $out "swap-$target.out") $swapExe @('update', '--version', $target)
+                    Rc-Is 0 "tokred update --version $target succeeds" "swap-$target"
+                    $reported = (((& $swapExe --version) -join ' ').Trim())
+                    Assert-True ($reported -eq "tokred $target") "the replaced binary reports $target" "the replaced binary reports '$reported', expected 'tokred $target'"
+                }
+            }
+            finally {
+                foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }
+            }
+        }
+    }
+
     # ---------------------------------------------------------- 7. uninstall, both ways
     Step '7a. uninstall with the installed binary: tokred uninstall'
     Tk 'uninstall1' @('uninstall')

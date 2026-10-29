@@ -18,6 +18,7 @@ scripts/release.sh promote 0.2.0-rc.1 ──► tag v0.2.0 ──► Release wor
 2. **Build.** The tag starts the `Release` workflow, which builds the archives and publishes a GitHub **pre-release**.
 3. **Test the published release.** When `Release` succeeds, `Release smoke` installs tokred from it on real systems ([below](#release-smoke-test)).
 4. **Promote.** When the smoke test is green, `scripts/release.sh promote 0.2.0-rc.1` sets the final version `0.2.0` on the same commit, commits, tags `v0.2.0` and pushes. The same two workflows run again for the final release.
+5. **Clean up.** When `Release smoke` is green for the final release, its last job deletes the release candidates of that version (`v0.2.0-rc.*`), their releases and tags. A candidate lives only until its final version is out; other versions' candidates are never touched.
 
 Do not announce a release (a message, a link in the README) while any job of `Release smoke` for its tag is red.
 
@@ -101,7 +102,8 @@ The files are `tests/release/smoke.sh` (POSIX `sh`), `smoke.ps1` (Windows PowerS
 | 3. Traffic through the proxy | Against the fake upstream: streamed main-loop and subagent requests come back as the fake's bytes; the dashboard link works once; the sessions API and the turn detail are right; `/metrics` is HTML; a wrong `Host` is 421; `stats --json` has the proxy section; turning content recording off is applied |
 | 4. `unconfigure` and `configure` | Unconfigure removes hooks and unedited agents and keeps the user's keys and the proxy URL; configure brings it all back |
 | 5. Proxy switch | `proxy disable` removes only tokred's URL and leaves a foreign one; the wrapper does not re-enable; `proxy enable` keeps the saved port |
-| 6. Update | With only pre-releases published, `tokred update` exits 1 and says no stable release exists. Once a stable release exists, it checks that the command exits 0 and reports an up-to-date or newer version; whether the binary was replaced correctly is not verified |
+| 6. Update | With only pre-releases published, `tokred update` exits 1 and says no stable release exists. Once a stable release exists, it checks that the command exits 0 and reports an up-to-date or newer version; the binary is not replaced here |
+| 6b. Replace the binary | A second installation, with folders of its own, runs `tokred update --version` to another published version and back, and the binary must run and report the right version after each move (skipped when there is no other published version to switch to) |
 | 7. Uninstall, twice | With the installed binary and, after a reinstall, with the release's uninstall script: nothing is left, `settings.json` equals the starting document and profiles are byte-for-byte what the user had. Two things stay by design and are printed as notes: `settings.json.tokred.bak` and an empty `agents/` folder (an agent the user edited is kept too) |
 | 8. Cleanup | Always (a trap): the proxy and the fake upstream are stopped. After a failure, the last 30 lines of every log are printed |
 
@@ -116,12 +118,12 @@ Knobs, documented at the top of each script: `SMOKE_TAG`, `SMOKE_REPO`, `SMOKE_P
 
 ### What it cannot cover
 
-Claude Code itself with a real login: requests are shaped like Claude Code's and sent to a fake API, so subscription traffic, real model output and Claude Code's start-up are not tested. It cannot test a binary that is not published yet (the installer tests of [development](development.md) cover the scripts), or the branch of `tokred update` that replaces the binary.
+Claude Code itself with a real login: requests are shaped like Claude Code's and sent to a fake API, so subscription traffic, real model output and Claude Code's start-up are not tested. It cannot test a binary that is not published yet (the installer tests of [development](development.md) cover the scripts).
 
 ## When something goes wrong
 
 - **A build job fails.** Fix it on `main`, then cut a new RC. Nothing is published if the failure was before the `host` job; to reuse a tag that was never published, delete it (`git push origin :refs/tags/v0.2.0-rc.1` and `git tag -d v0.2.0-rc.1`).
-- **A bad release is out.** Publish a new patch version; `latest` then points to it. To pull the bad one, delete the GitHub release (the tag can stay or go).
+- **A bad release is out.** Publish a new patch version; `latest` then points to it. To pull the bad one, delete the GitHub release (the tag can stay or go). The release candidates of a version are deleted by the pipeline once its final release passes the smoke test.
 - **An install script has a bug.** Fix it on `main` and cut a new release; the `main` copy of `install/` serves the fix at once for people who use that URL.
 
 ## What `dist-workspace.toml` controls
