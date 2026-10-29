@@ -263,6 +263,10 @@ else {
     if ($LASTEXITCODE -eq 0) {
         $configured = $true
     }
+    elseif ($LASTEXITCODE -eq 2) {
+        # The plan was declined: nothing was changed, and the proxy is left alone too.
+        Write-Host '    configure was declined: leaving Claude Code and the proxy alone'
+    }
     else {
         Write-Warning "tokred is installed, but 'tokred configure' did not finish (is Claude Code installed?). Run it again when you are ready."
     }

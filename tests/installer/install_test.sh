@@ -259,6 +259,44 @@ install_in_sandbox --yes --no-configure || die "install --no-configure failed"
 assert_lacks "$S_ROOT/install.out" "Running tokred proxy enable"
 ok "--no-configure skips the proxy step too"
 
+# A declined or failed `configure` stops the proxy step too. The release holds a fake tokred
+# that logs its arguments and exits with $FAKE_CONFIGURE_EXIT for `configure`.
+FAKE_REL="$WORK/fake-release"
+mkdir -p "$FAKE_REL/pack/tokred-$TARGET"
+cat >"$FAKE_REL/pack/tokred-$TARGET/tokred" <<'EOF'
+#!/bin/sh
+echo "$*" >>"$FAKE_LOG"
+if [ "$1" = "configure" ]; then exit "${FAKE_CONFIGURE_EXIT:-0}"; fi
+exit 0
+EOF
+chmod +x "$FAKE_REL/pack/tokred-$TARGET/tokred"
+tar -czf "$FAKE_REL/$ASSET" -C "$FAKE_REL/pack" "tokred-$TARGET"
+printf '%s  %s\n' "$(sha256_of "$FAKE_REL/$ASSET")" "$ASSET" >"$FAKE_REL/$ASSET.sha256"
+
+for code in 0 1 2; do
+    new_sandbox
+    FAKE_LOG="$S_ROOT/fake.log"
+    : >"$FAKE_LOG"
+    in_sandbox TOKRED_RELEASE_BASE_URL="file://$FAKE_REL" FAKE_LOG="$FAKE_LOG" FAKE_CONFIGURE_EXIT="$code" \
+        sh "$INSTALL_SH" --yes --port "$PORT" </dev/null >"$S_ROOT/install.out" 2>&1 || die "the install failed with configure exit $code"
+    case "$code" in
+        0)
+            assert_has "$FAKE_LOG" "proxy enable --port $PORT --yes"
+            assert_lacks "$S_ROOT/install.out" "did not finish"
+            ;;
+        1)
+            assert_lacks "$FAKE_LOG" "proxy"
+            assert_has "$S_ROOT/install.out" "'tokred configure' did not finish"
+            ;;
+        2)
+            assert_lacks "$FAKE_LOG" "proxy"
+            assert_lacks "$S_ROOT/install.out" "did not finish"
+            assert_has "$S_ROOT/install.out" "configure was declined"
+            ;;
+    esac
+done
+ok "the proxy step runs only after a configure that finished: a declined (2) or failed one skips it"
+
 # ------------------------------------------------------------ 5. the switches
 
 new_sandbox

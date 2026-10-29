@@ -129,6 +129,9 @@ fn enable(
     let text = set_key(&text, "proxy", "enabled", toml::Value::Boolean(true))?;
     let config = Config::from_toml_str(&text)?;
 
+    // Saved before the restart: a proxy that is started again (by us, or by a user service that
+    // restarts it when it exits) must find the new port in the file.
+    save(ctx, &text)?;
     restart_on_another_port(io, ctx, port)?;
     let content = if record {
         "recorded for the dashboard"
@@ -139,7 +142,7 @@ fn enable(
         "  address: {}\n  conversation content: {content}\n",
         config.proxy.bind
     );
-    apply(io, ctx, &text, &config, true, &details)
+    reconcile_and_report(io, ctx, &config, true, &details)
 }
 
 /// `proxy disable`: sets `[proxy] enabled = false`, then reconciles Claude Code's settings at once
@@ -147,7 +150,8 @@ fn enable(
 fn disable(io: &mut Io, ctx: &ProxyCtx<'_>) -> Result<()> {
     let existing = std::fs::read_to_string(ctx.env.data.config_path()).unwrap_or_default();
     let text = set_key(&existing, "proxy", "enabled", toml::Value::Boolean(false))?;
-    apply(io, ctx, &text, ctx.config, false, "")
+    save(ctx, &text)?;
+    reconcile_and_report(io, ctx, ctx.config, false, "")
 }
 
 /// The port to use: the one given, else the answer of the person asked (the saved port
@@ -218,22 +222,24 @@ fn restart_on_another_port(io: &mut Io, ctx: &ProxyCtx<'_>, port: u16) -> Result
     Ok(())
 }
 
-/// Saves `text` as `tokred.toml`, then reconciles Claude Code's settings with `enabled` (using
-/// `config`, which is what `text` says) and reports what happened. `details` are lines that
-/// follow the `[proxy] enabled` line.
-fn apply(
+/// Writes `text` as `tokred.toml`.
+fn save(ctx: &ProxyCtx<'_>, text: &str) -> Result<()> {
+    let path = ctx.env.data.config_path();
+    std::fs::create_dir_all(ctx.env.data.root())
+        .with_context(|| format!("could not create {}", ctx.env.data.root().display()))?;
+    std::fs::write(&path, text).with_context(|| format!("could not write {}", path.display()))
+}
+
+/// Reconciles Claude Code's settings with `enabled` (using `config`, which is what `tokred.toml`
+/// now says) and reports what happened. `details` are lines that follow the `[proxy] enabled`
+/// line.
+fn reconcile_and_report(
     io: &mut Io,
     ctx: &ProxyCtx<'_>,
-    text: &str,
     config: &Config,
     enabled: bool,
     details: &str,
 ) -> Result<()> {
-    let path = ctx.env.data.config_path();
-    std::fs::create_dir_all(ctx.env.data.root())
-        .with_context(|| format!("could not create {}", ctx.env.data.root().display()))?;
-    std::fs::write(&path, text).with_context(|| format!("could not write {}", path.display()))?;
-
     let report = initialize::reconcile(ctx.env, config, ctx.exe, enabled, ctx.settle)?;
     let mut shown = format!("[proxy] enabled = {enabled}\n{details}");
     for action in &report.actions {
@@ -1188,6 +1194,21 @@ mod tests {
         assert!(out.contains("The tokred proxy stopped."), "{out}");
         assert!(stopped.load(Ordering::SeqCst));
         assert_eq!(saved(&sb).proxy.bind, format!("127.0.0.1:{new}"));
+    }
+
+    #[test]
+    fn the_new_port_is_saved_before_the_old_proxy_is_stopped() {
+        let sb = claude_sandbox("{}");
+        // A proxy that acknowledges the shutdown but keeps running: the stop fails.
+        let (old, _) = fake_proxy_with(files(&sb.env).secret().unwrap(), false);
+        files(&sb.env).write_pid(1234, old).unwrap();
+        let new = free_port();
+        let given = (Some(new), Some(false));
+        let (result, _) = enable_with(&sb, &config_on(old), false, "", given, &all_free);
+        assert!(format!("{:#}", result.unwrap_err()).contains("did not stop"));
+        let config = saved(&sb);
+        assert_eq!(config.proxy.bind, format!("127.0.0.1:{new}"));
+        assert!(config.proxy.enabled);
     }
 
     #[test]

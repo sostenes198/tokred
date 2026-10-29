@@ -139,6 +139,7 @@ O que conferir:
 Você precisa do seu próprio login (uma chave de API, ou o `claude` logado numa assinatura). Usar um `CLAUDE_CONFIG_DIR` descartável significa logar de novo dentro dele; é de propósito.
 
 ```sh
+tokred proxy enable --yes   # os recursos ficam desligados até isto (a pasta de dados do sandbox, então nada real muda)
 tokred claude                # igual ao `claude`, pelo proxy, só nesta execução
 # trabalhe por um minuto, com pelo menos um subagente (por exemplo, peça para "explorar o repositório")
 tokred routing status        # decisões das requisições dos subagentes

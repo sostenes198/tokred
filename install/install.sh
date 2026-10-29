@@ -343,10 +343,14 @@ else
         fi
         set -- "$@" --yes
     fi
-    if run_tokred "$@"; then CONFIGURED=1; fi
-    if [ "$CONFIGURED" != "1" ]; then
-        warn "tokred is installed, but 'tokred configure' did not finish (is Claude Code installed?). Run it again when you are ready."
-    fi
+    STATUS=0
+    run_tokred "$@" || STATUS=$?
+    case "$STATUS" in
+        0) CONFIGURED=1 ;;
+        # The plan was declined: nothing was changed, and the proxy is left alone too.
+        2) say "    configure was declined: leaving Claude Code and the proxy alone" ;;
+        *) warn "tokred is installed, but 'tokred configure' did not finish (is Claude Code installed?). Run it again when you are ready." ;;
+    esac
 fi
 
 # The proxy is a separate step: `tokred configure` only touches hooks and agents.

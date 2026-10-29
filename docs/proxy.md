@@ -18,6 +18,8 @@ tokred proxy status      # is it running, and does this terminal use it?
 tokred proxy stop
 ```
 
+The proxy features are off until `tokred proxy enable` has been run (the install script runs it, unless you pass `--no-proxy`; see [the switch](#the-switch-proxy-enabled)): while they are off `tokred claude` runs `claude` directly.
+
 `tokred claude` passes every argument to `claude` unchanged and exits with `claude`'s exit code. Nothing is written to Claude Code's settings. If the proxy cannot start, or `ANTHROPIC_BASE_URL` already points to another gateway, Claude Code runs exactly as before and tokred says why on stderr.
 
 ### The switch: `[proxy] enabled`

@@ -18,6 +18,8 @@ tokred proxy status      # está rodando? este terminal está usando?
 tokred proxy stop
 ```
 
+Os recursos do proxy ficam desligados até o `tokred proxy enable` ser executado (o script de instalação o executa, a menos que você passe `--no-proxy`; veja [a chave](#a-chave-proxy-enabled)): enquanto estiverem desligados, o `tokred claude` executa o `claude` direto.
+
 O `tokred claude` repassa todos os argumentos ao `claude` sem alteração e sai com o código de saída do `claude`. Nada é gravado nas configurações do Claude Code. Se o proxy não subir, ou se o `ANTHROPIC_BASE_URL` já apontar para outro gateway, o Claude Code roda exatamente como antes e o tokred explica o motivo no stderr.
 
 ### A chave: `[proxy] enabled`

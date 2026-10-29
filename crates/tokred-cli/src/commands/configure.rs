@@ -14,11 +14,15 @@ use tokred_install::{
 };
 
 use super::data::FIRST_CONFIGURED_AT;
-use super::{SystemClock, existing_store, open_store, select_claude_dir, show};
+use super::{ChildExit, SystemClock, existing_store, open_store, select_claude_dir, show};
 use crate::binary::{self, BinaryPath};
 use crate::env::Env;
 use crate::io::Io;
 use crate::logging;
+
+/// The exit code of a plan the user declined (the same as `tokred uninstall`): the install
+/// scripts read it as "stop, change nothing more".
+pub const DECLINED: i32 = 2;
 
 /// `tokred configure`: hooks and agents, plus what is neutral (the database and the default
 /// `tokred.toml`). Nothing about the proxy is decided here: that is `tokred proxy enable`.
@@ -54,7 +58,7 @@ pub fn run(
 
     if !yes && !confirmed(io)? {
         writeln!(io.out(), "Nothing was changed.")?;
-        return Ok(());
+        return Err(ChildExit(DECLINED).into());
     }
 
     fs.create_dir_all(env.data.root())?;
@@ -270,7 +274,8 @@ mod tests {
             let sb = Sandbox::new();
             sb.write_settings("{}");
             let (result, out) = configure(&sb, false, false, answer);
-            result.unwrap();
+            let declined = result.unwrap_err();
+            assert_eq!(declined.downcast_ref::<ChildExit>(), Some(&ChildExit(2)));
             assert!(out.contains("Nothing was changed."), "{answer:?}");
             assert!(!sb.env.data.root().exists());
             assert_eq!(std::fs::read_to_string(sb.settings()).unwrap(), "{}");

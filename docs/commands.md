@@ -38,7 +38,7 @@ Integrates tokred with Claude Code: the hooks and the agents, plus what is neutr
 
 1. Finds the Claude Code folder, in this order: `--claude-dir`, the value saved in `tokred.toml` (`[claude] dir`), `$CLAUDE_CONFIG_DIR`, `~/.claude` (`%USERPROFILE%\.claude` on Windows). A folder is valid when it exists and contains `settings.json` or `projects/`. An explicit `--claude-dir` that is not valid is an error. If nothing is found, an interactive terminal is asked for the path; otherwise the command fails and suggests `--claude-dir`.
 2. Detects rtk and tells you the two will coexist.
-3. Prints the **plan**: hooks to add (`+`), update (`~`) or keep (`=`), agents to create, update or leave alone, and the backup it will make. It asks for confirmation; `--yes` skips the question (required when stdin is not a terminal).
+3. Prints the **plan**: hooks to add (`+`), update (`~`) or keep (`=`), agents to create, update or leave alone, and the backup it will make. It asks for confirmation; `--yes` skips the question (required when stdin is not a terminal). Answering no changes nothing and exits with code 2, which the install script reads as "stop": it then does not run `tokred proxy enable` either.
 4. Applies it: creates the data folder, database and `tokred.toml`, merges `settings.json` (backup in `settings.json.tokred.bak`, only the last one is kept), and installs the agents.
 
 Running it again is safe: the result is the same. If `settings.json` is not valid JSON the command aborts and **writes nothing**. `--force` overwrites agent files even if you edited them (otherwise your version is kept and the new one is written to `tokred-x.md.new`).

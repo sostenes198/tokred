@@ -139,6 +139,7 @@ What to check:
 You need your own login (an API key, or `claude` logged into a subscription). Using a throwaway `CLAUDE_CONFIG_DIR` means logging in again inside it; that is intended.
 
 ```sh
+tokred proxy enable --yes   # the features are off until this (the sandbox's data folder, so nothing real changes)
 tokred claude                # same as `claude`, through the proxy, for this run only
 # work for a minute, with at least one subagent (e.g. ask it to "explore the repo")
 tokred routing status        # decisions for the subagent requests
