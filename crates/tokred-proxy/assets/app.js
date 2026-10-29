@@ -717,6 +717,20 @@
     };
   }
 
+  var MISS_LABELS = {
+    compaction: 'the conversation was compacted',
+    idle_ttl: 'the cache expired while idle',
+    model_changed: 'first request on this model',
+    tools_changed: 'the tools changed',
+    system_changed: 'the system prompt changed',
+    thinking_changed: 'the thinking settings changed',
+    unknown: 'cause unknown',
+  };
+
+  function missLabel(cause) {
+    return Object.prototype.hasOwnProperty.call(MISS_LABELS, cause) ? MISS_LABELS[cause] : cause;
+  }
+
   function createCard(key) {
     var badge = h('span', 'badge');
     var agent = h('span', 'agent');
@@ -810,6 +824,10 @@
     metaParts.push('TTFB ' + fmtDuration(t.ttfb_ms));
     metaParts.push('in ' + fmtTokens(u.input) + ' · out ' + fmtTokens(u.output) + ' · cache read ' + fmtTokens(u.cache_read) + ' · cache write ' + fmtTokens(u.cache_write));
     metaParts.push('cost ' + fmtCost(t.cost_usd));
+    // Requests of one model with one system prompt are a series with a cache of its own: a session can
+    // interleave several (the conversation and side queries), and each is compared only with itself.
+    if (t.series) metaParts.push('series ' + str(t.series));
+    if (t.miss_cause) metaParts.push('cache miss: ' + missLabel(str(t.miss_cause)));
     card.meta.textContent = metaParts.join('  |  ');
 
     var tools = Array.isArray(t.tools) ? t.tools.map(str) : [];

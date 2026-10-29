@@ -46,8 +46,6 @@ Ele também define um wrapper `claude` no perfil do seu shell, que mantém as co
 
 Pré-releases só são instaladas quando você pede a versão delas. Para escolher uma versão, e para todas as outras opções, veja [instalação](docs/installation.pt-BR.md).
 
-> Até a primeira release estável ser publicada, as URLs `latest` acima (e as de desinstalação, abaixo) retornam 404. Nos comandos, troque `https://github.com/sostenes198/tokred/releases/latest/download/` por `https://raw.githubusercontent.com/sostenes198/tokred/main/install/` e indique a versão a instalar como descrito em [instalação](docs/installation.pt-BR.md).
-
 ## Primeiros passos
 
 Confira o que está instalado:

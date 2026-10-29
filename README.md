@@ -46,8 +46,6 @@ It also defines a `claude` wrapper in your shell profile that keeps Claude Code'
 
 Pre-releases are installed only when you ask for their version. To pick a version, and for every other option, see [installation](docs/installation.md).
 
-> Until the first stable release is published, the `latest` URLs above (and the uninstall ones below) return 404. In the commands, replace `https://github.com/sostenes198/tokred/releases/latest/download/` with `https://raw.githubusercontent.com/sostenes198/tokred/main/install/`, and name the version to install as described in [installation](docs/installation.md).
-
 ## Quick start
 
 Check what is installed:

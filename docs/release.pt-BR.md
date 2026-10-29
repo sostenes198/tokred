@@ -18,7 +18,7 @@ scripts/release.sh promote 0.2.0-rc.1 ──► tag v0.2.0 ──► workflow Re
 2. **Compilar.** A tag inicia o workflow `Release`, que compila os arquivos e publica um **pre-release** no GitHub.
 3. **Testar o release publicado.** Quando o `Release` termina com sucesso, o `Release smoke` instala o tokred a partir dele em sistemas reais (veja Smoke test do release, abaixo).
 4. **Promover.** Com o smoke test verde, `scripts/release.sh promote 0.2.0-rc.1` define a versão final `0.2.0` sobre o mesmo commit, faz o commit, cria a tag `v0.2.0` e dá push. Os mesmos dois workflows rodam de novo para o release final.
-5. **Limpar.** Quando o `Release smoke` do release final está verde, o último job apaga os candidatos a release dessa versão (`v0.2.0-rc.*`), com seus releases e tags. Um candidato só existe até a versão final sair; os candidatos de outras versões nunca são tocados.
+5. **Limpar.** Quando o `Release smoke` do release final está verde, o último job apaga os pre-releases dessa versão (`v0.2.0-rc.*`) e de qualquer versão mais antiga que ainda exista, com as tags. Um candidato só existe até sair uma versão final pelo menos tão nova quanto ele; os candidatos de uma versão mais nova nunca são tocados.
 
 Não anuncie uma versão (uma mensagem, um link no README) enquanto algum job do `Release smoke` da tag dela estiver vermelho.
 

@@ -18,7 +18,7 @@ scripts/release.sh promote 0.2.0-rc.1 ──► tag v0.2.0 ──► Release wor
 2. **Build.** The tag starts the `Release` workflow, which builds the archives and publishes a GitHub **pre-release**.
 3. **Test the published release.** When `Release` succeeds, `Release smoke` installs tokred from it on real systems ([below](#release-smoke-test)).
 4. **Promote.** When the smoke test is green, `scripts/release.sh promote 0.2.0-rc.1` sets the final version `0.2.0` on the same commit, commits, tags `v0.2.0` and pushes. The same two workflows run again for the final release.
-5. **Clean up.** When `Release smoke` is green for the final release, its last job deletes the release candidates of that version (`v0.2.0-rc.*`), their releases and tags. A candidate lives only until its final version is out; other versions' candidates are never touched.
+5. **Clean up.** When `Release smoke` is green for the final release, its last job deletes the pre-releases of that version (`v0.2.0-rc.*`) and of any older version that is still around, with their tags. A candidate lives only until a final version at least as new is out; the candidates of a newer version are never touched.
 
 Do not announce a release (a message, a link in the README) while any job of `Release smoke` for its tag is red.
 

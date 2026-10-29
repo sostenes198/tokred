@@ -36,8 +36,6 @@ curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/sostenes
 $env:TOKRED_VERSION = 'X.Y.Z'; irm https://raw.githubusercontent.com/sostenes198/tokred/main/install/install.ps1 | iex
 ```
 
-Até a primeira release estável ser publicada, as URLs `latest` retornam 404, tanto para o script de instalação quanto para o de desinstalação. Use os comandos desta seção e, nos comandos de desinstalação, troque `https://github.com/sostenes198/tokred/releases/latest/download/` por `https://raw.githubusercontent.com/sostenes198/tokred/main/install/`.
-
 ## O que o instalador faz
 
 1. Detecta sua plataforma: macOS ou Linux (musl, então roda em qualquer distribuição) em x86_64 ou aarch64, ou Windows em x86_64 (o Windows em ARM roda esse build por emulação).

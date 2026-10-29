@@ -6,6 +6,14 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+### Corrigido
+
+- O relatório de misses de cache não conta mais as alternâncias entre a conversa e as consultas laterais do Claude Code como misses. Uma sessão pode intercalar requisições de vários modelos e prompts de sistema que o proxy enxerga como o loop principal, cada uma com um cache próprio, e o proxy comparava cada uma com a última de outro tipo (a maior parte dos misses de "compaction" e "model_changed" era isso). Agora cada requisição é comparada com a anterior da própria série (mesmo modelo e prompt de sistema); a primeira requisição de uma série continua sendo um miss, com a sua causa.
+
+### Alterado
+
+- O dashboard mostra, em cada requisição, a série dela e a causa de um miss do cache de prompt; o relatório de métricas explica cada causa e a comparação por série.
+
 ## [1.0.0] - 2026-10-29
 
 ### Corrigido

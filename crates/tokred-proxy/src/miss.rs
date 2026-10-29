@@ -92,7 +92,10 @@ pub fn explain_cache_miss(previous: Option<&MainTurn>, current: &MainTurn) -> Op
     } else {
         TTL_5M
     };
-    let cause = if current.compacted || current.message_count < previous.message_count {
+    // A model has a cache of its own, so a shorter conversation only says "compacted" when the
+    // previous request was on the same model.
+    let shorter = current.model == previous.model && current.message_count < previous.message_count;
+    let cause = if current.compacted || shorter {
         MissCause::Compaction
     } else if current.at.0 - previous.at.0 > ttl {
         MissCause::IdleTtl
@@ -110,12 +113,22 @@ pub fn explain_cache_miss(previous: Option<&MainTurn>, current: &MainTurn) -> Op
     Some(cause)
 }
 
-/// The last main-loop request of each session, for at most `cap` sessions (the least recently
-/// seen session is forgotten first).
+/// Lanes remembered per session (the least recently used one is forgotten first).
+const LANES_PER_SESSION: usize = 8;
+
+/// The recent main-loop requests of each session, one per lane, for at most `cap` sessions (the
+/// least recently seen session is forgotten first).
+///
+/// A lane is a model with a system prompt. Claude Code can send several kinds of request that the
+/// proxy sees as the main loop (the conversation and side queries that reuse its context), each
+/// with its own cache. Comparing a request with the last request of *another* lane would call
+/// every switch between them a miss, so a request is compared with the previous one of its own
+/// lane; only the first request of a lane has to look elsewhere (see [`SessionTracker::observe`]).
 #[derive(Debug)]
 pub(crate) struct SessionTracker {
     cap: usize,
-    sessions: HashMap<String, MainTurn>,
+    /// Per session, the last request of each lane, the most recently used last.
+    sessions: HashMap<String, Vec<MainTurn>>,
 }
 
 impl SessionTracker {
@@ -127,20 +140,36 @@ impl SessionTracker {
         }
     }
 
-    /// Explains `turn` against the session's previous main request and remembers it.
+    /// Explains `turn` against the previous request of its own lane (same model and system
+    /// prompt), else the last one on the same model (the system prompt changed), else the last one
+    /// of the session (the model changed), and remembers it.
     pub(crate) fn observe(&mut self, session: &str, mut turn: MainTurn) -> Option<MissCause> {
-        let previous = self.sessions.get(session);
-        turn.uses_1h_cache |= previous.is_some_and(|p| p.uses_1h_cache);
-        let cause = explain_cache_miss(previous, &turn);
-        if previous.is_none() && self.sessions.len() >= self.cap {
+        if !self.sessions.contains_key(session) && self.sessions.len() >= self.cap {
             let oldest = self
                 .sessions
                 .iter()
-                .min_by_key(|(_, turn)| turn.at)
+                .filter_map(|(id, lanes)| lanes.last().map(|last| (id, last.at)))
+                .min_by_key(|(_, at)| *at)
                 .map(|(id, _)| id.clone());
             oldest.map(|id| self.sessions.remove(&id));
         }
-        self.sessions.insert(session.to_owned(), turn);
+        let lanes = self.sessions.entry(session.to_owned()).or_default();
+        turn.uses_1h_cache |= lanes.iter().any(|lane| lane.uses_1h_cache);
+        let own = lanes
+            .iter()
+            .rposition(|lane| lane.model == turn.model && lane.system_hash == turn.system_hash);
+        let previous = own
+            .and_then(|at| lanes.get(at))
+            .or_else(|| lanes.iter().rev().find(|lane| lane.model == turn.model))
+            .or_else(|| lanes.last());
+        let cause = explain_cache_miss(previous, &turn);
+        if let Some(at) = own {
+            lanes.remove(at);
+        }
+        lanes.push(turn);
+        if lanes.len() > LANES_PER_SESSION {
+            lanes.remove(0);
+        }
         cause
     }
 
@@ -317,5 +346,104 @@ mod tests {
             "b was forgotten, so there is nothing to compare with"
         );
         assert_eq!(SessionTracker::new(0).cap, 1);
+    }
+
+    fn lane(at: i64, model: &str, system: &str, cache_read: u64, cache_write: u64) -> MainTurn {
+        MainTurn {
+            model: model.to_owned(),
+            system_hash: system.to_owned(),
+            ..turn(at, cache_read, cache_write)
+        }
+    }
+
+    #[test]
+    fn requests_of_two_lanes_in_turn_are_not_misses() {
+        // The conversation (large context) and a side query (smaller context, other model and
+        // system prompt) alternate, each reading its own warm cache.
+        let mut tracker = SessionTracker::new(10);
+        assert_eq!(
+            tracker.observe("s", lane(0, "big", "chat", 0, 500_000)),
+            None
+        );
+        // The first side query is a miss that is real: that model had no cache yet.
+        assert_eq!(
+            tracker.observe("s", lane(1, "small", "side", 0, 100_000)),
+            Some(MissCause::ModelChanged)
+        );
+        for step in 0..6 {
+            let at = 10 + step * 10;
+            assert_eq!(
+                tracker.observe("s", lane(at, "big", "chat", 500_000, 1_000)),
+                None,
+                "the conversation after the side query"
+            );
+            assert_eq!(
+                tracker.observe("s", lane(at + 1, "small", "side", 100_000, 500)),
+                None,
+                "the side query after the conversation"
+            );
+        }
+    }
+
+    #[test]
+    fn a_miss_inside_a_lane_is_still_explained() {
+        let mut tracker = SessionTracker::new(10);
+        tracker.observe("s", lane(0, "big", "chat", 0, 500_000));
+        tracker.observe("s", lane(10, "small", "side", 0, 100_000));
+        // The side query came back after more than five minutes: its own cache expired.
+        assert_eq!(
+            tracker.observe("s", lane(400, "small", "side", 0, 100_000)),
+            Some(MissCause::IdleTtl)
+        );
+        // The conversation shrank without a header: compacted.
+        let mut shorter = lane(410, "big", "chat", 0, 90_000);
+        shorter.message_count = 2;
+        assert_eq!(tracker.observe("s", shorter), Some(MissCause::Compaction));
+    }
+
+    #[test]
+    fn the_first_request_of_a_lane_looks_at_the_same_model_then_at_the_session() {
+        let mut tracker = SessionTracker::new(10);
+        tracker.observe("s", lane(0, "big", "chat", 40_000, 2_000));
+        // Same model, other system prompt.
+        assert_eq!(
+            tracker.observe("s", lane(10, "big", "other", 0, 42_000)),
+            Some(MissCause::SystemChanged)
+        );
+        // A model the session had not used: its cache is empty.
+        assert_eq!(
+            tracker.observe("s", lane(20, "new", "chat", 0, 42_000)),
+            Some(MissCause::ModelChanged)
+        );
+    }
+
+    #[test]
+    fn a_shorter_conversation_on_another_model_is_not_a_compaction() {
+        let mut other_model = turn(10, 0, 42_000);
+        other_model.model = "sonnet".to_owned();
+        other_model.message_count = 1;
+        assert_eq!(
+            explain_cache_miss(Some(&turn(0, 40_000, 2_000)), &other_model),
+            Some(MissCause::ModelChanged)
+        );
+    }
+
+    #[test]
+    fn a_session_remembers_a_few_lanes_and_forgets_the_least_recently_used() {
+        let mut tracker = SessionTracker::new(10);
+        for index in 0..=LANES_PER_SESSION {
+            tracker.observe(
+                "s",
+                lane(
+                    i64::try_from(index).unwrap(),
+                    &format!("m{index}"),
+                    "x",
+                    0,
+                    40_000,
+                ),
+            );
+        }
+        assert_eq!(tracker.sessions["s"].len(), LANES_PER_SESSION);
+        assert!(tracker.sessions["s"].iter().all(|lane| lane.model != "m0"));
     }
 }

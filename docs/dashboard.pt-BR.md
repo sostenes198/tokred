@@ -57,7 +57,7 @@ Para quem faz scripts. Todas as rotas são `GET`, respondidas pelo proxy e nunca
 
 Sessão `S`: `id`, `started_at`, `last_activity_at` (segundos unix), `status`, `requests`, `models`, `cost_usd`, `input`, `output`, `cache_read`, `cache_write`, `subagents_running`, `content_recorded`, `title` e `project` (o nome da pasta; ambos `null` quando o transcript não é encontrada).
 
-Volta `T` (uma requisição e sua resposta): `id`, `session_id`, `ts` (segundos unix), `origin` (`main`, `subagent` ou `auxiliary`), `agent_id`, `agent_type`, `model_requested`, `model_effective`, `status`, `stop_reason`, `usage` (`input`, `output`, `cache_write`, `cache_read`), `cost_usd`, `duration_ms`, `ttfb_ms`, `tools`, `routing` (`outcome`, `reason`), `in_flight`, `sent` (`[{role, text}]` ou `null`), `response` (`{text, thinking, tool_uses: [{name, input_summary}]}` ou `null`).
+Volta `T` (uma requisição e sua resposta): `id`, `session_id`, `ts` (segundos unix), `origin` (`main`, `subagent` ou `auxiliary`), `agent_id`, `agent_type`, `model_requested`, `model_effective`, `status`, `stop_reason`, `usage` (`input`, `output`, `cache_write`, `cache_read`), `cost_usd`, `duration_ms`, `ttfb_ms`, `tools`, `routing` (`outcome`, `reason`), `miss_cause` (por que o cache de prompt falhou, quando falhou), `series` (o início do hash do prompt de sistema: requisições de um modelo com um prompt de sistema compartilham um cache), `in_flight`, `sent` (`[{role, text}]` ou `null`), `response` (`{text, thinking, tool_uses: [{name, input_summary}]}` ou `null`).
 
 Eventos:
 

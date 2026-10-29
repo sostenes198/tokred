@@ -154,6 +154,8 @@ fn turn_view(stored: StoredTurn, prices: &PriceTable) -> TurnView {
         routing: stored
             .routing
             .map(|(outcome, reason)| RoutingView { outcome, reason }),
+        miss_cause: record.miss_cause,
+        series: tokred_core::dashboard::series_of(&record.system_hash),
         in_flight: false,
         sent,
         response,

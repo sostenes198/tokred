@@ -67,7 +67,7 @@ Quando o proxy registrou algo no período, o `stats` acrescenta uma seção **Pr
 | Overhead | p50, p95, p99 e máx do tempo que o proxy acrescentou, contra o orçamento de 10 ms; um alerta quando o p95 o ultrapassa |
 | Routing | Decisões do período (aplicadas, observadas, mantidas, fallback) com a economia **estimada** das aplicadas, e das observadas caso tivessem sido aplicadas |
 | Model routing | O modelo pedido contra o modelo que respondeu, por par: mensagens, tokens e custo |
-| Cache misses | Quantas mensagens do loop principal perderam o cache de prompt, entre todas elas, e depois uma tabela por causa provável com os tokens que cada causa escreveu de novo no cache |
+| Cache misses | Quantas mensagens do loop principal perderam o cache de prompt, entre todas elas, e depois uma tabela por causa provável com os tokens que cada causa escreveu de novo no cache. Uma sessão pode intercalar vários tipos de requisição que o proxy enxerga como o loop principal (a conversa e consultas laterais que reaproveitam o contexto dela), cada um com o seu próprio cache, então cada requisição é comparada com a anterior da própria série (mesmo modelo e mesmo prompt de sistema); a primeira requisição de uma série conta como miss, com a causa `model_changed` ou `system_changed` |
 | Suggestion | A última sugestão de modelo mais barato ainda não mostrada (veja `tokred suggest`); o `stats` nunca a marca como mostrada |
 
 ## Latência acrescentada pelo tokred

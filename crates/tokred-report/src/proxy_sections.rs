@@ -167,17 +167,35 @@ fn cache_misses(report: &ProxyReport) -> String {
          <th scope=\"col\" class=\"num\">Tokens written again</th></tr></thead>\
          <tbody>{rows}</tbody></table></div>\
          <p class=\"note\">{} of {} main-loop messages ({rate}) missed the prompt cache. \
-         The cause is the proxy's best reading of what changed.</p>",
+         The cause is the proxy's best reading of what changed. Each request is compared with the \
+         previous one of its own series (same model and system prompt), because a session can \
+         interleave side queries with the conversation and each series keeps a cache of its own; \
+         the first request of a series counts as a miss.</p>",
         format::integer(misses),
         format::integer(report.main_requests),
     );
     section("proxy-cache", "Cache misses by cause", false, &content)
 }
 
+/// The cause with what it means, for the table ("compaction: the conversation was compacted").
+fn cause_text(cause: &str) -> String {
+    let meaning = match cause {
+        "compaction" => "the conversation was compacted",
+        "idle_ttl" => "the cache expired while idle",
+        "model_changed" => "first request on this model (each model has its own cache)",
+        "tools_changed" => "the tools changed",
+        "system_changed" => "the system prompt changed",
+        "thinking_changed" => "the thinking settings changed",
+        "unknown" => "none of the above",
+        _ => return cause.to_owned(),
+    };
+    format!("{cause}: {meaning}")
+}
+
 fn miss_row(miss: &ProxyMiss) -> String {
     format!(
         "<tr><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>",
-        html(&miss.cause),
+        html(&cause_text(&miss.cause)),
         format::integer(miss.requests),
         format::compact(miss.cache_write_tokens),
     )
