@@ -5,7 +5,7 @@ use tokred_core::meta::MetaRepo;
 use tokred_core::ports::Clock;
 use tokred_core::release::ReleaseSource;
 
-use crate::install::{InstallMethod, upgrade_command};
+use crate::install::{InstallMethod, upgrade_hint};
 use crate::version::{is_newer, parse};
 
 /// Meta key: when the latest release was last queried, successfully or not (Unix seconds).
@@ -30,8 +30,8 @@ pub fn should_check(mode: UpdateMode, env_disabled: bool) -> bool {
     mode != UpdateMode::Off && !env_disabled
 }
 
-/// Whether to replace the binary automatically: `auto` mode on a script install. With package
-/// managers `auto` behaves like `notify`.
+/// Whether to replace the binary automatically: `auto` mode on a script install. Anywhere else
+/// `auto` behaves like `notify`.
 #[must_use]
 pub fn should_self_update(mode: UpdateMode, method: InstallMethod) -> bool {
     mode == UpdateMode::Auto && method == InstallMethod::Script
@@ -77,14 +77,14 @@ pub fn run_check(
 }
 
 /// The one-line notice printed to stderr, for example
-/// `new version 0.4.0 available (current 0.3.2) → run: brew upgrade tokred`.
-/// Script installs update themselves, so for them the command is `tokred update`.
+/// `new version 0.4.0 available (current 0.3.2) → run: tokred update`.
+/// Script installs update themselves; any other install is told to reinstall with the script.
 #[must_use]
 pub fn notice(new: &NewVersion, current: &str, method: InstallMethod) -> String {
-    let command = upgrade_command(method).unwrap_or("tokred update");
     format!(
-        "new version {} available (current {current}) \u{2192} run: {command}",
-        new.version
+        "new version {} available (current {current}) \u{2192} {}",
+        new.version,
+        upgrade_hint(method)
     )
 }
 

@@ -1,55 +1,66 @@
-//! How tokred was installed, judged from the path of its own executable (spec section 14).
+//! How tokred was installed, judged from where its own executable lives (spec section 14).
+//!
+//! The install script puts the binary in one folder, `$TOKRED_HOME/bin` (`~/.tokred/bin` by
+//! default, `%LOCALAPPDATA%\tokred\bin` on Windows). A binary there updates itself; a binary
+//! anywhere else (a build from source, a copy) is told to reinstall with the script.
 
-/// The channel tokred was installed from.
+use std::path::{Path, PathBuf};
+
+/// Where the running binary came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstallMethod {
-    /// `brew install` (macOS and Linux).
-    Homebrew,
-    /// `winget install`.
-    Winget,
-    /// `scoop install`.
-    Scoop,
-    /// `cargo install`.
-    Cargo,
-    /// The shell/PowerShell installer script, or anything unrecognised: tokred updates itself.
+    /// The install script: the binary sits in the script's folder and updates itself.
     Script,
+    /// Anything else (built from source, copied by hand): reinstall with the script.
+    Other,
 }
 
-/// Detects the install method from the executable path.
+/// The folder the install script puts the binary in.
 ///
-/// Both `/` and `\` separators are accepted. Windows markers (`WinGet\Packages`, `scoop\apps`, ...)
-/// are matched case-insensitively. Callers should pass the canonical path (symlinks resolved):
-/// on macOS `current_exe()` may return `/opt/homebrew/bin/tokred`, a symlink into the Cellar.
+/// `tokred_home` is `$TOKRED_HOME`, `home` the user's home folder and `local_app_data`
+/// `%LOCALAPPDATA%`; empty values count as unset. Returns `None` when nothing is known.
 #[must_use]
-pub fn detect(path: &str) -> InstallMethod {
-    let normalized = path.replace('\\', "/");
-    let lower = normalized.to_ascii_lowercase();
-    if normalized.contains("Cellar")
-        || normalized.contains("linuxbrew")
-        || normalized.starts_with("/opt/homebrew/")
-    {
-        InstallMethod::Homebrew
-    } else if lower.contains("winget/packages") || lower.contains("winget/links") {
-        InstallMethod::Winget
-    } else if lower.contains("scoop/apps") || lower.contains("scoop/shims") {
-        InstallMethod::Scoop
-    } else if lower.contains(".cargo/bin") {
-        InstallMethod::Cargo
-    } else {
+pub fn install_bin_dir(
+    tokred_home: Option<PathBuf>,
+    home: Option<PathBuf>,
+    local_app_data: Option<PathBuf>,
+    windows: bool,
+) -> Option<PathBuf> {
+    let not_empty = |path: PathBuf| (!path.as_os_str().is_empty()).then_some(path);
+    let root = tokred_home.and_then(not_empty).or_else(|| {
+        if windows {
+            local_app_data
+                .and_then(not_empty)
+                .map(|dir| dir.join("tokred"))
+        } else {
+            home.and_then(not_empty).map(|dir| dir.join(".tokred"))
+        }
+    });
+    root.map(|root| root.join("bin"))
+}
+
+/// Detects the install method: [`InstallMethod::Script`] when the executable's folder is the
+/// install script's folder (`install_bin`). Both paths are resolved first, so a symlinked home
+/// (macOS maps `/var` to `/private/var`) does not hide the match.
+#[must_use]
+pub fn detect(exe: &Path, install_bin: Option<&Path>) -> InstallMethod {
+    let resolve = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let in_install_folder = install_bin
+        .zip(exe.parent())
+        .is_some_and(|(bin, parent)| resolve(bin) == resolve(parent));
+    if in_install_folder {
         InstallMethod::Script
+    } else {
+        InstallMethod::Other
     }
 }
 
-/// The command that upgrades tokred for `method`; `None` for [`InstallMethod::Script`], which
-/// updates itself.
+/// What to tell the user to do about a new version.
 #[must_use]
-pub const fn upgrade_command(method: InstallMethod) -> Option<&'static str> {
+pub const fn upgrade_hint(method: InstallMethod) -> &'static str {
     match method {
-        InstallMethod::Homebrew => Some("brew upgrade tokred"),
-        InstallMethod::Winget => Some("winget upgrade tokred"),
-        InstallMethod::Scoop => Some("scoop update tokred"),
-        InstallMethod::Cargo => Some("cargo install tokred --force"),
-        InstallMethod::Script => None,
+        InstallMethod::Script => "run: tokred update",
+        InstallMethod::Other => "reinstall with the install script (see the README)",
     }
 }
 
@@ -57,72 +68,85 @@ pub const fn upgrade_command(method: InstallMethod) -> Option<&'static str> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn detects_every_channel_with_both_separators() {
-        let cases = [
-            (
-                "/opt/homebrew/Cellar/tokred/0.3.2/bin/tokred",
-                InstallMethod::Homebrew,
-            ),
-            (
-                "/usr/local/Cellar/tokred/0.3.2/bin/tokred",
-                InstallMethod::Homebrew,
-            ),
-            (
-                "/home/linuxbrew/.linuxbrew/bin/tokred",
-                InstallMethod::Homebrew,
-            ),
-            ("/opt/homebrew/bin/tokred", InstallMethod::Homebrew),
-            (
-                r"C:\Users\Ana\AppData\Local\Microsoft\WinGet\Packages\x\tokred.exe",
-                InstallMethod::Winget,
-            ),
-            (
-                r"c:\users\ana\appdata\local\microsoft\winget\links\tokred.exe",
-                InstallMethod::Winget,
-            ),
-            (
-                "C:/Users/Ana/AppData/Local/Microsoft/WinGet/Links/tokred.exe",
-                InstallMethod::Winget,
-            ),
-            (
-                r"C:\Users\Ana\scoop\apps\tokred\current\tokred.exe",
-                InstallMethod::Scoop,
-            ),
-            (r"C:\Users\Ana\SCOOP\Shims\tokred.exe", InstallMethod::Scoop),
-            ("/home/ana/.cargo/bin/tokred", InstallMethod::Cargo),
-            (r"C:\Users\Ana\.cargo\bin\tokred.exe", InstallMethod::Cargo),
-            ("/home/ana/.local/bin/tokred", InstallMethod::Script),
-            (
-                r"C:\Users\Ana\AppData\Local\tokred\tokred.exe",
-                InstallMethod::Script,
-            ),
-            ("/usr/local/bin/tokred", InstallMethod::Script),
-            ("", InstallMethod::Script),
-        ];
-        for (path, expected) in cases {
-            assert_eq!(detect(path), expected, "{path}");
-        }
+    #[allow(clippy::unnecessary_wraps)] // reads better than `Some(PathBuf::from(..))` x10
+    fn some(path: &str) -> Option<PathBuf> {
+        Some(PathBuf::from(path))
     }
 
     #[test]
-    fn upgrade_commands_match_the_spec() {
+    fn the_install_folder_follows_tokred_home_then_the_platform() {
         assert_eq!(
-            upgrade_command(InstallMethod::Homebrew),
-            Some("brew upgrade tokred")
+            install_bin_dir(some("/opt/t"), some("/home/u"), None, false),
+            some("/opt/t/bin")
         );
         assert_eq!(
-            upgrade_command(InstallMethod::Winget),
-            Some("winget upgrade tokred")
+            install_bin_dir(None, some("/home/u"), some("/ignored"), false),
+            some("/home/u/.tokred/bin")
         );
         assert_eq!(
-            upgrade_command(InstallMethod::Scoop),
-            Some("scoop update tokred")
+            install_bin_dir(
+                Some(PathBuf::new()),
+                some("/home/u"),
+                some("/ignored"),
+                false
+            ),
+            some("/home/u/.tokred/bin"),
+            "an empty TOKRED_HOME counts as unset"
         );
         assert_eq!(
-            upgrade_command(InstallMethod::Cargo),
-            Some("cargo install tokred --force")
+            install_bin_dir(None, some("/ignored"), some("/local"), true),
+            some("/local/tokred/bin")
         );
-        assert_eq!(upgrade_command(InstallMethod::Script), None);
+        assert_eq!(install_bin_dir(None, None, None, false), None);
+        assert_eq!(
+            install_bin_dir(None, Some(PathBuf::new()), None, false),
+            None
+        );
+        assert_eq!(install_bin_dir(None, some("/h"), None, true), None);
+    }
+
+    #[test]
+    fn a_binary_in_the_install_folder_is_a_script_install() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let exe = bin.join("tokred");
+        std::fs::write(&exe, "x").unwrap();
+        assert_eq!(detect(&exe, Some(&bin)), InstallMethod::Script);
+        // The same folder spelled differently.
+        let roundabout = dir.path().join("bin/../bin");
+        assert_eq!(detect(&exe, Some(&roundabout)), InstallMethod::Script);
+    }
+
+    #[test]
+    fn a_binary_anywhere_else_is_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("bin");
+        let other = dir.path().join("target/debug");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        let exe = other.join("tokred");
+        assert_eq!(detect(&exe, Some(&bin)), InstallMethod::Other);
+        assert_eq!(detect(&exe, None), InstallMethod::Other);
+        assert_eq!(
+            detect(Path::new("tokred"), Some(&bin)),
+            InstallMethod::Other
+        );
+        // A folder that does not exist is compared as written.
+        let ghost = Path::new("/no/such/place/bin");
+        assert_eq!(
+            detect(&ghost.join("tokred"), Some(ghost)),
+            InstallMethod::Script
+        );
+        assert_eq!(
+            detect(&ghost.join("tokred"), Some(&bin)),
+            InstallMethod::Other
+        );
+    }
+
+    #[test]
+    fn the_hint_names_the_way_to_upgrade() {
+        assert_eq!(upgrade_hint(InstallMethod::Script), "run: tokred update");
+        assert!(upgrade_hint(InstallMethod::Other).contains("install script"));
     }
 }

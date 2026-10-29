@@ -1,6 +1,6 @@
 //! Version check, install-method detection and self-update for tokred.
 //!
-//! * [`detect`] and [`upgrade_command`] tell how tokred was installed and how to upgrade it.
+//! * [`detect`] and [`upgrade_hint`] tell how tokred was installed and how to upgrade it.
 //! * [`run_check`], [`check_due`], [`should_check`] and [`notice`] implement the once-a-day
 //!   "new version available" check. It is never run from a hook.
 //! * [`self_update`] downloads, verifies and swaps the binary (script installs only).
@@ -22,7 +22,7 @@ pub use check::{
     NewVersion, VERSION_CHECK_AT, VERSION_CHECK_LATEST, check_due, notice, run_check, should_check,
     should_self_update,
 };
-pub use install::{InstallMethod, detect, upgrade_command};
+pub use install::{InstallMethod, detect, install_bin_dir, upgrade_hint};
 pub use reconfigure::{TOKRED_VERSION, mark_configured, needs_reconfigure};
 pub use swap::{
     BinarySwap, Downloader, SelfUpdated, StdBinarySwap, UpdateError, asset_name,

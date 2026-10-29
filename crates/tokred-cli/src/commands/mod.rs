@@ -34,7 +34,7 @@ use tokred_install::StdFileSystem;
 use tokred_pricing::http::{LITELLM_URL, LiteLlmSource};
 use tokred_store::Store;
 use tokred_update::http::{GithubReleaseSource, LATEST_RELEASE_URL, UreqDownloader};
-use tokred_update::{StdBinarySwap, current_target};
+use tokred_update::{InstallMethod, StdBinarySwap, current_target};
 
 use tokred_report::SystemOpener;
 
@@ -88,13 +88,24 @@ pub fn run(cli: Cli, io: &mut Io) -> Result<()> {
         version,
     );
     if result.is_ok() && chores {
-        let exe_text = exe
-            .as_deref()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        housekeeping::background_chores(&env, io, &net, switches, &exe_text, version);
+        let method = install_method(&env, exe.as_deref());
+        housekeeping::background_chores(&env, io, &net, switches, method, version);
     }
     result
+}
+
+/// Whether the running executable lives in the install script's folder (`$TOKRED_HOME/bin`).
+fn install_method(env: &Env, exe: Option<&Path>) -> InstallMethod {
+    let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
+    let bin = tokred_update::install_bin_dir(
+        var("TOKRED_HOME"),
+        env.home_dir.clone(),
+        var("LOCALAPPDATA"),
+        cfg!(windows),
+    );
+    exe.map_or(InstallMethod::Other, |exe| {
+        tokred_update::detect(exe, bin.as_deref())
+    })
 }
 
 /// The proxy answers for `configure`: a flag wins over `TOKRED_PORT` / `TOKRED_RECORD_CONTENT`
@@ -201,6 +212,7 @@ fn dispatch(
             let reapply = move |path: &Path| spawn(path, &reapply_args(flag.as_deref()));
             let ctx = update::UpdateContext {
                 exe,
+                method: install_method(env, Some(exe)),
                 current: version,
                 releases: net.releases,
                 downloader: &downloader,
