@@ -14,4 +14,6 @@ labels: enhancement
 
 ## Alternatives considered
 
+<!-- Other ways to solve it, including what you do today. -->
+
 Please read [CONTRIBUTING.md](../../CONTRIBUTING.md) before opening a pull request.
