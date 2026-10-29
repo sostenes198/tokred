@@ -8,14 +8,15 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
-- Install like rustup: `install/install.sh` (macOS, Linux) and `install/install.ps1` (Windows) download the release archive from GitHub, verify its checksum, install it in `~/.tokred/bin` (`%LOCALAPPDATA%\tokred\bin`), add it to `PATH` and run `tokred configure`. `uninstall.sh` / `uninstall.ps1` undo it. Options: `--yes`, `--port`, `--version`, `--no-modify-path`, `--no-alias`, `--no-configure`, and `TOKRED_HOME`, `TOKRED_RELEASE_BASE_URL`.
+- Install like rustup: `install/install.sh` (macOS, Linux) and `install/install.ps1` (Windows) download the release archive from GitHub, verify its checksum, install it in `~/.tokred/bin` (`%LOCALAPPDATA%\tokred\bin`), add it to `PATH` and run `tokred configure` and `tokred proxy enable`. `uninstall.sh` / `uninstall.ps1` undo it. Options: `--yes`, `--port`, `--version`, `--no-modify-path`, `--no-alias`, `--no-proxy`, `--no-configure`, and `TOKRED_HOME`, `TOKRED_RELEASE_BASE_URL`.
 - The installer defines a `claude` wrapper (bash, zsh, fish, PowerShell) that runs `tokred initialize` first and then the real Claude Code; fail-open, skipped with `--no-alias` / `TOKRED_NO_ALIAS=1`, bypassed with `command claude`.
-- `tokred configure` asks for the proxy port (default 1029, 1024 to 65535, must be free) and whether conversation content may be recorded for the dashboard; new flags `--proxy-port`, `--record-content`, `--no-record-content` and variables `TOKRED_PORT`, `TOKRED_RECORD_CONTENT`. A quiet re-run never changes a choice you made.
+- `tokred proxy enable` asks for the proxy port (default 1029, 1024 to 65535, must be free) and whether conversation content may be recorded for the dashboard; new flags `--port`, `--record-content <true|false>` and `--yes` and variables `TOKRED_PORT`, `TOKRED_RECORD_CONTENT` (a flag wins). A quiet re-run never changes a choice you made, and a running proxy is restarted on a new port.
 - `tokred uninstall [--yes] [--purge]`: stops the proxy, removes its user service, turns compression off, removes the hooks and agents and optionally the data folder.
 - Tests for the install scripts (`tests/installer/`) in CI on Linux, macOS and Windows, and `shellcheck`.
 
 ### Changed
 
+- `tokred configure` no longer sets up the proxy: it only touches hooks and agents (plus the database and the default `tokred.toml`), and writes no `[proxy]` value beyond the defaults (`enabled = false`). `tokred proxy enable` does it, with `--port` and `--record-content`; the install scripts run it after `configure`, and `--no-proxy` (`-NoProxy`, `TOKRED_NO_PROXY=1`) skips it. The `--proxy-port`, `--record-content` and `--no-record-content` flags of `configure` are gone.
 - `tokred stats`, `tokred metrics` and the HTML report read the proxy's exact per-request data as their primary source and the transcripts for what the proxy did not see, merged so no request is counted twice ([metrics](docs/metrics.md)). Without the proxy nothing changes.
 - Upgrading: installations configured before this have `enabled = false` written in `tokred.toml` and it is kept, so the proxy features stay off until you run `tokred proxy enable` once. An installed user service stops starting the proxy while it is disabled (`tokred proxy service uninstall` removes it).
 - The `persist_base_url` key of `[proxy]` no longer exists (an old file that still has it keeps working): `enabled` now does what it was meant for.

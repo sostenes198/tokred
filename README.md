@@ -28,7 +28,7 @@ Everything runs on your machine, with its own SQLite database and no external se
 
 ## Installation
 
-Like rustup: one command downloads tokred from the GitHub release, checks its checksum, installs it in `~/.tokred/bin`, adds that folder to your `PATH` and runs `tokred configure`, which asks which port the proxy uses (default 1029) and whether the dashboard may record conversation content. No sudo, no package manager.
+Like rustup: one command downloads tokred from the GitHub release, checks its checksum, installs it in `~/.tokred/bin`, adds that folder to your `PATH` and runs `tokred configure` (hooks and agents) and then `tokred proxy enable`, which asks which port the proxy uses (default 1029) and whether the dashboard may record conversation content (`--no-proxy` skips it). No sudo, no package manager.
 
 ```sh
 # macOS and Linux
@@ -53,7 +53,7 @@ tokred metrics      # the same, plus the HTML report
 
 | Command | What it does |
 |---|---|
-| `tokred configure [--claude-dir <path>] [--yes] [--force] [--proxy-port <n>] [--record-content\|--no-record-content]` | Merge hooks into `settings.json`, install agents, create the database and config; asks for the proxy port and content recording |
+| `tokred configure [--claude-dir <path>] [--yes] [--force]` | Merge hooks into `settings.json`, install agents, create the database and config (nothing about the proxy: that is `proxy enable`) |
 | `tokred unconfigure [--purge]` | Remove only tokred's parts from Claude Code; `--purge` also deletes the data folder |
 | `tokred uninstall [--yes] [--purge]` | Stop the proxy and its service, remove hooks and agents; the uninstall script then removes the binary |
 | `tokred doctor [--json] [--bench]` | Show what is installed and what needs attention; measure hook latency |

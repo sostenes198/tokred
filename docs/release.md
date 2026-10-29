@@ -53,6 +53,7 @@ On Windows, `tests\installer\install_test.ps1` does the same (it edits your user
 The [proxy](proxy.md) is optional. With the real binary (not `cargo run`, so the background process outlives the build):
 
 ```sh
+tokred proxy enable               # once: choose the port and content recording, turn the features on, start it
 tokred proxy start                # background; or `tokred proxy start --foreground` to watch it
 tokred proxy status               # running? does this terminal use it?
 tokred claude                     # Claude Code through the proxy, for this run only

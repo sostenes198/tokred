@@ -53,6 +53,7 @@ No Windows, `tests\installer\install_test.ps1` faz o mesmo (ele edita o `PATH` d
 O [proxy](proxy.pt-BR.md) é opcional. Com o binário de verdade (não `cargo run`, para o processo em segundo plano sobreviver ao build):
 
 ```sh
+tokred proxy enable               # uma vez: escolhe a porta e a gravação de conteúdo, liga os recursos e sobe o proxy
 tokred proxy start                # em segundo plano; ou `tokred proxy start --foreground` para acompanhar
 tokred proxy status               # está rodando? este terminal o usa?
 tokred claude                     # Claude Code pelo proxy, só nesta execução

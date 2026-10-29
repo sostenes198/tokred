@@ -22,13 +22,26 @@ O `tokred claude` repassa todos os argumentos ao `claude` sem alteração e sai 
 
 ### A chave: `[proxy] enabled`
 
-O `enabled` no `tokred.toml` é a chave única dos recursos do proxy; o `tokred configure` a liga em uma instalação nova. O `tokred proxy enable` e o `tokred proxy disable` a alteram e valem na hora.
+O `enabled` no `tokred.toml` é a chave única dos recursos do proxy. Ela é `false` até você executar `tokred proxy enable` (o script de instalação o executa, a menos que você passe `--no-proxy`); o `tokred configure` só prepara os hooks e os agentes e nunca mexe no proxy. O `tokred proxy enable` e o `tokred proxy disable` a alteram e valem na hora.
 
 ```sh
 tokred proxy disable     # recursos desligados: a URL do tokred sai das configurações do Claude Code, mais nada muda
-tokred proxy enable      # recursos ligados: sobe o proxy e aponta as configurações do Claude Code para ele
+tokred proxy enable      # recursos ligados: escolhe a porta e a gravação de conteúdo, sobe o proxy e aponta as configurações do Claude Code para ele
 tokred initialize        # o que o wrapper de shell do `claude` executa antes de cada abertura (veja abaixo)
 ```
+
+O `tokred proxy enable` é onde o proxy é configurado. Ele escolhe duas coisas e as salva no `tokred.toml` junto com `enabled = true`:
+
+```sh
+tokred proxy enable                                    # num terminal: pergunta a porta e se grava o conteúdo
+tokred proxy enable --port 1050 --record-content true  # respostas de antemão, nada é perguntado
+tokred proxy enable --yes                              # não pergunta nada: valores salvos, senão porta 1029 e sem gravar
+```
+
+- **`--port <n>`** (ou `TOKRED_PORT`) é a porta de `[proxy] bind` (1024 a 65535, em `127.0.0.1`, a menos que o seu `bind` cite outro host). Perguntada, o padrão é a porta salva, senão 1029; o comando abre a porta para ver se está livre, pergunta de novo quando está ocupada e aceita a porta em que o proxy desta instalação já escuta. Dada por flag, uma porta ocupada só avisa.
+- **`--record-content <true|false>`** (ou `TOKRED_RECORD_CONTENT`; `yes`, `no`, `1` e `0` também valem) é o `[proxy] log_bodies`: se o [painel](dashboard.pt-BR.md) pode mostrar o que foi enviado e devolvido. O texto fica no banco do próprio tokred nesta máquina; cabeçalhos e credenciais nunca são gravados. Perguntada, o padrão é a resposta salva, senão sim; sem terminal, uma resposta não salva é não.
+
+Uma flag vale mais que a sua variável de ambiente. As suas outras chaves do `tokred.toml` ficam. Se o proxy já estiver rodando em outra porta que não a nova, ele é parado e iniciado de novo na nova porta. Em seguida as configurações do Claude Code são reconciliadas, como descrito a seguir.
 
 O `tokred initialize` faz o `settings.json` do Claude Code concordar com a chave, e é o que o wrapper do `claude` instalado pelo instalador executa antes de toda abertura. A única coisa que ele reconcilia é o `env.ANTHROPIC_BASE_URL` (`http://127.0.0.1:<porta>` de `[proxy] bind`):
 
