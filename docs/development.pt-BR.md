@@ -2,89 +2,258 @@
 
 # Desenvolvimento
 
+Como compilar, executar, testar e experimentar o tokred a partir do código-fonte. Como o código está organizado está em [architecture](architecture.pt-BR.md); como publicar uma versão está em [release](release.pt-BR.md); o fluxo de contribuição está em [CONTRIBUTING](../CONTRIBUTING.pt-BR.md).
+
 ## Requisitos
 
-- Rust stable (o MSRV do workspace é **1.89**, verificado no CI) com `rustfmt` e `clippy` (o `rust-toolchain.toml` instala).
-- Para o gate local completo: `cargo install cargo-deny cargo-llvm-cov`.
+- Rust 1.89 ou mais novo (o MSRV do workspace, verificado no CI). O `rust-toolchain.toml` seleciona o stable com `rustfmt` e `clippy`.
+- Para o portão completo local: `cargo install cargo-deny cargo-llvm-cov`.
+- Para os testes de shell: `shellcheck`. O smoke test do release também precisa de Python 3.7+ e `curl`.
 
-## Build
+## Compilar e executar
 
 ```sh
-cargo build                          # build debug de todos os crates
-cargo run -- doctor                  # executa a CLI
+cargo build
 ```
 
-## Verificações (as mesmas do CI)
+```sh
+cargo run -q -- doctor
+```
+
+`cargo run -q -- <comando>` executa qualquer comando. Um binário compilado do código-fonte funciona de onde estiver, mas o `tokred update` manda reinstalar com o script: só um binário na pasta de instalação se atualiza sozinho. Para rodar o proxy em segundo plano, use o binário compilado e não o `cargo run`, para o proxy sobreviver à compilação.
+
+## O portão de qualidade
+
+O CI executa estes em todo pull request; execute-os antes de dar push.
 
 ```sh
 cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
-cargo deny check
-cargo +1.89 check --workspace --all-targets --locked    # MSRV
 ```
-
-## Testes
-
-| Tipo | Onde | O que cobre |
-|---|---|---|
-| Unitário | `#[cfg(test)]` dentro de cada módulo | Funções puras: merge do settings, decisão de instalação dos agentes, merge da config, parsing do nome do hook |
-| Integração | `crates/<crate>/tests/` | `tokred-store` num SQLite real; `tokred-install` configure/unconfigure/doctor contra fixtures em diretórios temporários reais |
-| Ponta a ponta | `crates/tokred-cli/tests/` | O binário real via `assert_cmd`: `configure` → hooks → `doctor` → `unconfigure`, em sandbox |
-| Snapshot | junto dos anteriores (`insta`) | `settings.json` resultante do merge, hooks do `doctor --json` |
-| Propriedade | `crates/tokred-install/tests/merge_props.rs` (`proptest`) | configure duas vezes = uma; configure + unconfigure = original; hooks de terceiros sobrevivem |
-
-Regras: nenhum teste toca o `~/.claude` real nem a pasta de dados real, e nenhum teste usa a rede. Os testes ponta a ponta definem `HOME`, `CLAUDE_CONFIG_DIR` e `TOKRED_DATA_DIR` como diretórios temporários (um deles com espaço no nome). Toda correção de bug entra com um teste que reproduz o bug.
-
-Os arquivos de teste de integração começam com `#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]` porque as opções `allow-*-in-tests` do clippy só cobrem código `#[cfg(test)]`, não arquivos em `tests/`.
-
-### Snapshots
 
 ```sh
-INSTA_UPDATE=always cargo test        # grava snapshots novos/alterados
-git diff -- '*.snap'                  # revise antes de commitar
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
-### Fixtures
+```sh
+cargo test --workspace --all-features --no-fail-fast
+```
 
-`tests/fixtures/` tem variações de `settings.json` (vazio, com hooks do rtk, com hooks do usuário, com versão antiga do tokred, JSON inválido, chaves desconhecidas). Adicione uma fixture sempre que encontrar um formato real que o merge precise tratar.
+```sh
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+```
 
-## Cobertura
+```sh
+cargo deny check
+```
+
+```sh
+cargo +1.89 check --workspace --all-targets --locked
+```
+
+O último é a verificação do MSRV. Use a versão escrita em `rust-version`, em `[workspace.package]` do `Cargo.toml`.
+
+### Cobertura
+
+A meta é 100% das linhas. O CI a mede e publica o `lcov.info`; ele não falha se a cobertura cair, então confira você mesmo.
 
 ```sh
 cargo llvm-cov --workspace --all-features --summary-only
 ```
 
-Meta: pelo menos 80% no `tokred-core` e nos crates de caso de uso; o workspace está hoje em **100% das linhas** (toda linha instrumentada executa) e 100% das funções.
-
-Para listar linhas que nunca executam:
+Para listar as linhas que nunca executam:
 
 ```sh
-cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info   # DA:<linha>,0 = nunca executada
-cargo llvm-cov report --text                                               # código anotado, `^0` marca uma região que nunca rodou
+cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
 ```
 
-A cobertura de regiões é menor (cerca de 98%) porque cada `?` tem um ramo de erro; forçar cada falha de I/O só traria ruído, não segurança. Prompts, o texto do plano e a saída do `doctor` são testados por unidade através da abstração `Io` e de funções puras de renderização, então nenhum teste precisa de terminal.
+No `lcov.info`, `DA:<linha>,0` é uma linha que nunca executou. `cargo llvm-cov report --text` imprime o código-fonte anotado, em que `^0` marca uma região que nunca executou. As visões por linha são a referência: o resumo de regiões e funções do LLVM lê um pouco menos porque cada `?` tem um ramo de erro, e forçar cada falha de I/O acrescentaria ruído, não segurança.
 
-## Testando um hook localmente
+## Testes
 
-Hooks leem JSON do stdin, então dá para rodar um à mão contra uma sandbox. Um hook não faz nada se a pasta de dados e o banco ainda não existirem (uma instalação apagada com `--purge` tem de continuar apagada), então configure antes uma sandbox descartável:
+Execute tudo, um crate, um arquivo ou um teste:
 
 ```sh
+cargo test --workspace --no-fail-fast
+```
+
+```sh
+cargo test -p tokred-core
+```
+
+```sh
+cargo test -p tokred --test proxy_e2e
+```
+
+```sh
+cargo test -p tokred a_stopped_proxy
+```
+
+| Camada | Onde | O que prova |
+|---|---|---|
+| Unitário | módulos `#[cfg(test)]` | Lógica pura: classificação, preços, roteamento, compressão, config, funções de merge |
+| Integração | `crates/<crate>/tests/` | Arquivos SQLite reais e pastas temporárias; o `tokred-proxy` contra um upstream falso (encaminhamento, streaming, gzip, dashboard); o caminho da rede corporativa (`network.rs`: um proxy HTTP falso respondendo `CONNECT` na frente de um upstream HTTPS falso assinado por uma autoridade descartável, `NO_PROXY`, túneis recusados; `network_logs.rs`: credenciais nunca chegam aos logs) |
+| Propriedades | `proptest`, por exemplo `crates/tokred-install/tests/merge_props.rs` | Configurar duas vezes é igual a uma; configurar e desconfigurar restaura o original; hooks alheios sobrevivem; fazer o merge do uso de novo não muda nada |
+| Ponta a ponta | `crates/tokred-cli/tests/` | O binário real via `assert_cmd`: `e2e.rs` (configure, hooks, doctor, unconfigure, uninstall em um sandbox), `proxy_e2e.rs` (o processo do proxy: encaminhamento, gravação, checagem de `Host`, `tokred claude`, parada, `proxy start` com saída capturada), `initialize_e2e.rs`, `dashboards.rs`, `commands.rs` |
+| Snapshot | `insta`, ao lado dos testes | `settings.json` resultante do merge, `doctor --json`, as seções do terminal, o formato JSON da auditoria |
+| Instalador | `tests/installer/install_test.sh`, `install_test.ps1` | Os scripts de instalação e desinstalação contra um release falso servido do disco, em uma home descartável |
+| Script de release | `tests/release_scripts/test.sh` | O `scripts/release.sh` em um repositório descartável com um `gh` falso. Não roda no CI: execute-o quando alterar o script |
+| Smoke do release | `tests/release/smoke.sh`, `smoke.ps1` | O produto inteiro instalado a partir de um release **publicado**; veja [release](release.pt-BR.md) |
+
+### Regras
+
+- Nenhum teste toca o `~/.claude` real, a pasta de dados real ou a rede. Os testes de ponta a ponta definem `HOME`, `CLAUDE_CONFIG_DIR` e `TOKRED_DATA_DIR` como pastas temporárias (uma com espaço no nome), e o proxy é testado contra servidores falsos locais.
+- Toda correção de bug vem com um teste que reproduz o bug.
+- Arquivos em `tests/` começam com `#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]`, porque as opções `allow-*-in-tests` do clippy só cobrem código `#[cfg(test)]`.
+- As fixtures ficam em `tests/fixtures/` (variações de `settings.json`, incluindo uma com hooks de outra ferramenta de hooks, e cargas de hook em `tests/fixtures/hooks/`). Acrescente uma sempre que encontrar um formato real que o merge precise tratar.
+
+### Snapshots
+
+```sh
+INSTA_UPDATE=always cargo test
+```
+
+Revise o que mudou antes de fazer commit: `git diff -- '*.snap'`.
+
+### Os scripts de instalação
+
+Os testes do instalador montam um **release falso**: o binário recém-compilado empacotado do jeito que o `dist` empacota (`tokred-<target>/tokred` dentro de `tokred-<target>.tar.gz`, ou um `.zip` com `tokred.exe`) mais o seu `.sha256`, servido por `TOKRED_RELEASE_BASE_URL=file://...`, com `HOME`, `TOKRED_HOME`, pasta de dados e pasta do Claude descartáveis.
+
+```sh
+cargo build -p tokred
+```
+
+```sh
+sh tests/installer/install_test.sh
+```
+
+```sh
+shellcheck install/*.sh tests/installer/*.sh tests/release/*.sh
+```
+
+O `install_test.ps1` faz o mesmo no Windows. Ele altera o `PATH` de usuário e o perfil do PowerShell do runner e os restaura, então fora do CI exige `-AllowRealProfile`. Os scripts são mantidos finos de propósito: todo prompt vive em Rust (`tokred proxy enable`, `tokred uninstall`), onde é testado por unidade pela costura `Io`.
+
+### Testes instáveis e travamentos
+
+- Execute uma suíte suspeita algumas vezes: `for i in 1 2 3; do cargo test -p tokred --no-fail-fast; done`.
+- O macOS não tem `timeout`; limite uma execução com `perl -e 'alarm 280; exec @ARGV' cargo test -p tokred`.
+- Depois de uma execução interrompida, procure um proxy esquecido com `pgrep -fl "proxy start --foreground"`; pare-o com `pkill -f "proxy start --foreground"`.
+
+## Experimente manualmente
+
+Use um sandbox para que nada seja gravado no seu `~/.claude` nem na sua pasta de dados reais. Execute isto em cada terminal que usar para testar; os exports morrem com o terminal.
+
+```sh
+cargo build
+```
+
+```sh
+export PATH="$PWD/target/debug:$PATH"
 export TOKRED_DATA_DIR=$(mktemp -d) CLAUDE_CONFIG_DIR=$(mktemp -d) TOKRED_OFFLINE=1
 mkdir "$CLAUDE_CONFIG_DIR/projects"
-cargo run -q -- configure --yes
-echo '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"Cargo.lock"}}' \
-  | cargo run -q -- hook guard-read; echo "exit=$?"
 ```
 
-`TOKRED_BENCH_RUNS=3 cargo run -q -- doctor --bench` roda o benchmark de latência com menos execuções (o padrão é 50 por payload).
+```sh
+tokred configure --yes && tokred doctor
+```
 
-Antes de implementar um hook, leia a documentação oficial (<https://code.claude.com/docs/en/hooks>) para o formato exato de entrada e saída, e registre qualquer divergência da spec em [decisões](decisions.pt-BR.md).
+O `doctor` mostra os hooks e agentes instalados no sandbox. `TOKRED_OFFLINE=1` desliga a verificação de versão e a sincronização de preços. Ao terminar, execute `tokred uninstall` e feche o terminal.
 
-## Releases
+### Um hook
 
-As releases são construídas pelo `dist` (`dist-workspace.toml`, `.github/workflows/release.yml` gerado) quando uma tag `vX.Y.Z` é enviada; o workflow envia para a release do GitHub os arquivos, seus `.sha256` e os scripts de instalação (`install/*.sh`, `install/*.ps1`), e mais nada (sem gerenciadores de pacotes, sem segredos). O passo a passo completo (cada release, ensaio, reversão) está em [release](release.pt-BR.md); rodar e testar à mão está em [testes](testing.pt-BR.md). Veja também [instalação](installation.pt-BR.md). Depois de mudar o `dist-workspace.toml`, rode `dist generate` e comite o resultado; `dist plan` mostra o que uma release conteria. Os templates dos agentes ficam dentro do crate `tokred-install` (`crates/tokred-install/templates/`).
+Um hook lê JSON no stdin e não faz nada se a pasta de dados e o banco ainda não existirem, então configure o sandbox primeiro. Uma chamada permitida não imprime nada e sai com 0.
 
-Os scripts de instalação são `sh` POSIX e PowerShell simples, finos de propósito: todo prompt (porta, gravação de conteúdo, confirmações) vive em Rust (`tokred proxy enable`, `tokred uninstall`), onde é testado por unidade através da costura `Io`. Mudou um script? Rode `sh tests/installer/install_test.sh`.
+```sh
+echo '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"Cargo.lock"}}' | tokred hook guard-read; echo "exit=$?"
+```
+
+`tokred doctor --bench` mede a latência dos hooks; `TOKRED_BENCH_RUNS=3` o torna rápido. Antes de implementar um hook, leia a [documentação oficial de hooks](https://code.claude.com/docs/en/hooks) para o formato exato de entrada e saída, e registre qualquer divergência em [decisions](decisions.pt-BR.md).
+
+### O proxy, sem chave de API
+
+Aponte o proxy para um upstream falso que devolve uma mensagem com contagem de tokens. No terminal A, suba a API falsa na porta 9000:
+
+```sh
+python3 -I - <<'PY'
+import itertools, json, http.server
+ids = itertools.count(1)
+class H(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("content-length", 0)))
+        body = json.dumps({"id": f"msg_{next(ids)}", "type": "message", "role": "assistant", "model": "claude-sonnet-4-5",
+                           "content": [{"type": "text", "text": "hi"}], "stop_reason": "end_turn",
+                           "usage": {"input_tokens": 120, "output_tokens": 15}}).encode()
+        self.send_response(200); self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(body))); self.end_headers(); self.wfile.write(body)
+http.server.HTTPServer(("127.0.0.1", 9000), H).serve_forever()
+PY
+```
+
+No terminal B (com os exports do sandbox), aponte o proxy para ela e suba-o:
+
+```sh
+perl -pi -e 's#^upstream = .*#upstream = "http://127.0.0.1:9000"#' "$TOKRED_DATA_DIR/tokred.toml"
+```
+
+```sh
+tokred proxy enable --yes && tokred proxy status
+```
+
+Envie uma requisição pequena (sem ferramentas, uma mensagem: o tokred a vê como `auxiliary`) e depois uma que leva um id de agente (um `subagent`):
+
+```sh
+curl -s http://127.0.0.1:1029/v1/messages -H 'x-api-key: test' -H 'x-claude-code-session-id: s1' -H 'content-type: application/json' -d '{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}'
+```
+
+```sh
+curl -s http://127.0.0.1:1029/v1/messages -H 'x-api-key: test' -H 'x-claude-code-session-id: s1' -H 'x-claude-code-agent-id: a1' -H 'content-type: application/json' -d '{"model":"claude-sonnet-4-5","max_tokens":16,"tools":[{"name":"Grep","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"find where main is defined"}]}'
+```
+
+Confira:
+
+- as respostas são exatamente o que o upstream falso devolveu (em `observe` o proxy não altera nada);
+- `tokred routing status` mostra as duas requisições classificadas, com os modelos mantidos;
+- `sqlite3 "$TOKRED_DATA_DIR/tokred.db" "select origin, model_requested, model_effective, input, output from proxy_requests"` mostra duas linhas (`auxiliary` e `subagent`) com 120 tokens de entrada e 15 de saída;
+- `tokred stats` tem uma seção **Proxy** contando duas requisições, e `tokred stats --by origin` lista as duas origens;
+- `tokred dashboard --no-open` imprime um endereço de uso único para o [dashboard](dashboard.pt-BR.md); abra-o no navegador para ver a sessão;
+- um `Host` errado é recusado: `curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: evil.example' http://127.0.0.1:1029/v1/messages -d '{}'` imprime `421`.
+
+Depois pare tudo: `tokred proxy stop`, `pgrep -fl "proxy start --foreground"` não deve imprimir nada, e pare a API falsa com Ctrl-C no terminal A.
+
+### O proxy com o Claude Code de verdade
+
+Você precisa do seu próprio login (uma chave de API, ou o `claude` logado em uma assinatura). Um `CLAUDE_CONFIG_DIR` descartável significa logar de novo dentro dele; isso é intencional.
+
+```sh
+tokred proxy enable --yes
+```
+
+```sh
+tokred claude
+```
+
+Trabalhe por um minuto com pelo menos um subagente (por exemplo, peça para ele "explorar o repositório") e depois veja `tokred routing status`, `tokred suggest` e `tokred proxy status`. Os números de `input`, `output` e cache de uma requisição em `proxy_requests` devem bater com o `usage` da mesma mensagem em `$CLAUDE_CONFIG_DIR/projects/**/*.jsonl`.
+
+O `tokred compression on` registra o servidor MCP `tokred_retrieve` na configuração de usuário do Claude Code (`~/.claude.json`, com um backup ao lado). É o único comando que edita esse arquivo; quando a pasta do sandbox não tem `.claude.json`, o tokred recorre ao real, então faça também `export HOME=$(mktemp -d)` antes de experimentar.
+
+## Integração contínua
+
+| Workflow e job | O que executa |
+|---|---|
+| CI `fmt`, `clippy`, `docs`, `deny`, `msrv` | As verificações do portão de qualidade, no Linux |
+| CI `test` | `cargo test` no Linux, macOS e Windows |
+| CI `coverage` | `cargo llvm-cov`, publicando o `lcov.info` |
+| CI `shellcheck` | `install/*.sh`, `tests/installer/*.sh`, `tests/release/*.sh` |
+| CI `installer`, `installer-windows` | Os testes do instalador no Ubuntu, macOS e Windows |
+| `Release` | Compila os arquivos em uma tag; veja [release](release.pt-BR.md) |
+| `Release smoke` | Instala o release publicado em sistemas reais; veja [release](release.pt-BR.md) |
+| `Cut a release` | Executa o `scripts/release.sh` manualmente pela aba Actions; veja [release](release.pt-BR.md) |
+
+Um teste que só passa no seu sistema operacional não está pronto.
+
+## Convenções que já pegaram gente
+
+- **Helpers só de `cfg(unix)`.** Um helper usado só por um teste `#[cfg(unix)]` também precisa de `#[cfg(unix)]`, senão vira código morto e o `-D warnings` quebra o build do Windows.
+- **Processos desacoplados no Windows.** Um filho herda os handles herdáveis do pai, então um `tokred proxy start` com saída capturada esperaria o proxy. O proxy é iniciado por `Start-Process`, que não os herda (veja [decisions](decisions.pt-BR.md)). Testes que executam `proxy start` com saída capturada impõem um prazo em uma thread em vez de confiar no timeout do próprio comando.
+- **O macOS não tem `timeout`:** use a forma com `perl` acima.
+- **Fins de linha.** O `.gitattributes` mantém os scripts de shell em LF e os de PowerShell em CRLF em todo checkout.
+- **Snapshot de preços.** O `scripts/update-price-snapshot.sh` regenera a lista de preços embutida.
