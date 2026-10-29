@@ -1,0 +1,77 @@
+# Cuts a release candidate, or promotes a tested one to the final version.
+#
+#   Actions > Cut a release > Run workflow:
+#     action  rc       version 0.2.0-rc.1   bump, move the changelog, commit, tag, push
+#     action  promote  version 0.2.0-rc.1   the same commit with the final version (0.2.0)
+#
+# Both push a tag, which starts the `Release` workflow, then `Release smoke`. `promote` refuses
+# unless CI and `Release smoke` passed for that RC and main did not move (see
+# `scripts/release.sh`). The same script runs from a terminal: `scripts/release.sh rc 0.2.0-rc.1`.
+#
+# One secret is needed: RELEASE_TOKEN, a personal access token with `Contents: read and write`
+# on this repository (fine-grained). The default GITHUB_TOKEN cannot be used: a tag pushed with
+# it does not start other workflows, so the release would never be built.
+name: Cut a release
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "rc: cut a release candidate; promote: turn a tested RC into the final version"
+        required: true
+        type: choice
+        options: [rc, promote]
+      version:
+        description: "The release candidate version, like 0.2.0-rc.1 (also for promote)"
+        required: true
+        type: string
+      dry_run:
+        description: "Only check and edit the files; do not commit, tag or push"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: cut-a-release
+  cancel-in-progress: false
+
+jobs:
+  cut:
+    name: ${{ inputs.action }} ${{ inputs.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: The token is configured
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if [ -z "$RELEASE_TOKEN" ]; then
+            echo "::error::The RELEASE_TOKEN secret is missing. Create a fine-grained personal access token with 'Contents: read and write' on this repository and save it as the repository secret RELEASE_TOKEN (docs/release.md)."
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Git identity
+        run: |
+          git config user.name "tokred release"
+          git config user.email "noreply@users.noreply.github.com"
+      - name: Run scripts/release.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTION: ${{ inputs.action }}
+          VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            sh scripts/release.sh --dry-run "$ACTION" "$VERSION"
+          else
+            sh scripts/release.sh "$ACTION" "$VERSION"
+          fi
