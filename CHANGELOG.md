@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.0.0-rc.2] - 2026-10-29
+
 ### Fixed
 
 - The release smoke test no longer stalls on macOS runners: its fake upstream skips the reverse DNS lookup that `http.server` does when it binds, which made it miss its start-up deadline.

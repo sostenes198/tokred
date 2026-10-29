@@ -6,6 +6,8 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+## [1.0.0-rc.2] - 2026-10-29
+
 ### Corrigido
 
 - O smoke test do release não trava mais nos runners de macOS: o upstream falso dele pula a consulta de DNS reverso que o `http.server` faz ao ligar o socket, que o fazia perder o prazo de inicialização.
