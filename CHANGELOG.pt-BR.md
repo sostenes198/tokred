@@ -6,7 +6,7 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
-## [1.0.0-rc.2] - 2026-10-29
+## [1.0.0] - 2026-10-29
 
 ### Corrigido
 

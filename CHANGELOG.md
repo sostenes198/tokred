@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
-## [1.0.0-rc.2] - 2026-10-29
+## [1.0.0] - 2026-10-29
 
 ### Fixed
 
