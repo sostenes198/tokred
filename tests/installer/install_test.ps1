@@ -155,8 +155,14 @@ try {
     Copy-Item -LiteralPath (Join-Path $release $asset) -Destination $tampered
     Set-Content -LiteralPath (Join-Path $tampered "$asset.sha256") -Value ('0' * 64 + "  $asset")
     $env:TOKRED_RELEASE_BASE_URL = ([System.Uri]$tampered).AbsoluteUri
-    & $psHost -NoProfile -ExecutionPolicy Bypass -File $installPs1 -Yes -NoConfigure 2>$null
-    Assert-True ($LASTEXITCODE -ne 0) 'a wrong checksum was accepted'
+    # The installer fails by writing to stderr: under `Stop` Windows PowerShell 5.1 turns that
+    # into a terminating error of this script, so the call runs with `Continue`.
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    & $psHost -NoProfile -ExecutionPolicy Bypass -File $installPs1 -Yes -NoConfigure 2>&1 | Out-Null
+    $rejected = $LASTEXITCODE
+    $ErrorActionPreference = $previousPreference
+    Assert-True ($rejected -ne 0) 'a wrong checksum was accepted'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $tokredHome 'bin\tokred.exe'))) 'a rejected download was installed'
     Ok 'a wrong checksum stops the install'
 

@@ -90,6 +90,7 @@ impl Sandbox {
         cmd
     }
 
+    #[cfg(unix)]
     /// Runs `tokred args...` with no standard streams captured (a command that may start the
     /// background proxy must not hand it the harness's pipes).
     fn run_plain(&self, args: &[&str]) -> std::process::ExitStatus {
@@ -134,6 +135,7 @@ impl Sandbox {
         text.contains("\"ok\":true")
     }
 
+    #[cfg(unix)]
     fn wait_for_proxy(&self) -> bool {
         let deadline = Instant::now() + Duration::from_secs(10);
         while Instant::now() < deadline {
@@ -145,6 +147,7 @@ impl Sandbox {
         false
     }
 
+    #[cfg(unix)]
     fn stop_proxy(&self) {
         self.tokred().args(["proxy", "stop"]).assert().success();
     }

@@ -1,0 +1,5 @@
+# The install scripts write shell code (with `$` and quotes) as literal text into the user's
+# profile files, so these two notes are intended there:
+#   SC2016: expressions do not expand in single quotes
+#   SC1003: a backslash-quote inside single quotes in a generated string
+disable=SC2016,SC1003
