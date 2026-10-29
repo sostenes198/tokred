@@ -91,6 +91,19 @@ impl Report {
     }
 }
 
+impl Report {
+    /// The warnings as the lines printed on stderr.
+    #[must_use]
+    pub fn warning_text(&self) -> String {
+        self.warnings
+            .iter()
+            .fold(String::new(), |mut text, warning| {
+                let _ = writeln!(text, "tokred: {warning}");
+                text
+            })
+    }
+}
+
 /// What the reconcile needs from the machine.
 pub struct Reconciler<'a> {
     /// `[proxy] enabled`.
@@ -140,15 +153,15 @@ impl Reconciler<'_> {
             }
         };
         if self.enabled {
-            self.enable(current)
+            self.enable(current.as_deref())
         } else {
-            self.disable(current)
+            self.disable(current.as_deref())
         }
     }
 
-    fn disable(&self, current: Option<String>) -> Report {
+    fn disable(&self, current: Option<&str>) -> Report {
         let mut report = Report::new(State::Disabled);
-        match current.as_deref() {
+        match current {
             Some(value) if self.is_ours(value) => match (self.write_url)(None) {
                 Ok(_) => report.actions.push(format!(
                     "removed ANTHROPIC_BASE_URL={value} from Claude Code's settings.json"
@@ -170,10 +183,10 @@ impl Reconciler<'_> {
         report
     }
 
-    fn enable(&self, current: Option<String>) -> Report {
+    fn enable(&self, current: Option<&str>) -> Report {
         let foreign = current
-            .iter()
-            .chain(self.shell_value.iter())
+            .into_iter()
+            .chain(self.shell_value.as_deref())
             .find(|value| !self.is_ours(value));
         if let Some(value) = foreign {
             let mut report = Report::new(State::OtherGateway);
@@ -223,7 +236,7 @@ impl Reconciler<'_> {
                 .actions
                 .push(format!("started the tokred proxy on {ours}"));
         }
-        if current.as_deref() != Some(ours.as_str()) {
+        if current != Some(ours.as_str()) {
             (self.remember_url)(&ours);
             match (self.write_url)(Some(&ours)) {
                 Ok(_) => report.actions.push(format!(
@@ -307,14 +320,7 @@ pub fn reconcile(
 
 /// Writes the human-readable report: warnings to `err`, and the actions to `out` when `verbose`.
 fn show(io: &mut Io, report: &Report, verbose: bool) -> Result<()> {
-    let warnings: String = report
-        .warnings
-        .iter()
-        .fold(String::new(), |mut text, warning| {
-            let _ = writeln!(text, "tokred: {warning}");
-            text
-        });
-    write!(io.err(), "{warnings}")?;
+    write!(io.err(), "{}", report.warning_text())?;
     if verbose {
         let actions: String = report
             .actions
@@ -446,6 +452,7 @@ mod tests {
     const OURS: &str = "http://127.0.0.1:1029";
 
     /// A fake machine: a settings value, a proxy that may be up, may start, may come up.
+    #[allow(clippy::struct_excessive_bools)] // a fake with independent failure switches
     struct World {
         settings: RefCell<Option<String>>,
         known: RefCell<Vec<String>>,

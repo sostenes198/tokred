@@ -109,12 +109,7 @@ fn set_enabled(io: &mut Io, ctx: &ProxyCtx<'_>, enabled: bool) -> Result<()> {
         _ => "The setting is saved; see the warnings above.\n".to_owned(),
     };
     write!(io.out(), "{text}{summary}")?;
-    let warnings: String = report
-        .warnings
-        .iter()
-        .map(|w| format!("tokred: {w}\n"))
-        .collect();
-    write!(io.err(), "{warnings}")?;
+    write!(io.err(), "{}", report.warning_text())?;
     Ok(())
 }
 
