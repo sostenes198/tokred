@@ -493,6 +493,10 @@ cat >"$W/req-s3.json" <<EOF
 {"model":"$MAIN_MODEL","max_tokens":64,"tools":[{"name":"Read","description":"read","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"private words"}]}
 EOF
 send_msg "$W/req-s3.json" "$OUT/reply-s3.json" smoke-s3
+# Turning recording off restarted the proxy (it reads that setting only when it starts), and the
+# dashboard's sign-ins live in the proxy's memory: sign in again.
+dash_login
+assert_eq "$DASH_CODE" "303" "a new dashboard login after the setting changed answers 303"
 assert_eq "$(dash_get /dashboard/api/sessions/smoke-s3 "$OUT/session-s3.json")" "200" "the new session's detail answers 200"
 chk null-content "$OUT/session-s3.json" --session smoke-s3
 

@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Fixed
+
+- `tokred uninstall` no longer runs its final cleanup from a fixed file in the shared temporary folder: the script is written to a new, uniquely named file that only its owner can read (another user could have planted a file at the fixed name, and two uninstalls at once collided). The Windows cleanup now removes the PATH entry and the profile wrapper before the binary, so the binary's folder disappearing means it is done.
+
 ## [0.1.0-rc.3] - 2026-10-29
 
 ### Fixed

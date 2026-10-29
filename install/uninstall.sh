@@ -111,6 +111,14 @@ if [ -n "$WAIT_PID" ]; then
     done
 fi
 
+step "Cleaning your shell profiles"
+ZSH_DIR="${ZDOTDIR:-$HOME}"
+for f in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.bash_profile" "$ZSH_DIR/.zshrc"; do
+    strip_block "$f"
+done
+DELETE_EMPTY=1 strip_block "$HOME/.config/fish/conf.d/tokred.fish"
+
+# The binary goes last: once its folder is gone, everything else is already done.
 if [ -n "$HOME_DIR" ]; then
     step "Removing the binary"
     BIN_DIR="$HOME_DIR/bin"
@@ -123,13 +131,6 @@ if [ -n "$HOME_DIR" ]; then
         say "    removed $HOME_DIR"
     fi
 fi
-
-step "Cleaning your shell profiles"
-ZSH_DIR="${ZDOTDIR:-$HOME}"
-for f in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.bash_profile" "$ZSH_DIR/.zshrc"; do
-    strip_block "$f"
-done
-DELETE_EMPTY=1 strip_block "$HOME/.config/fish/conf.d/tokred.fish"
 
 say ""
 say "tokred is removed. Open a new terminal so the 'claude' wrapper and the PATH entry are gone."

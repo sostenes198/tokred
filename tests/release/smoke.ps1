@@ -483,6 +483,9 @@ claude 'one' 'two words' 'a`$HOME'
     Chk @('toml', $tomlPath, 'proxy', 'log_bodies', 'false')
     $s3 = Write-Body 'req-s3.json' "{`"model`":`"$mainModel`",`"max_tokens`":64,$tools,`"messages`":[{`"role`":`"user`",`"content`":`"private words`"}]}"
     [void](Send-Msg $s3 (Join-Path $out 'reply-s3.json') 'smoke-s3')
+    # Turning recording off restarted the proxy, and the dashboard's sign-ins live in its memory.
+    Dash-Login
+    Assert-Eq $script:dashCode '303' 'a new dashboard login after the setting changed answers 303'
     Assert-Eq (Dash-Get '/dashboard/api/sessions/smoke-s3' (Join-Path $out 'session-s3.json')) '200' "the new session's detail answers 200"
     Chk @('null-content', (Join-Path $out 'session-s3.json'), '--session', 'smoke-s3')
 

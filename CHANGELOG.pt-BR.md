@@ -6,6 +6,10 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+### Corrigido
+
+- O `tokred uninstall` não executa mais a limpeza final a partir de um arquivo fixo na pasta temporária compartilhada: o script é gravado num arquivo novo, de nome único, que só o dono lê (outro usuário poderia ter plantado um arquivo no nome fixo, e dois desinstaladores ao mesmo tempo colidiam). A limpeza no Windows agora remove a entrada do PATH e o wrapper do perfil antes do binário, então a pasta do binário sumir significa que terminou.
+
 ## [0.1.0-rc.3] - 2026-10-29
 
 ### Corrigido

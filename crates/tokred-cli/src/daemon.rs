@@ -133,7 +133,7 @@ fn parse_pid(text: &str) -> Option<(u32, u16)> {
 
 /// 256 random bits as hex. `RandomState` is seeded from the operating system's randomness, so
 /// this needs no extra dependency; the secret only guards a loopback admin endpoint.
-fn random_hex() -> String {
+pub(crate) fn random_hex() -> String {
     (0..4).fold(String::with_capacity(64), |mut out, round| {
         let mut hasher = RandomState::new().build_hasher();
         hasher.write_u64(round);

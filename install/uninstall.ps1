@@ -112,6 +112,14 @@ if ($WaitPid -gt 0) {
     if ($process) { [void]$process.WaitForExit(30000) }
 }
 
+Write-Step 'Cleaning your user PATH and PowerShell profiles'
+if ($TokredHome) { Remove-FromUserPath $binDir }
+$documents = [Environment]::GetFolderPath('MyDocuments')
+Clear-ProfileBlock (Join-Path $documents 'WindowsPowerShell\profile.ps1')
+Clear-ProfileBlock (Join-Path $documents 'PowerShell\profile.ps1')
+Remove-Item -Path Function:\claude -ErrorAction SilentlyContinue
+
+# The binary goes last: once its folder is gone, everything else is already done.
 if ($TokredHome) {
     Write-Step 'Removing the binary'
     foreach ($name in @('tokred.exe', 'tokred.exe.new', 'tokred.exe.old')) {
@@ -129,13 +137,6 @@ if ($TokredHome) {
         Write-Host "    removed $TokredHome"
     }
 }
-
-Write-Step 'Cleaning your user PATH and PowerShell profiles'
-if ($TokredHome) { Remove-FromUserPath $binDir }
-$documents = [Environment]::GetFolderPath('MyDocuments')
-Clear-ProfileBlock (Join-Path $documents 'WindowsPowerShell\profile.ps1')
-Clear-ProfileBlock (Join-Path $documents 'PowerShell\profile.ps1')
-Remove-Item -Path Function:\claude -ErrorAction SilentlyContinue
 
 Write-Host ''
 Write-Host 'tokred is removed. Open a new terminal so the claude wrapper and the PATH entry are gone.'

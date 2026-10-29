@@ -9,6 +9,7 @@
 //! delete its own file). On Windows a running exe cannot delete itself, so the script is started
 //! detached and waits for this process to exit first.
 
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -18,14 +19,27 @@ use crate::io::Io;
 const SHELL_SCRIPT: &str = include_str!("../../../../install/uninstall.sh");
 const POWERSHELL_SCRIPT: &str = include_str!("../../../../install/uninstall.ps1");
 
-/// The script of the operating system and the name it is saved under.
+/// The script of the operating system and the extension of the file it is saved as.
 #[must_use]
 pub fn script(windows: bool) -> (&'static str, &'static str) {
     if windows {
-        (POWERSHELL_SCRIPT, "tokred-uninstall.ps1")
+        (POWERSHELL_SCRIPT, "ps1")
     } else {
-        (SHELL_SCRIPT, "tokred-uninstall.sh")
+        (SHELL_SCRIPT, "sh")
     }
+}
+
+/// Creates `path` for writing, which must not exist yet (so nothing planted there is followed or
+/// reused), readable and runnable by its owner only.
+fn create_private(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o700);
+    }
+    options.open(path)
 }
 
 /// The program and arguments that run `script` in its cleanup-only mode.
@@ -79,9 +93,17 @@ pub fn finish(
         "The tokred binary, its PATH entry and the `claude` wrapper are removed as soon as this command ends.",
     ][usize::from(windows)];
     writeln!(io.out(), "{note}")?;
-    let (text, name) = script(windows);
+    let (text, extension) = script(windows);
+    // The temporary folder is shared on Linux and macOS: a fixed name could be planted by another
+    // user, or collide with a second uninstall running at the same time.
+    let name = format!(
+        "tokred-uninstall-{pid}-{}.{extension}",
+        &crate::daemon::random_hex()[..16]
+    );
     let path: PathBuf = temp_dir.join(name);
-    std::fs::write(&path, text).with_context(|| format!("could not write {}", path.display()))?;
+    create_private(&path)
+        .and_then(|mut file| file.write_all(text.as_bytes()))
+        .with_context(|| format!("could not write {}", path.display()))?;
     let (program, args) = command_line(windows, &path, pid, install_home);
     let result = launch(program, &args);
     if !windows {
@@ -102,10 +124,10 @@ mod tests {
     fn each_system_gets_its_own_script() {
         let (sh, sh_name) = script(false);
         assert!(sh.starts_with("#!/bin/sh") && sh.contains("--cleanup-only"));
-        assert_eq!(sh_name, "tokred-uninstall.sh");
+        assert_eq!(sh_name, "sh");
         let (ps, ps_name) = script(true);
         assert!(ps.contains("-CleanupOnly") && ps.contains("WaitPid"));
-        assert_eq!(ps_name, "tokred-uninstall.ps1");
+        assert_eq!(ps_name, "ps1");
     }
 
     #[test]
@@ -148,6 +170,16 @@ mod tests {
         assert_eq!(&args[5..], ["-CleanupOnly", "-WaitPid", "7"]);
     }
 
+    /// The names of the files in `dir`.
+    fn files_in(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
     #[test]
     fn the_script_is_saved_run_and_removed_on_unix_but_kept_on_windows() {
         let dir = tempfile::tempdir().unwrap();
@@ -161,7 +193,7 @@ mod tests {
         };
         finish(&mut io, false, 1, None, dir.path(), &launch).unwrap();
         assert_eq!(seen.borrow()[0], ("sh".to_owned(), SHELL_SCRIPT.len()));
-        assert!(!dir.path().join("tokred-uninstall.sh").exists());
+        assert!(files_in(dir.path()).is_empty());
 
         // On Windows the arguments start with the PowerShell switches, and the file stays.
         finish(&mut io, true, 1, None, dir.path(), &|program, _| {
@@ -169,7 +201,13 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        assert!(dir.path().join("tokred-uninstall.ps1").exists());
+        let kept = files_in(dir.path());
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        let named = kept[0].starts_with("tokred-uninstall-1-");
+        assert!(
+            named && Path::new(&kept[0]).extension().is_some_and(|e| e == "ps1"),
+            "{kept:?}"
+        );
 
         // A failing launch is reported, and the unix script is still removed.
         let err = finish(&mut io, false, 1, None, dir.path(), &|_, _| {
@@ -177,11 +215,43 @@ mod tests {
         })
         .unwrap_err();
         assert!(err.to_string().contains("no sh"));
-        assert!(!dir.path().join("tokred-uninstall.sh").exists());
+        assert_eq!(files_in(dir.path()), kept);
 
         // An unwritable folder says so.
         let missing = dir.path().join("no/such/dir");
         let err = finish(&mut io, false, 1, None, &missing, &|_, _| Ok(())).unwrap_err();
         assert!(err.to_string().contains("could not write"), "{err}");
+    }
+
+    #[test]
+    fn two_uninstalls_at_once_never_share_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut io, _) = scripted(false, "");
+        // The script of a Windows run stays, so the names of several runs can be compared.
+        for _ in 0..3 {
+            finish(&mut io, true, 7, None, dir.path(), &|_, _| Ok(())).unwrap();
+        }
+        let names = files_in(dir.path());
+        assert_eq!(names.len(), 3, "every run has a name of its own: {names:?}");
+    }
+
+    #[test]
+    fn a_file_that_is_already_there_is_never_reused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("planted");
+        std::fs::write(&path, "planted").unwrap();
+        assert!(create_private(&path).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "planted");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_script_is_private_to_its_owner() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("script");
+        create_private(&path).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700);
     }
 }
