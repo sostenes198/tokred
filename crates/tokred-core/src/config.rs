@@ -523,6 +523,16 @@ mod tests {
     }
 
     #[test]
+    fn the_ca_bundle_is_optional_and_survives_a_merge() {
+        assert_eq!(Config::default().proxy.ca_bundle, None);
+        let existing = "[proxy]\nca_bundle = \"/etc/corp-ca.pem\"\n";
+        let text = merge_config(existing, None).unwrap();
+        let cfg = Config::from_toml_str(&text).unwrap();
+        assert_eq!(cfg.proxy.ca_bundle.as_deref(), Some("/etc/corp-ca.pem"));
+        assert!(!merge_config("", None).unwrap().contains("ca_bundle"));
+    }
+
+    #[test]
     fn merge_into_empty_writes_all_defaults() {
         let text = merge_config("", None).unwrap();
         assert_eq!(Config::from_toml_str(&text).unwrap(), Config::default());

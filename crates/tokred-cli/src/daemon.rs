@@ -11,6 +11,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 
+mod launcher;
+
 /// Header the proxy's admin endpoints require.
 pub const SECRET_HEADER: &str = "x-tokred-secret";
 /// Name of the user service.
@@ -154,9 +156,15 @@ pub fn wait_until(timeout: Duration, step: Duration, check: &mut dyn FnMut() -> 
     }
 }
 
-/// Starts `exe args...` detached from this terminal (its own process group on Unix, a detached
-/// process on Windows), with no standard streams. Returns its pid.
+/// Starts `exe args...` detached from this terminal (its own process group on Unix; on Windows
+/// through `Start-Process`, which hands the process none of this process's handles, with a plain
+/// detached process as the fallback), with no standard streams. Returns its pid.
 pub fn spawn_detached(exe: &Path, args: &[&str]) -> Result<u32> {
+    launcher::start_hidden(exe, args).map_or_else(|| spawn_directly(exe, args), Ok)
+}
+
+/// Starts the process ourselves: it inherits this process's inheritable handles on Windows.
+fn spawn_directly(exe: &Path, args: &[&str]) -> Result<u32> {
     let mut command = Command::new(exe);
     command
         .args(args)

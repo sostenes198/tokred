@@ -445,3 +445,76 @@ fn the_advice_commands_work_through_the_real_binary() {
     let text = String::from_utf8(output).unwrap();
     assert!(text.contains("tokred_retrieve"), "{text}");
 }
+
+#[test]
+fn status_and_doctor_show_the_corporate_network_settings_without_credentials() {
+    let sb = Sandbox::new("https://api.anthropic.com", free_port());
+    let with_network = |args: &[&str]| {
+        let output = sb
+            .tokred()
+            .args(args)
+            .env("HTTPS_PROXY", "http://alice:s3cret@proxy.corp:3128")
+            .env("NODE_EXTRA_CA_CERTS", "/no/such/corp-ca.pem")
+            .env_remove("NO_PROXY")
+            .env_remove("no_proxy")
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        String::from_utf8(output).unwrap()
+    };
+
+    let status = with_network(&["proxy", "status", "--json"]);
+    let value: serde_json::Value = serde_json::from_str(&status).unwrap();
+    assert_eq!(value["network"]["proxy"]["host"], "proxy.corp:3128");
+    assert_eq!(value["network"]["proxy"]["status"], "tunnel");
+    assert_eq!(value["network"]["ca_files"][0]["readable"], false);
+
+    let doctor = with_network(&["doctor"]);
+    assert!(
+        doctor.contains("network: HTTPS_PROXY proxy.corp:3128"),
+        "{doctor}"
+    );
+    assert!(
+        doctor.contains("extra CA file /no/such/corp-ca.pem"),
+        "{doctor}"
+    );
+    for text in [&status, &doctor] {
+        assert!(
+            !text.contains("s3cret") && !text.contains("alice"),
+            "{text}"
+        );
+    }
+}
+
+/// Regression: the background proxy must not keep the pipes of a caller that captures the output
+/// of `proxy start` open (on Windows a detached child inherits them, and `$(tokred proxy start)`
+/// then waited for the proxy to exit). `assert_cmd` captures both streams; the timeout turns a
+/// hang into a failure instead of stalling the job. The sandbox folder has a space in its name.
+#[test]
+fn proxy_start_with_captured_output_returns_while_the_proxy_keeps_running() {
+    let (upstream, _seen) = fake_upstream();
+    let port = free_port();
+    let sb = Sandbox::new(&upstream, port);
+    let timeout = std::time::Duration::from_secs(60);
+
+    sb.tokred()
+        .args(["proxy", "start"])
+        .timeout(timeout)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("The tokred proxy is running"));
+    sb.tokred()
+        .args(["proxy", "status"])
+        .timeout(timeout)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("tokred proxy: running"));
+    sb.tokred()
+        .args(["proxy", "stop"])
+        .timeout(timeout)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("stopped"));
+}
