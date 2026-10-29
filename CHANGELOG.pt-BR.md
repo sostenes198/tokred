@@ -6,6 +6,8 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+## [1.1.0-rc.1] - 2026-10-29
+
 ### Adicionado
 
 - O `tokred proxy restart` para o proxy e o inicia de novo, para que uma configuração que ele lê ao iniciar passe a valer (um proxy que não estava rodando apenas é iniciado).
