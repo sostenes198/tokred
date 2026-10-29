@@ -25,7 +25,7 @@ export TOKRED_DATA_DIR=$(mktemp -d) CLAUDE_CONFIG_DIR=$(mktemp -d) TOKRED_OFFLIN
 mkdir "$CLAUDE_CONFIG_DIR/projects"
 cargo run -q -- configure --yes   # hooks, agentes e o banco vão para a sandbox
 cargo run -q -- doctor            # confira o resultado
-cargo run -q -- uninstall --yes --purge
+cargo run -q -- uninstall
 ```
 
 `TOKRED_OFFLINE=1` desliga a verificação de versão e a sincronização de preços.

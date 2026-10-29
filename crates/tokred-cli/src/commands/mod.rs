@@ -5,6 +5,7 @@ mod audit;
 mod bench;
 mod cache;
 mod claude;
+mod cleanup;
 mod configure;
 mod dashboard;
 mod dashboard_source;
@@ -124,16 +125,31 @@ fn usable_env(env: Result<Env>, command: &Command, io: &mut Io) -> Result<Option
 
 /// Whether the running executable lives in the install script's folder (`$TOKRED_HOME/bin`).
 fn install_method(env: &Env, exe: Option<&Path>) -> InstallMethod {
+    let bin = install_bin(env);
+    exe.map_or(InstallMethod::Other, |exe| {
+        tokred_update::detect(exe, bin.as_deref())
+    })
+}
+
+/// The folder the install script puts the binary in (`$TOKRED_HOME/bin`).
+fn install_bin(env: &Env) -> Option<PathBuf> {
     let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
-    let bin = tokred_update::install_bin_dir(
+    tokred_update::install_bin_dir(
         var("TOKRED_HOME"),
         env.home_dir.clone(),
         var("LOCALAPPDATA"),
         cfg!(windows),
-    );
-    exe.map_or(InstallMethod::Other, |exe| {
-        tokred_update::detect(exe, bin.as_deref())
-    })
+    )
+}
+
+/// The folder the install script put this binary in (`$TOKRED_HOME`), when it did: a binary
+/// built from source or copied by hand is not tokred's to delete.
+fn install_home(env: &Env, exe: Option<&Path>) -> Option<PathBuf> {
+    let by_script = matches!(install_method(env, exe), InstallMethod::Script);
+    install_bin(env)
+        .filter(|_| by_script)?
+        .parent()
+        .map(Path::to_path_buf)
 }
 
 /// The proxy answers for `configure`: a flag wins over `TOKRED_PORT` / `TOKRED_RECORD_CONTENT`
@@ -209,11 +225,9 @@ fn dispatch(
             configure::run_with(env, io, &options)
         }
         Command::Unconfigure { dir, purge } => unconfigure::run(env, io, dir.claude_dir, purge),
-        Command::Uninstall { dir, yes, purge } => {
+        Command::Uninstall { dir, .. } => {
             let request = uninstall::Request {
                 dir_flag: dir.claude_dir,
-                yes,
-                purge,
             };
             run_uninstall(env, io, exe, request)
         }
@@ -305,7 +319,37 @@ fn run_uninstall(
     exe: Option<&Path>,
     request: uninstall::Request,
 ) -> Result<()> {
-    with_proxy_ctx(env, io, exe, |io, ctx| uninstall::run(io, ctx, request))
+    let home = install_home(env, exe);
+    let finish = |io: &mut Io| {
+        let temp = std::env::temp_dir();
+        let pid = std::process::id();
+        cleanup::finish(
+            io,
+            cfg!(windows),
+            pid,
+            home.as_deref(),
+            &temp,
+            &launch_cleanup,
+        )
+    };
+    with_proxy_ctx(env, io, exe, |io, ctx| {
+        uninstall::run(io, ctx, request, &finish)
+    })
+}
+
+/// Runs the cleanup script and waits for it (a running program can delete its own file here).
+#[cfg(not(windows))]
+fn launch_cleanup(program: &str, args: &[String]) -> Result<()> {
+    let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+    spawn(Path::new(program), &args)
+}
+
+/// Starts the cleanup script detached: it waits for this process to exit before it deletes the
+/// binary, which a running exe cannot do to itself.
+#[cfg(windows)]
+fn launch_cleanup(program: &str, args: &[String]) -> Result<()> {
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    crate::daemon::spawn_detached(Path::new(program), &args).map(|_| ())
 }
 
 /// Builds the real adapters of the proxy commands and hands them to `then`.
@@ -846,6 +890,21 @@ mod tests {
     fn the_session_start_safety_net_does_nothing_while_the_proxy_is_disabled() {
         let sb = Sandbox::new();
         assert!(!ensure_proxy_for_session(&sb.env, &Config::default()));
+    }
+
+    #[test]
+    fn only_a_binary_in_the_install_folder_is_the_scripts_to_delete() {
+        let sb = Sandbox::new();
+        let bin = install_bin(&sb.env).unwrap();
+        let home = bin.parent().unwrap().to_path_buf();
+        // In the folder the install script uses: its folder is named.
+        assert_eq!(install_home(&sb.env, Some(&bin.join("tokred"))), Some(home));
+        // Anywhere else (a source build, a copy) and without a path: nothing to delete.
+        assert_eq!(
+            install_home(&sb.env, Some(Path::new("/src/target/debug/tokred"))),
+            None
+        );
+        assert_eq!(install_home(&sb.env, None), None);
     }
 
     #[test]

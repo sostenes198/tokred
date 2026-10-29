@@ -79,7 +79,7 @@ mkdir "$CLAUDE_CONFIG_DIR/projects"
 tokred configure --yes && tokred doctor
 ```
 
-`doctor` should show the hooks and agents installed in the sandbox. When you are done: `tokred uninstall --yes --purge`, then close the terminal (the exports die with it).
+`doctor` should show the hooks and agents installed in the sandbox. When you are done: `tokred uninstall`, then close the terminal (the exports die with it).
 
 ### A hook
 
@@ -169,6 +169,6 @@ echo '{"session_id":"s1"}' | tokred statusline     # the pending suggestion, or 
 ### Clean up
 
 ```sh
-tokred proxy stop; tokred uninstall --yes --purge
+tokred proxy stop; tokred uninstall
 # and stop the fake API with Ctrl-C in terminal A
 ```

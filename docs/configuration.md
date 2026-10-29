@@ -31,7 +31,7 @@
 | `TOKRED_RECORD_CONTENT` | `1` lets `tokred configure` enable `[proxy] log_bodies`, `0` disables it, without asking; the `--record-content` / `--no-record-content` flags win over it |
 | `TOKRED_HOME` | Where the install script put the binary (`$TOKRED_HOME/bin`; default `~/.tokred`, Windows `%LOCALAPPDATA%\tokred`); `tokred update` only replaces a binary that lives there |
 | `TOKRED_RELEASE_BASE_URL` | Install scripts only: folder or URL (`https://` or `file://`) the release assets are downloaded from (mirrors, offline installs, tests) |
-| `TOKRED_YES`, `TOKRED_NO_MODIFY_PATH`, `TOKRED_NO_ALIAS`, `TOKRED_NO_CONFIGURE`, `TOKRED_VERSION`, `TOKRED_PURGE` | Install and uninstall scripts only: the environment form of their options, see [installation](installation.md) |
+| `TOKRED_YES`, `TOKRED_NO_MODIFY_PATH`, `TOKRED_NO_ALIAS`, `TOKRED_NO_CONFIGURE`, `TOKRED_VERSION` | Install and uninstall scripts only: the environment form of their options, see [installation](installation.md) |
 | `NO_COLOR` / `CLICOLOR_FORCE` | Turn terminal colors off / force them on |
 
 ## `tokred.toml`

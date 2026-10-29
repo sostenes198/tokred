@@ -33,6 +33,14 @@ $psHost = (Get-Process -Id $PID).Path
 $begin = '# >>> tokred >>>'
 
 function Ok([string]$Message) { Write-Host "ok - $Message" }
+# On Windows the last part of an uninstall (the binary and its folder) runs after `tokred`
+# has exited, in a process of its own: wait for it.
+function Wait-ForCleanup([string]$Path) {
+    for ($i = 0; $i -lt 150; $i++) {
+        if (-not (Test-Path -LiteralPath $Path)) { return }
+        Start-Sleep -Milliseconds 300
+    }
+}
 function Die([string]$Message) { throw "not ok - $Message" }
 function Assert-True([bool]$Condition, [string]$Message) { if (-not $Condition) { Die $Message } }
 function Count-Blocks([string]$Path) {
@@ -131,22 +139,24 @@ try {
     Ok 'claude still runs when tokred is missing'
 
     # ---------------------------------------------------------- 4. uninstall
-    & $psHost -NoProfile -ExecutionPolicy Bypass -File $uninstallPs1 -Yes
+    & $psHost -NoProfile -ExecutionPolicy Bypass -File $uninstallPs1
     Assert-True ($LASTEXITCODE -eq 0) 'the uninstall failed'
+    Wait-ForCleanup $tokredHome
     Assert-True (-not (Test-Path -LiteralPath $tokredHome)) 'the tokred folder is still there'
     Assert-True ((Count-Blocks $profilePath) -eq 0) 'the profile block is still there'
     $left = @([Environment]::GetEnvironmentVariable('Path', 'User').Split(';') | Where-Object { $_.TrimEnd('\') -ieq $binDir.TrimEnd('\') })
     Assert-True ($left.Count -eq 0) 'the user PATH still holds the bin folder'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $claudeDir 'agents\tokred-dev.md'))) 'the agents are still there'
-    Assert-True (Test-Path -LiteralPath (Join-Path $env:TOKRED_DATA_DIR 'tokred.toml')) 'the data folder should be kept'
-    Ok 'uninstall removes the binary, PATH entry, profile block, hooks and agents, and keeps the data'
+    Assert-True (-not (Test-Path -LiteralPath $env:TOKRED_DATA_DIR)) 'the data folder should be deleted too'
+    Ok 'uninstall removes everything without asking: the binary, PATH entry, profile block, hooks, agents and data'
 
     # ---------------------------------------------------------- 5. the switches and failures
     $env:TOKRED_NO_ALIAS = '1'
     & $psHost -NoProfile -ExecutionPolicy Bypass -File $installPs1 -Yes -NoConfigure
     Assert-True ($LASTEXITCODE -eq 0) 'install with TOKRED_NO_ALIAS failed'
     Assert-True ((Count-Blocks $profilePath) -eq 0) 'TOKRED_NO_ALIAS=1 still wrote the wrapper'
-    & $psHost -NoProfile -ExecutionPolicy Bypass -File $uninstallPs1 -Yes
+    & $psHost -NoProfile -ExecutionPolicy Bypass -File $uninstallPs1
+    Wait-ForCleanup $tokredHome
     $env:TOKRED_NO_ALIAS = $null
     Ok 'TOKRED_NO_ALIAS=1 skips the wrapper'
 

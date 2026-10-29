@@ -239,17 +239,18 @@ pub enum Command {
         #[arg(long)]
         purge: bool,
     },
-    /// Remove tokred from this machine: stop the proxy and its service, take the hooks and
-    /// agents out of Claude Code, and optionally delete the data folder.
+    /// Remove tokred from this machine completely, without asking: the proxy and its service,
+    /// the hooks, agents and proxy URL in Claude Code, the data folder, the binary, the PATH
+    /// entry and the `claude` wrapper.
     Uninstall {
         /// Folder selection.
         #[command(flatten)]
         dir: ClaudeDirArg,
-        /// Do not ask for confirmation (keeps the data folder unless `--purge`).
-        #[arg(long, short = 'y')]
+        /// Accepted and ignored (nothing is asked any more).
+        #[arg(long, short = 'y', hide = true)]
         yes: bool,
-        /// Also delete tokred's data folder (database, config, logs, reports), without asking.
-        #[arg(long)]
+        /// Accepted and ignored (the data folder is always deleted).
+        #[arg(long, hide = true)]
         purge: bool,
     },
     /// Show what is installed and what needs attention.
@@ -466,21 +467,11 @@ mod tests {
 
     #[test]
     fn uninstall_parses() {
-        assert!(matches!(
-            parse(&["uninstall"]),
-            Command::Uninstall {
-                yes: false,
-                purge: false,
-                ..
-            }
-        ));
+        assert!(matches!(parse(&["uninstall"]), Command::Uninstall { .. }));
+        // The old options still parse (and do nothing), so an old command does not fail.
         assert!(matches!(
             parse(&["uninstall", "-y", "--purge", "--claude-dir", "/c"]),
-            Command::Uninstall {
-                yes: true,
-                purge: true,
-                ..
-            }
+            Command::Uninstall { .. }
         ));
     }
 

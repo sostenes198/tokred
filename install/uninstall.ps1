@@ -5,17 +5,21 @@
 .DESCRIPTION
   irm https://raw.githubusercontent.com/sostenes198/tokred/main/install/uninstall.ps1 | iex
 
-  Runs `tokred uninstall` (which stops the proxy, removes its scheduled task and takes the hooks
-  and agents out of Claude Code), then - once that process has exited, because a running exe
-  cannot delete itself - deletes tokred.exe, the tokred folder when it is empty, the entry in
-  your user PATH and the `claude` wrapper in your PowerShell profiles.
+  Removes everything tokred put on the machine, without asking. When tokred.exe is there it runs
+  `tokred uninstall` (stops the proxy, removes its scheduled task, takes the hooks, agents and
+  proxy URL out of Claude Code and deletes tokred's data folder). That command then starts this
+  same script again with -CleanupOnly, once it has exited (a running exe cannot delete itself),
+  for the last part: tokred.exe, the tokred folder, the entry in your user PATH and the `claude`
+  wrapper in your PowerShell profiles. Without tokred.exe this script does that part by itself.
 
-  Options (environment variable for `irm | iex`):
-    -Yes     TOKRED_YES=1    do not ask anything (keeps tokred's data folder unless -Purge)
-    -Purge   TOKRED_PURGE=1  also delete tokred's data folder (database, config, logs, reports)
   TOKRED_HOME (default %LOCALAPPDATA%\tokred) is where the install script put the binary.
+  Internal (used by `tokred uninstall`): -CleanupOnly, -TokredHome <folder>, -WaitPid <pid>.
+  -Yes and -Purge are accepted and ignored: nothing is asked any more.
 #>
 param(
+    [switch]$CleanupOnly,
+    [string]$TokredHome = '',
+    [int]$WaitPid = 0,
     [switch]$Yes,
     [switch]$Purge
 )
@@ -26,26 +30,24 @@ $ProgressPreference = 'SilentlyContinue'
 $BlockBegin = '# >>> tokred >>>'
 $BlockEnd = '# <<< tokred <<<'
 
-function Test-On([string]$Value) {
-    return [bool]($Value -and $Value -ne '0')
-}
-
 function Write-Step([string]$Message) {
     Write-Host "==> $Message"
 }
 
-if (Test-On $env:TOKRED_YES) { $Yes = $true }
-if (Test-On $env:TOKRED_PURGE) { $Purge = $true }
-
-if ($env:TOKRED_HOME) {
-    $tokredHome = $env:TOKRED_HOME
+# By hand there is no `tokred uninstall` running yet: the folder is TOKRED_HOME or the default.
+if (-not $CleanupOnly) {
+    if ($env:TOKRED_HOME) {
+        $TokredHome = $env:TOKRED_HOME
+    }
+    else {
+        if (-not $env:LOCALAPPDATA) { throw 'LOCALAPPDATA is not set' }
+        $TokredHome = Join-Path $env:LOCALAPPDATA 'tokred'
+    }
 }
-else {
-    if (-not $env:LOCALAPPDATA) { throw 'LOCALAPPDATA is not set' }
-    $tokredHome = Join-Path $env:LOCALAPPDATA 'tokred'
+if ($TokredHome) {
+    $binDir = Join-Path $TokredHome 'bin'
+    $exe = Join-Path $binDir 'tokred.exe'
 }
-$binDir = Join-Path $tokredHome 'bin'
-$exe = Join-Path $binDir 'tokred.exe'
 
 function Remove-ProfileBlock([string]$Text) {
     $pattern = '(?s)' + [regex]::Escape($BlockBegin) + '.*?' + [regex]::Escape($BlockEnd) + '\r?\n?'
@@ -93,50 +95,43 @@ function Remove-WithRetry([string]$Path) {
     Write-Warning "could not delete $Path; delete it by hand"
 }
 
-if (Test-Path -LiteralPath $exe) {
-    Write-Step 'Running tokred uninstall'
-    $uninstallArgs = @('uninstall')
-    if ($Purge) { $uninstallArgs += '--purge' }
-    if ($Yes) {
-        $uninstallArgs += '--yes'
-    }
-    elseif ([Console]::IsInputRedirected) {
-        Write-Host '    no terminal to ask on: continuing without confirmation (--yes)'
-        $uninstallArgs += '--yes'
-    }
-    & $exe @uninstallArgs
-    $code = $LASTEXITCODE
-    if ($code -eq 2) {
-        # `tokred uninstall` exits with 2 when you answer "no".
-        Write-Host 'Nothing was changed.'
+if (-not $CleanupOnly) {
+    if (Test-Path -LiteralPath $exe) {
+        Write-Step 'Running tokred uninstall'
+        & $exe uninstall
+        # `tokred uninstall` starts the cleanup of the binary by itself and leaves (`return`, not
+        # `exit`: this script may be running inside `irm | iex`, and `exit` would close the shell).
         return
     }
-    if ($code -ne 0) {
-        throw "'tokred uninstall' failed; the binary was kept so Claude Code does not point at nothing. Fix the problem above and run this again."
-    }
-}
-else {
-    Write-Step "No tokred binary at $exe : skipping 'tokred uninstall'"
+    Write-Step "No tokred binary at $exe : removing what is left in your shell"
 }
 
-Write-Step 'Removing the binary'
-foreach ($name in @('tokred.exe', 'tokred.exe.new', 'tokred.exe.old')) {
-    Remove-WithRetry (Join-Path $binDir $name)
+# `tokred uninstall` starts this script and exits: wait for it, then the binary can go.
+if ($WaitPid -gt 0) {
+    $process = Get-Process -Id $WaitPid -ErrorAction SilentlyContinue
+    if ($process) { [void]$process.WaitForExit(30000) }
 }
-foreach ($folder in @($binDir, $tokredHome)) {
-    if ((Test-Path -LiteralPath $folder) -and -not (Get-ChildItem -LiteralPath $folder -Force)) {
-        Remove-Item -LiteralPath $folder -Force -ErrorAction SilentlyContinue
+
+if ($TokredHome) {
+    Write-Step 'Removing the binary'
+    foreach ($name in @('tokred.exe', 'tokred.exe.new', 'tokred.exe.old')) {
+        Remove-WithRetry (Join-Path $binDir $name)
     }
-}
-if (Test-Path -LiteralPath $tokredHome) {
-    Write-Host "    kept $tokredHome (it is not empty)"
-}
-else {
-    Write-Host "    removed $tokredHome"
+    foreach ($folder in @($binDir, $TokredHome)) {
+        if ((Test-Path -LiteralPath $folder) -and -not (Get-ChildItem -LiteralPath $folder -Force)) {
+            Remove-Item -LiteralPath $folder -Force -ErrorAction SilentlyContinue
+        }
+    }
+    if (Test-Path -LiteralPath $TokredHome) {
+        Write-Host "    kept $TokredHome (it is not empty)"
+    }
+    else {
+        Write-Host "    removed $TokredHome"
+    }
 }
 
 Write-Step 'Cleaning your user PATH and PowerShell profiles'
-Remove-FromUserPath $binDir
+if ($TokredHome) { Remove-FromUserPath $binDir }
 $documents = [Environment]::GetFolderPath('MyDocuments')
 Clear-ProfileBlock (Join-Path $documents 'WindowsPowerShell\profile.ps1')
 Clear-ProfileBlock (Join-Path $documents 'PowerShell\profile.ps1')

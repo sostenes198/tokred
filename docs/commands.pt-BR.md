@@ -8,8 +8,8 @@ Todo comando que imprime um relatório aceita `--json` para saída legível por 
 |---|---|
 | `tokred configure` | Integra com o Claude Code |
 | `tokred update` | Troca o binário quando o script de instalação o colocou lá; senão, manda reinstalar |
-| `tokred unconfigure` | Remove as partes do tokred do Claude Code |
-| `tokred uninstall` | Para o proxy e o serviço dele, remove hooks e agentes; o script de desinstalação remove o binário em seguida |
+| `tokred unconfigure` | Remove os hooks e agentes do tokred do Claude Code (o proxy não é tocado) |
+| `tokred uninstall` | Remove o tokred por completo, sem perguntar: proxy e serviço, hooks, agentes, URL do proxy, pasta de dados, binário, entrada no `PATH` e wrapper `claude` |
 | `tokred doctor` | Mostra o que está instalado e o que precisa de atenção |
 | `tokred stats` | Tokens, custo, economia e projeção, no terminal |
 | `tokred stats latency` | Tempo que os hooks acrescentaram ao Claude Code |
@@ -63,13 +63,13 @@ Depois que o binário muda de versão, o primeiro comando da CLI que você rodar
 
 ## `tokred unconfigure [--claude-dir <path>] [--purge]`
 
-Remove os hooks do tokred do `settings.json` (e o `ANTHROPIC_BASE_URL` do tokred, quando foi gravado ali; o seu próprio gateway fica) e os arquivos de agente que o tokred instalou e que você não editou. Agentes editados são mantidos e informados. Arquivos sem o prefixo `tokred-` nunca são tocados, e o que o tokred não entende no `settings.json` fica como está. `--purge` também apaga a pasta de dados; ele se recusa a fazer isso se a pasta não contiver `tokred.db` ou `tokred.toml`.
+Remove os hooks do tokred do `settings.json` e os arquivos de agente que o tokred instalou e que você não editou. Agentes editados são mantidos e informados. Arquivos sem o prefixo `tokred-` nunca são tocados, e o que o tokred não entende no `settings.json` fica como está. **Ele não toca no proxy nem no `ANTHROPIC_BASE_URL`:** o proxy só muda com `tokred proxy enable` / `disable`. `--purge` também apaga a pasta de dados; ele se recusa a fazer isso se a pasta não contiver `tokred.db` ou `tokred.toml`.
 
-## `tokred uninstall [--claude-dir <path>] [--yes] [--purge]`
+## `tokred uninstall [--claude-dir <path>]`
 
-Tira o tokred da máquina, exceto o próprio binário e a preparação do shell, que o [script de desinstalação](installation.pt-BR.md#desinstalação) remove quando este processo terminar. Em ordem: para o proxy (`proxy stop`), remove o serviço de usuário do proxy (`proxy service uninstall`, só se instalado), `compression off` (só se o servidor MCP está registrado) e `unconfigure` (hooks e agentes; sem pasta do Claude Code esse passo é pulado). Cada passo é feito no melhor esforço: uma falha é mostrada e o passo seguinte continua. Depois mostra o que sobrou para o script (o binário, a entrada no `PATH`, o wrapper `claude`).
+Tira o tokred da máquina por completo, sem perguntar nada. Em ordem: para o proxy (`proxy stop`), remove o serviço de usuário do proxy (só se instalado), `compression off` (só se o servidor MCP está registrado), remove o `ANTHROPIC_BASE_URL` do tokred do `settings.json` do Claude Code (um gateway seu fica), remove os hooks e agentes (`unconfigure`; sem pasta do Claude Code essa parte é pulada) e apaga a pasta de dados do tokred (banco, config, logs, relatórios; ele recusa uma pasta que não pareça do tokred). Por último executa o [script de desinstalação](installation.pt-BR.md#desinstalação) embutido no binário: ele apaga o binário e a pasta dele (só um binário que o script de instalação pôs na pasta dele; uma compilação do código-fonte fica onde está), a entrada no `PATH` e o wrapper `claude` nos perfis do shell. No Windows essa última parte roda logo depois que o comando termina, porque um programa em execução não consegue se apagar.
 
-Ele pergunta "Remove tokred from this machine? [y/N]" e depois se a pasta de dados deve ser apagada; `--yes` não pergunta nada e **mantém** os dados, `--purge` apaga sem perguntar (ele recusa uma pasta que não pareça do tokred). Sem terminal, exige `--yes`. Responder não sai com código 2 e não muda nada (o script para aí).
+Cada passo é feito no melhor esforço: uma falha é mostrada e o passo seguinte continua. Se algum passo falhou, o binário é mantido, para você corrigir o problema e executar `tokred uninstall` de novo. As antigas opções `--yes` e `--purge` são aceitas e não fazem nada.
 
 ## `tokred doctor [--claude-dir <path>] [--json] [--bench]`
 

@@ -59,6 +59,8 @@ impl Sandbox {
             .env("TOKRED_DATA_DIR", self.data())
             .env("TOKRED_OFFLINE", "1")
             .env_remove("TOKRED_LOG")
+            .env_remove("TOKRED_HOME")
+            .env_remove("ZDOTDIR")
             .env_remove("TOKRED_PORT")
             .env_remove("TOKRED_RECORD_CONTENT");
         cmd
@@ -763,25 +765,50 @@ fn configure_writes_the_proxy_port_and_content_choice() {
         .stderr(predicate::str::contains("TOKRED_PORT"));
 }
 
-/// `tokred uninstall --yes --purge` takes everything out and says what the script has left.
-#[test]
-fn uninstall_removes_hooks_agents_and_data() {
-    let sb = Sandbox::new();
-    // A port nothing listens on, so `uninstall` never talks to a proxy of the real machine.
+/// A port nothing listens on, written as the proxy's address, so `uninstall` never talks to a
+/// proxy of the real machine.
+#[cfg(unix)]
+fn use_a_free_proxy_port(sb: &Sandbox) {
     let free = std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
         .local_addr()
         .unwrap()
-        .port()
-        .to_string();
-    sb.tokred()
-        .args(["configure", "--yes", "--proxy-port", &free])
-        .assert()
-        .success();
+        .port();
+    std::fs::create_dir_all(sb.data()).unwrap();
+    let path = sb.data().join("tokred.toml");
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let others = existing
+        .lines()
+        .filter(|line| !line.starts_with("bind ="))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let bind = format!("bind = \"127.0.0.1:{free}\"");
+    let text = if others.contains("[proxy]") {
+        others.replacen("[proxy]", &format!("[proxy]\n{bind}"), 1)
+    } else {
+        format!("{others}\n\n[proxy]\n{bind}\n")
+    };
+    std::fs::write(path, text).unwrap();
+}
+
+/// `tokred uninstall` takes everything out without asking: hooks, agents, the data folder and
+/// the shell setup (the wrapper in the profiles).
+#[cfg(unix)]
+#[test]
+fn uninstall_removes_everything_without_asking() {
+    let sb = Sandbox::new();
+    sb.tokred().args(["configure", "--yes"]).assert().success();
+    use_a_free_proxy_port(&sb);
     assert!(sb.claude().join("agents/tokred-dev.md").exists());
+    let bashrc = sb.root.path().join("home/.bashrc");
+    std::fs::write(
+        &bashrc,
+        "export A=1\n# >>> tokred >>>\nclaude() { :; }\n# <<< tokred <<<\n",
+    )
+    .unwrap();
 
     sb.tokred()
-        .args(["uninstall", "--yes", "--purge"])
+        .arg("uninstall")
         .assert()
         .success()
         .stdout(predicate::str::contains("The tokred proxy is not running."))
@@ -789,7 +816,30 @@ fn uninstall_removes_hooks_agents_and_data() {
             "hooks removed from settings.json: 6",
         ))
         .stdout(predicate::str::contains("data folder deleted"))
-        .stdout(predicate::str::contains("Left for the uninstall script"));
+        .stdout(predicate::str::contains("tokred is removed"));
     assert!(!sb.claude().join("agents/tokred-dev.md").exists());
     assert!(!sb.data().exists());
+    assert_eq!(std::fs::read_to_string(&bashrc).unwrap(), "export A=1\n");
+}
+
+/// A binary the install script put in its folder is deleted too (and only then: the binary of a
+/// source build is not tokred's to delete, which the test above relies on).
+#[cfg(unix)]
+#[test]
+fn uninstall_deletes_the_binary_that_lives_in_the_install_folder() {
+    let sb = Sandbox::new();
+    let tokred_home = sb.root.path().join("home/.tokred");
+    std::fs::create_dir_all(tokred_home.join("bin")).unwrap();
+    let copy = tokred_home.join("bin/tokred");
+    std::fs::copy(cargo_bin_cmd!("tokred").get_program(), &copy).unwrap();
+    use_a_free_proxy_port(&sb);
+
+    sb.sandboxed(Command::new(&copy))
+        .env("TOKRED_HOME", &tokred_home)
+        .arg("uninstall")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("removed"));
+    assert!(!copy.exists(), "the binary is gone");
+    assert!(!tokred_home.exists(), "and so is its folder");
 }

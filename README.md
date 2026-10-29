@@ -54,8 +54,8 @@ tokred metrics      # the same, plus the HTML report
 | Command | What it does |
 |---|---|
 | `tokred configure [--claude-dir <path>] [--yes] [--force] [--proxy-port <n>] [--record-content\|--no-record-content]` | Merge hooks into `settings.json`, install agents, create the database and config; asks for the proxy port and content recording |
-| `tokred unconfigure [--purge]` | Remove only tokred's parts from Claude Code; `--purge` also deletes the data folder |
-| `tokred uninstall [--yes] [--purge]` | Stop the proxy and its service, remove hooks and agents; the uninstall script then removes the binary |
+| `tokred unconfigure [--purge]` | Remove only tokred's hooks and agents from Claude Code (the proxy is not touched); `--purge` also deletes the data folder |
+| `tokred uninstall` | Remove tokred completely, without asking: the proxy and its service, hooks, agents, the proxy URL, the data folder, the binary, the `PATH` entry and the `claude` wrapper |
 | `tokred doctor [--json] [--bench]` | Show what is installed and what needs attention; measure hook latency |
 | `tokred stats [--since 7d] [--by model\|day\|project]` | Dashboard of tokens, cost, savings and projection |
 | `tokred stats latency` | Time the hooks added to Claude Code |
@@ -93,7 +93,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sostenes198/tokred/rele
 irm https://github.com/sostenes198/tokred/releases/latest/download/uninstall.ps1 | iex
 ```
 
-It runs `tokred uninstall` (stops the proxy, removes its user service, takes the hooks and agents out of Claude Code, asks whether to delete tokred's data), then removes the binary, the `PATH` entry and the `claude` wrapper.
+It removes everything, without asking: it runs `tokred uninstall` (stops the proxy, removes its user service, takes the hooks, agents and proxy URL out of Claude Code and deletes tokred's data folder), which then removes the binary, the `PATH` entry and the `claude` wrapper.
 
 ## Contributing
 

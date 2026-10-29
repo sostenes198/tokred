@@ -124,16 +124,18 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sostenes198/tokred/rele
 irm https://github.com/sostenes198/tokred/releases/latest/download/uninstall.ps1 | iex
 ```
 
-(Ou `sh install/uninstall.sh` a partir de um clone.) Opções: `-y/--yes` (`-Yes`, `TOKRED_YES=1`) não pergunta nada e mantém seus dados; `--purge` (`-Purge`, `TOKRED_PURGE=1`) também apaga a pasta de dados do tokred. Sem elas, ele pergunta.
+(Ou `sh install/uninstall.sh` a partir de um clone.) Ele remove tudo, **sem perguntar nada**.
 
-O script executa primeiro o `tokred uninstall`, que:
+O script executa o `tokred uninstall`, que:
 
 1. para o proxy e remove o serviço de usuário dele, se instalado;
 2. desliga a compressão, se estava ligada;
-3. remove os hooks e agentes do tokred do Claude Code (`tokred unconfigure`; agentes que você editou são mantidos);
-4. pergunta se a pasta de dados do tokred (banco, config, logs, relatórios) deve ser apagada, a menos que você tenha passado `--yes` ou `--purge`.
+3. remove o `ANTHROPIC_BASE_URL` do tokred das configurações do Claude Code (um gateway seu fica);
+4. remove os hooks e agentes do tokred do Claude Code (agentes que você editou são mantidos e informados);
+5. apaga a pasta de dados do tokred (banco, config, logs, relatórios);
+6. remove o binário e a pasta de instalação, a entrada no `PATH` e os blocos do wrapper `claude` nos perfis do shell (um arquivo fish que contém só o nosso bloco é apagado; um com outras linhas as mantém). No Windows essa última parte roda assim que o `tokred.exe` termina: um programa em execução não consegue se apagar.
 
-Cada passo é feito no melhor esforço: uma falha é informada e o passo seguinte continua. Se você responder "não" à confirmação, nada é removido. Depois o script remove o binário (no Windows só depois que o `tokred.exe` terminou: um programa em execução não consegue se apagar), a pasta de instalação se estiver vazia, a entrada no `PATH` e os blocos do wrapper `claude` (um arquivo fish que contém só o nosso bloco é apagado; um com outras linhas as mantém). O `tokred uninstall` também pode ser executado sozinho; ele então mostra o que sobrou para o script.
+Cada passo é feito no melhor esforço: uma falha é informada e o passo seguinte continua; se algum falhou, o binário é mantido para você executar de novo. O `tokred uninstall` também pode ser executado sozinho e faz tudo isso (o binário só se o script de instalação o pôs onde ele está). Sem o binário, o script limpa o que sobrou nos perfis do shell.
 
 ## Publicando uma release (mantenedores)
 

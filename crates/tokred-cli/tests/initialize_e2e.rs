@@ -295,11 +295,19 @@ fn enabled_starts_the_proxy_points_claude_at_it_and_is_quick_the_second_time() {
         .success()
         .stdout(predicate::str::contains("[proxy] enabled = true"));
     assert!(sb.settings_text().contains(&sb.url()));
+    // `unconfigure` takes only hooks and agents: the proxy and its URL are not its business.
     sb.tokred()
         .arg("unconfigure")
         .assert()
         .success()
-        .stdout(predicate::str::contains("ANTHROPIC_BASE_URL removed"));
+        .stdout(predicate::str::contains("ANTHROPIC_BASE_URL").not());
+    assert!(sb.settings_text().contains(&sb.url()), "the URL stays");
+    // Only the proxy command takes it out.
+    sb.tokred()
+        .args(["proxy", "disable"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("removed ANTHROPIC_BASE_URL"));
     assert!(!sb.settings_text().contains("ANTHROPIC_BASE_URL"));
     sb.stop_proxy();
 }

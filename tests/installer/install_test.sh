@@ -250,7 +250,7 @@ if command -v fish >/dev/null 2>&1; then fish -n "$FISH_FILE" || die "fish does 
 assert_blocks "$S_HOME/.zshrc" 1
 ok "fish gets its own block next to the user's lines; zsh gets a .zshrc even when it did not exist"
 
-uninstall_in_sandbox --yes || { cat "$S_ROOT/uninstall.out" >&2; die "the uninstall failed"; }
+uninstall_in_sandbox || { cat "$S_ROOT/uninstall.out" >&2; die "the uninstall failed"; }
 assert_file "$FISH_FILE"
 assert_has "$FISH_FILE" "set -gx EDITOR vim"
 assert_lacks "$FISH_FILE" "claude"
@@ -264,7 +264,7 @@ printf '{"model": "opus"}\n' >"$S_CLAUDE/settings.json"
 mkdir -p "$S_HOME/.config/fish"
 install_in_sandbox --yes --port "$PORT" || die "the install before the uninstall failed"
 assert_file "$S_HOME/.config/fish/conf.d/tokred.fish"
-uninstall_in_sandbox --yes || { cat "$S_ROOT/uninstall.out" >&2; die "the uninstall failed"; }
+uninstall_in_sandbox || { cat "$S_ROOT/uninstall.out" >&2; die "the uninstall failed"; }
 
 assert_missing "$S_TOKRED_HOME"
 assert_lacks "$S_HOME/.bashrc" "tokred"
@@ -273,18 +273,18 @@ assert_lacks "$S_HOME/.profile" "tokred"
 assert_missing "$S_HOME/.config/fish/conf.d/tokred.fish"
 assert_missing "$S_CLAUDE/agents/tokred-dev.md"
 assert_lacks "$S_CLAUDE/settings.json" "tokred"
-assert_file "$S_DATA/tokred.toml"
-ok "uninstall removes the binary, the blocks, the hooks and the agents, and keeps the data"
+assert_missing "$S_DATA"
+ok "uninstall removes everything without asking: the binary, the blocks, the hooks, the agents and the data folder"
 
 new_sandbox
-install_in_sandbox --yes --port "$PORT" || die "the install before the purge failed"
-uninstall_in_sandbox --yes --purge || die "the purging uninstall failed"
+install_in_sandbox --yes --port "$PORT" || die "the install before the old options failed"
+uninstall_in_sandbox --yes --purge || die "an uninstall with the old options failed"
 assert_missing "$S_DATA"
 assert_missing "$S_TOKRED_HOME"
-ok "uninstall --purge also deletes the data folder"
+ok "the old --yes and --purge options are accepted and change nothing"
 
 new_sandbox
-uninstall_in_sandbox --yes || die "uninstalling something that was never installed failed"
+uninstall_in_sandbox || die "uninstalling something that was never installed failed"
 ok "uninstalling without an installation is harmless"
 
 # ------------------------------------------------------------ 8. failures leave nothing behind

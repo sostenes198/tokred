@@ -16,6 +16,9 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ### Alterado
 
+- O `tokred uninstall` remove o tokred por completo e não pergunta nada: o proxy e o serviço dele, os hooks, agentes e a URL do proxy no Claude Code, a pasta de dados e, depois, o binário, a entrada no `PATH` e o wrapper `claude` (o script de desinstalação vem embutido no binário). Se um passo falhar, o binário é mantido. `--yes` e `--purge` são aceitos e ignorados.
+- O `tokred unconfigure` remove só os hooks e agentes; ele não toca mais no `ANTHROPIC_BASE_URL` do proxy (só `tokred proxy enable` / `disable` e `tokred uninstall` fazem isso).
+
 - O `tokred stats`, o `tokred metrics` e o relatório HTML leem os dados exatos por requisição do proxy como fonte primária e os transcripts para o que o proxy não viu, mesclados para que nenhuma requisição seja contada duas vezes ([metrics](docs/metrics.pt-BR.md)). Sem o proxy nada muda.
 - Ao atualizar: instalações configuradas antes disto têm `enabled = false` gravado no `tokred.toml` e ele é mantido, então os recursos do proxy continuam desligados até você executar `tokred proxy enable` uma vez. Um serviço de usuário instalado deixa de iniciar o proxy enquanto ele está desabilitado (`tokred proxy service uninstall` o remove).
 - A chave `persist_base_url` de `[proxy]` não existe mais (um arquivo antigo que ainda a tenha continua funcionando): o `enabled` agora faz o que ele deveria fazer.

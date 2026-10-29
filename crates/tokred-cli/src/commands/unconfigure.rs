@@ -11,7 +11,7 @@ use super::{existing_store, select_claude_dir, show};
 use crate::env::Env;
 use crate::io::Io;
 
-const FOOTER: &str = "The tokred binary and its shell setup stay: `tokred uninstall` removes the proxy and its service as well, and the uninstall script removes the binary (see docs/installation).";
+const FOOTER: &str = "Only the hooks and agents were removed. The proxy is not touched (`tokred proxy disable` turns it off); `tokred uninstall` removes tokred completely (see docs/installation).";
 
 pub fn run(env: &Env, io: &mut Io, dir_flag: Option<PathBuf>, purge: bool) -> Result<()> {
     let claude_dir = select_claude_dir(&StdFileSystem, env, io, dir_flag, false)?;
@@ -31,10 +31,8 @@ pub fn apply(env: &Env, io: &mut Io, claude_dir: &Path, purge: bool) -> Result<(
     )?;
     // Release the database file before a possible purge (required on Windows).
     drop(store);
-    let config = super::housekeeping::load_config(env);
-    let url = super::initialize::remove_own_url(env, &config, claude_dir)?;
 
-    let shown = render_report(claude_dir, &report, url.as_deref());
+    let shown = render_report(claude_dir, &report);
     write!(io.out(), "{shown}")?;
     if purge {
         purge_data(env, io)?;
@@ -49,7 +47,7 @@ pub fn purge_data(env: &Env, io: &mut Io) -> Result<()> {
     Ok(())
 }
 
-fn render_report(claude_dir: &Path, report: &UnconfigureReport, url: Option<&str>) -> String {
+fn render_report(claude_dir: &Path, report: &UnconfigureReport) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "tokred unconfigure ({})", show(claude_dir));
     let _ = writeln!(
@@ -57,12 +55,6 @@ fn render_report(claude_dir: &Path, report: &UnconfigureReport, url: Option<&str
         "  hooks removed from settings.json: {}",
         report.hooks_removed
     );
-    if let Some(url) = url {
-        let _ = writeln!(
-            out,
-            "  ANTHROPIC_BASE_URL removed from settings.json: {url}"
-        );
-    }
     let _ = writeln!(out, "  agents removed: {}", report.agents_removed.len());
     for kept in &report.agents_kept {
         let _ = writeln!(
@@ -133,34 +125,24 @@ mod tests {
     }
 
     #[test]
-    fn removes_tokreds_proxy_url_but_not_the_users_gateway() {
+    fn the_proxy_url_is_not_touched_only_proxy_commands_change_it() {
         let sb = configured();
         let set = |url: &str| {
             tokred_install::base_url::write_base_url(&StdFileSystem, &sb.claude, Some(url))
                 .unwrap();
         };
-        set("http://127.0.0.1:1029");
-        let (result, out) = unconfigure_cmd(&sb, false);
-        result.unwrap();
-        assert!(
-            out.contains("ANTHROPIC_BASE_URL removed from settings.json: http://127.0.0.1:1029"),
-            "{out}"
-        );
-        assert!(
-            !std::fs::read_to_string(sb.settings())
-                .unwrap()
-                .contains("ANTHROPIC_BASE_URL")
-        );
-
-        set("https://gateway.example");
-        let (result, out) = unconfigure_cmd(&sb, false);
-        result.unwrap();
-        assert!(!out.contains("ANTHROPIC_BASE_URL"), "{out}");
-        assert!(
-            std::fs::read_to_string(sb.settings())
-                .unwrap()
-                .contains("gateway.example")
-        );
+        for url in ["http://127.0.0.1:1029", "https://gateway.example"] {
+            set(url);
+            let (result, out) = unconfigure_cmd(&sb, false);
+            result.unwrap();
+            assert!(!out.contains("ANTHROPIC_BASE_URL"), "{out}");
+            assert!(
+                std::fs::read_to_string(sb.settings())
+                    .unwrap()
+                    .contains(url),
+                "{url} stays"
+            );
+        }
     }
 
     #[test]

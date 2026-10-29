@@ -124,16 +124,18 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sostenes198/tokred/rele
 irm https://github.com/sostenes198/tokred/releases/latest/download/uninstall.ps1 | iex
 ```
 
-(Or `sh install/uninstall.sh` from a clone.) Options: `-y/--yes` (`-Yes`, `TOKRED_YES=1`) asks nothing and keeps your data; `--purge` (`-Purge`, `TOKRED_PURGE=1`) also deletes tokred's data folder. Without them it asks.
+(Or `sh install/uninstall.sh` from a clone.) It removes everything, **without asking anything**.
 
-The script first runs `tokred uninstall`, which:
+The script runs `tokred uninstall`, which:
 
 1. stops the proxy and removes its user service, if installed;
 2. turns compression off, if it was on;
-3. removes tokred's hooks and agents from Claude Code (`tokred unconfigure`; agents you edited are kept);
-4. asks whether to delete tokred's data folder (database, config, logs, reports), unless you passed `--yes` or `--purge`.
+3. removes tokred's `ANTHROPIC_BASE_URL` from Claude Code's settings (a gateway of your own stays);
+4. removes tokred's hooks and agents from Claude Code (agents you edited are kept and reported);
+5. deletes tokred's data folder (database, config, logs, reports);
+6. removes the binary and the install folder, the `PATH` entry and the `claude` wrapper blocks in your shell profiles (a fish file that holds only our block is deleted; one with other lines keeps them). On Windows this last part runs as soon as `tokred.exe` has exited: a running program cannot delete itself.
 
-Every step is best effort: a failure is reported and the next step still runs. If you answer "no" to the confirmation, nothing is removed. Then the script removes the binary (on Windows only after `tokred.exe` has exited: a running program cannot delete itself), the install folder if it is empty, the `PATH` entry and the `claude` wrapper blocks (a fish file that holds only our block is deleted; one with other lines keeps them). `tokred uninstall` can also be run by itself; it then prints what is left for the script.
+Every step is best effort: a failure is reported and the next step still runs; if any failed, the binary is kept so you can run it again. `tokred uninstall` can also be run by itself, and does all of this (the binary only if the install script put it where it is). Without the binary the script cleans what is left in your shell profiles.
 
 ## Publishing a release (maintainers)
 
