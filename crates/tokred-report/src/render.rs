@@ -2,7 +2,7 @@
 
 use crate::escape::{self, html};
 use crate::model::{ReportData, ReportMeta};
-use crate::sections;
+use crate::{proxy_sections, sections};
 
 /// The page skeleton, with `{{CSS}}`, `{{BODY}}`, `{{DATA}}` and `{{JS}}` placeholders.
 const TEMPLATE: &str = include_str!("../templates/report.html");
@@ -55,7 +55,7 @@ fn fill(template: &str, values: &[(&str, &str)]) -> String {
     out
 }
 
-/// The `<header>`, the eight sections and the `<footer>`.
+/// The `<header>`, the eight sections, the proxy's when it recorded anything, and the `<footer>`.
 fn body(data: &ReportData) -> String {
     let toolbar = if sections::has_daily_series(data) {
         "<div class=\"toolbar\" id=\"period-toolbar\" role=\"group\" \
@@ -68,7 +68,7 @@ fn body(data: &ReportData) -> String {
     };
     format!(
         "<header><div><h1>tokred metrics</h1><p class=\"sub\">Period: {}</p></div>{toolbar}</header>\
-         <main>{}{}{}{}{}{}{}{}</main>{}",
+         <main>{}{}{}{}{}{}{}{}{}</main>{}",
         html(&period(&data.meta)),
         sections::summary(data.summary.as_ref()),
         sections::cost(&data.cost_per_day),
@@ -78,6 +78,7 @@ fn body(data: &ReportData) -> String {
         sections::cache(&data.cache_per_day),
         sections::latency(data.latency.as_ref()),
         sections::audit(data.audit.as_ref()),
+        proxy_sections::proxy(data.proxy.as_ref()),
         footer(&data.meta),
     )
 }
@@ -178,6 +179,7 @@ mod tests {
                 unused_mcp: vec![HOSTILE.to_owned()],
                 unused_window_days: Some(30),
             }),
+            proxy: None,
         }
     }
 

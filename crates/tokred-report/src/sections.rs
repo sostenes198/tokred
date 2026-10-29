@@ -21,20 +21,20 @@ const DEFAULT_BUDGET_MS: f64 = 50.0;
 const PERIODS: [(&str, Option<usize>); 3] = [("7", Some(7)), ("30", Some(30)), ("all", None)];
 
 /// Colour class indices (see the CSS).
-const OPUS: usize = 0;
-const SONNET: usize = 1;
-const HAIKU: usize = 2;
+pub(crate) const OPUS: usize = 0;
+pub(crate) const SONNET: usize = 1;
+pub(crate) const HAIKU: usize = 2;
 const OTHER: usize = 3;
 const FABLE: usize = 4;
 const MYTHOS: usize = 5;
-const ACCENT: usize = 4;
+pub(crate) const ACCENT: usize = 4;
 
 /// The badge that marks a figure as an estimate.
-const ESTIMATE: &str = "<span class=\"est\" title=\"Estimate: derived from sizes or projections, \
+pub(crate) const ESTIMATE: &str = "<span class=\"est\" title=\"Estimate: derived from sizes or projections, \
                         not measured\">estimate</span>";
 
 /// Wraps content in a titled section; `estimate` adds the estimate badge to the heading.
-fn section(id: &str, title: &str, estimate: bool, content: &str) -> String {
+pub(crate) fn section(id: &str, title: &str, estimate: bool, content: &str) -> String {
     let badge = if estimate {
         format!(" {ESTIMATE}")
     } else {
@@ -300,7 +300,7 @@ fn models_content(models: &[ModelUsage]) -> String {
 }
 
 /// `part / total`, or `0.0` when the total is not positive.
-fn share(part: f64, total: f64) -> f64 {
+pub(crate) fn share(part: f64, total: f64) -> f64 {
     if total > 0.0 { part / total } else { 0.0 }
 }
 

@@ -17,6 +17,7 @@ pub mod escape;
 pub mod format;
 pub mod model;
 pub mod open;
+mod proxy_sections;
 mod render;
 mod sections;
 pub mod svg;
@@ -26,7 +27,8 @@ mod write;
 
 pub use model::{
     AuditItem, AuditStats, DayCache, DayCost, GuardReason, GuardStat, HookLatency, LatencyStats,
-    ModelFamily, ModelUsage, ReportData, ReportMeta, RoutingStats, Summary, TaskTypeCount,
+    ModelFamily, ModelUsage, ProxyBreakdown, ProxyMiss, ProxyOverhead, ProxyReport, ProxyRoute,
+    ProxyRouting, ReportData, ReportMeta, RoutingStats, Summary, TaskTypeCount,
 };
 pub use open::{Opener, SystemOpener};
 pub use render::render_html;

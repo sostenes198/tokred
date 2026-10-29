@@ -4,8 +4,8 @@
 
 use tokred_report::{
     AuditItem, AuditStats, DayCache, DayCost, GuardReason, GuardStat, HookLatency, LatencyStats,
-    ModelFamily, ModelUsage, ReportData, ReportMeta, RoutingStats, Summary, TaskTypeCount,
-    render_html,
+    ModelFamily, ModelUsage, ProxyBreakdown, ProxyMiss, ProxyOverhead, ProxyReport, ProxyRoute,
+    ProxyRouting, ReportData, ReportMeta, RoutingStats, Summary, TaskTypeCount, render_html,
 };
 
 /// 35 consecutive days ending on 2026-10-31.
@@ -100,6 +100,7 @@ fn rich() -> ReportData {
             unused_mcp: vec!["figma".to_owned(), "postgres".to_owned()],
             unused_window_days: Some(30),
         }),
+        proxy: None,
     }
 }
 
@@ -180,4 +181,129 @@ fn rich_report_is_offline_and_labels_estimates() {
 #[test]
 fn rendering_is_deterministic() {
     assert_eq!(render_html(&rich()), render_html(&rich()));
+}
+
+/// A proxy that measured a conversation with a rewritten model and a few cache misses.
+fn proxy() -> ProxyReport {
+    ProxyReport {
+        measured_messages: 120,
+        transcript_only_messages: 14,
+        routes: vec![
+            ProxyRoute {
+                requested: "claude-sonnet-4".to_owned(),
+                effective: "claude-haiku-4".to_owned(),
+                requests: 40,
+                cost_usd: 1.5,
+            },
+            ProxyRoute {
+                requested: "claude-opus-4".to_owned(),
+                effective: "claude-opus-4".to_owned(),
+                requests: 80,
+                cost_usd: 9.0,
+            },
+        ],
+        routing: Some(ProxyRouting {
+            applied: 30,
+            observed: 10,
+            kept: 5,
+            fallback: 1,
+            applied_saving_usd: 4.25,
+            observed_saving_usd: 1.5,
+        }),
+        overhead: Some(ProxyOverhead {
+            requests: 150,
+            p50_ms: 0.4,
+            p95_ms: 1.2,
+            p99_ms: 2.0,
+            max_ms: 3.5,
+            budget_ms: 10.0,
+        }),
+        main_requests: 80,
+        cache_misses: vec![
+            ProxyMiss {
+                cause: "ttl_expired".to_owned(),
+                requests: 6,
+                cache_write_tokens: 120_000,
+            },
+            ProxyMiss {
+                cause: "tools_changed".to_owned(),
+                requests: 2,
+                cache_write_tokens: 900,
+            },
+        ],
+        by_origin: vec![
+            ProxyBreakdown {
+                name: "main".to_owned(),
+                messages: 80,
+                tokens: 3_000_000,
+                cost_usd: 12.0,
+            },
+            ProxyBreakdown {
+                name: "subagent".to_owned(),
+                messages: 40,
+                tokens: 500_000,
+                cost_usd: 1.5,
+            },
+        ],
+        by_agent_type: vec![ProxyBreakdown {
+            name: "Explore".to_owned(),
+            messages: 40,
+            tokens: 500_000,
+            cost_usd: 1.5,
+        }],
+        suggestion: Some("The last 3 prompts were simple; sonnet would have done.".to_owned()),
+    }
+}
+
+#[test]
+fn rich_report_with_the_proxy_snapshot() {
+    let data = ReportData {
+        proxy: Some(proxy()),
+        ..rich()
+    };
+    insta::assert_snapshot!(render_html(&data));
+}
+
+#[test]
+fn the_proxy_sections_are_additive_and_offline() {
+    let without = render_html(&rich());
+    let data = ReportData {
+        proxy: Some(proxy()),
+        ..rich()
+    };
+    let with = render_html(&data);
+    for id in [
+        "proxy-routing",
+        "proxy-overhead",
+        "proxy-cache",
+        "proxy-origin",
+    ] {
+        assert!(with.contains(id) && !without.contains(id), "{id}");
+    }
+    for needle in ["http://", "https://", "@import", "src=", "href=", "url("] {
+        assert!(!with.contains(needle), "found `{needle}`");
+    }
+    assert!(without.contains("</main>") && with.contains("</main>"));
+    assert!(
+        !without.contains("\"proxy\""),
+        "no proxy key without the proxy"
+    );
+    assert!(with.contains("\"proxy\""));
+}
+
+#[test]
+fn data_saved_before_the_proxy_existed_still_reads() {
+    let json = serde_json::to_string(&rich()).unwrap();
+    assert!(!json.contains("proxy"), "{json}");
+    let back: ReportData = serde_json::from_str(&json).unwrap();
+    assert!(back.proxy.is_none());
+    assert_eq!(back.meta, rich().meta);
+
+    let with = ReportData {
+        proxy: Some(proxy()),
+        ..rich()
+    };
+    let json = serde_json::to_string(&with).unwrap();
+    let back: ReportData = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.proxy, with.proxy);
 }

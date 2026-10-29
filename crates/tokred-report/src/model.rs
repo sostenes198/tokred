@@ -32,6 +32,10 @@ pub struct ReportData {
     pub latency: Option<LatencyStats>,
     /// Section 8: audit of the fixed context (`None` = no data yet).
     pub audit: Option<AuditStats>,
+    /// What the proxy measured (`None` = the proxy recorded nothing: the report is then exactly
+    /// the one without it, and nothing about the proxy is rendered or serialized).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<ProxyReport>,
 }
 
 /// Footer information of the report.
@@ -220,4 +224,100 @@ pub struct AuditItem {
     pub origin: String,
     /// Weight in tokens (an estimate, characters / 4).
     pub tokens: u64,
+}
+
+/// What only the proxy knows: the sections after the audit.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ProxyReport {
+    /// Messages the proxy measured exactly.
+    pub measured_messages: u64,
+    /// Messages known only from the transcripts (made while the proxy was off).
+    pub transcript_only_messages: u64,
+    /// Requested against effective model, most requests first.
+    pub routes: Vec<ProxyRoute>,
+    /// What routing decided in the period.
+    pub routing: Option<ProxyRouting>,
+    /// The proxy's own overhead.
+    pub overhead: Option<ProxyOverhead>,
+    /// Main-loop messages in the period (the base of the cache miss rate).
+    pub main_requests: u64,
+    /// Prompt-cache misses per likely cause, most frequent first.
+    pub cache_misses: Vec<ProxyMiss>,
+    /// Cost per request origin (`main`, `subagent`, ...).
+    pub by_origin: Vec<ProxyBreakdown>,
+    /// Cost per agent type of a subagent request.
+    pub by_agent_type: Vec<ProxyBreakdown>,
+    /// The suggestion waiting to be read.
+    pub suggestion: Option<String>,
+}
+
+/// One pair of requested and effective model.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ProxyRoute {
+    /// The model Claude Code asked for.
+    pub requested: String,
+    /// The model that answered.
+    pub effective: String,
+    /// Messages.
+    pub requests: u64,
+    /// What they cost on the model that answered, in USD.
+    pub cost_usd: f64,
+}
+
+/// What routing decided.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ProxyRouting {
+    /// Decisions where the model was changed.
+    pub applied: u64,
+    /// Decisions where the model would have been changed (`observe`).
+    pub observed: u64,
+    /// Decisions that kept the model.
+    pub kept: u64,
+    /// Rewrites that were rejected and fell back to the original.
+    pub fallback: u64,
+    /// Estimated saving of the applied decisions (an estimate).
+    pub applied_saving_usd: f64,
+    /// Estimated saving of the observed decisions, had they been applied (an estimate).
+    pub observed_saving_usd: f64,
+}
+
+/// The time the proxy added to requests.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ProxyOverhead {
+    /// Requests measured.
+    pub requests: u64,
+    /// Median, ms.
+    pub p50_ms: f64,
+    /// 95th percentile, ms.
+    pub p95_ms: f64,
+    /// 99th percentile, ms.
+    pub p99_ms: f64,
+    /// Slowest, ms.
+    pub max_ms: f64,
+    /// Budget for the p95, ms.
+    pub budget_ms: f64,
+}
+
+/// Prompt-cache misses of one likely cause.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProxyMiss {
+    /// The cause.
+    pub cause: String,
+    /// Requests that missed for it.
+    pub requests: u64,
+    /// Tokens written to the cache again by those requests.
+    pub cache_write_tokens: u64,
+}
+
+/// Cost of one origin or agent type.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ProxyBreakdown {
+    /// `main`, `subagent`, `Explore`, ...
+    pub name: String,
+    /// Messages.
+    pub messages: u64,
+    /// Tokens.
+    pub tokens: u64,
+    /// Cost in USD.
+    pub cost_usd: f64,
 }
