@@ -225,11 +225,8 @@ mod tests {
             ..figures()
         };
         assert_eq!(small.routing_verdict(), Verdict::NotWorthIt);
-        assert!(
-            small.routing_line().contains("none of 120 requests"),
-            "{}",
-            small.routing_line()
-        );
+        let text = small.routing_line();
+        assert!(text.contains("none of 120 requests"), "{text}");
 
         let some = SavingsFigures {
             routing_decisions: 10,
@@ -237,11 +234,8 @@ mod tests {
             routing_saving_usd: 0.4,
             ..figures()
         };
-        assert!(
-            some.routing_line().contains("saved about $0.40"),
-            "{}",
-            some.routing_line()
-        );
+        let text = some.routing_line();
+        assert!(text.contains("saved about $0.40"), "{text}");
         assert!(some.routing_line().contains("not worth turning on yet"));
 
         let big = SavingsFigures {
@@ -251,11 +245,8 @@ mod tests {
             ..figures()
         };
         assert_eq!(big.routing_verdict(), Verdict::Worth);
-        assert!(
-            big.routing_line().contains("about $15.00 a month"),
-            "{}",
-            big.routing_line()
-        );
+        let text = big.routing_line();
+        assert!(text.contains("about $15.00 a month"), "{text}");
         assert!((big.routing_per_month() - 15.0).abs() < 1e-9);
     }
 
@@ -267,12 +258,8 @@ mod tests {
             ..figures()
         };
         assert_eq!(tiny.compression_verdict(), Verdict::NotWorthIt);
-        assert!(
-            tiny.compression_line()
-                .contains("867k tokens (0.08% of the input"),
-            "{}",
-            tiny.compression_line()
-        );
+        let text = tiny.compression_line();
+        assert!(text.contains("867k tokens (0.08% of the input"), "{text}");
 
         let big = SavingsFigures {
             compression_tokens: 12_000_000,
@@ -280,12 +267,8 @@ mod tests {
             ..figures()
         };
         assert_eq!(big.compression_verdict(), Verdict::Worth);
-        assert!(
-            big.compression_line()
-                .contains("12.00M tokens (12.0% of the input"),
-            "{}",
-            big.compression_line()
-        );
+        let text = big.compression_line();
+        assert!(text.contains("12.00M tokens (12.0% of the input"), "{text}");
     }
 
     #[test]
