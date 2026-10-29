@@ -53,6 +53,8 @@ pub struct ServerConfig {
     pub network: NetworkSettings,
     /// Source of request timestamps.
     pub clock: Arc<dyn Clock + Send + Sync>,
+    /// `[routing] mode`, stored with every request record. `None` records nothing.
+    pub routing_mode: Option<&'static str>,
 }
 
 impl ServerConfig {
@@ -71,6 +73,7 @@ impl ServerConfig {
             drain_timeout: DEFAULT_DRAIN_TIMEOUT,
             network: NetworkSettings::default(),
             clock: Arc::new(SystemClock),
+            routing_mode: None,
         }
     }
 

@@ -27,7 +27,7 @@ cargo install --path crates/tokred-cli
 
 ## Optional: the local proxy
 
-The [proxy](proxy.md) is optional and off until you use it. Nothing is written to Claude Code's settings unless you run a command that says so.
+The [proxy](proxy.md) is controlled by one switch, `[proxy] enabled` in `tokred.toml` (`tokred configure` turns it on for a new installation; `tokred proxy disable` turns it off). While it is on, `tokred initialize` (what the `claude` shell wrapper runs before every launch) starts the proxy when needed and keeps `env.ANTHROPIC_BASE_URL` in Claude Code's `settings.json` pointing at it; `tokred unconfigure` removes that URL again. Your own gateway in `ANTHROPIC_BASE_URL` is never overwritten.
 
 ```sh
 tokred claude                     # start the proxy if needed and run Claude Code through it, for this run only

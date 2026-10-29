@@ -12,6 +12,7 @@ mod migrations;
 mod pricing;
 mod prompts;
 mod proxy;
+mod retention;
 mod routing;
 mod session;
 mod usage;
@@ -19,6 +20,8 @@ mod usage;
 use std::path::Path;
 
 use rusqlite::Connection;
+
+pub use retention::PruneReport;
 
 /// Failure while opening or migrating the database.
 #[derive(Debug, thiserror::Error)]

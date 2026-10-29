@@ -21,6 +21,8 @@ pub type RunClaude<'a> = dyn Fn(Option<(&str, &str)>, &[OsString]) -> Result<i32
 
 /// What the launcher needs from the outside world.
 pub struct Launcher<'a> {
+    /// `[proxy] enabled`: when off, `claude` runs directly.
+    pub enabled: bool,
     /// The port the proxy listens on.
     pub port: u16,
     /// The `ANTHROPIC_BASE_URL` already in the environment, if any.
@@ -38,6 +40,8 @@ pub struct Launcher<'a> {
 /// Why `claude` runs without the proxy.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Bypass {
+    /// `[proxy] enabled = false`.
+    Disabled,
     /// Another gateway is already configured.
     OtherGateway(String),
     /// The proxy did not start.
@@ -46,6 +50,9 @@ pub enum Bypass {
 
 /// Decides whether to use the proxy, starting it if needed. `Ok(None)` means: use it.
 pub fn prepare(launcher: &Launcher<'_>) -> Option<Bypass> {
+    if !launcher.enabled {
+        return Some(Bypass::Disabled);
+    }
     let ours = base_url(launcher.port);
     if let Some(existing) = &launcher.existing_base_url
         && existing.trim_end_matches('/') != ours
@@ -76,6 +83,7 @@ pub fn run(io: &mut Io, launcher: &Launcher<'_>, args: &[OsString]) -> Result<i3
         None => (launcher.run_claude)(Some(("ANTHROPIC_BASE_URL", &url)), args),
         Some(bypass) => {
             let reason = match bypass {
+                Bypass::Disabled => "the tokred proxy is disabled ([proxy] enabled = false); running claude without it (turn it on with `tokred proxy enable`)".to_owned(),
                 Bypass::OtherGateway(existing) => format!(
                     "ANTHROPIC_BASE_URL is already set to {existing}; running claude without the tokred proxy"
                 ),
@@ -139,6 +147,10 @@ mod tests {
     }
 
     fn go(world: &World, existing: Option<&str>) -> (i32, String) {
+        go_with(world, existing, true)
+    }
+
+    fn go_with(world: &World, existing: Option<&str>, enabled: bool) -> (i32, String) {
         let healthy = |_port: u16| world.healthy_now.get();
         let start = || -> Result<()> {
             world.starts.set(world.starts.get() + 1);
@@ -156,6 +168,7 @@ mod tests {
             Ok(7)
         };
         let launcher = Launcher {
+            enabled,
             port: 1029,
             existing_base_url: existing.map(str::to_owned),
             healthy: &healthy,
@@ -202,6 +215,20 @@ mod tests {
         let world = World::new(true, false, true);
         go(&world, Some("http://127.0.0.1:1029/"));
         assert!(world.ran.borrow()[0].0.is_some());
+    }
+
+    #[test]
+    fn a_disabled_proxy_means_claude_runs_directly_and_says_so() {
+        let world = World::new(true, false, true);
+        let (code, err) = go_with(&world, None, false);
+        assert_eq!(code, 7);
+        assert!(
+            err.contains("proxy is disabled ([proxy] enabled = false)"),
+            "{err}"
+        );
+        assert_eq!(err.matches('\n').count(), 1, "said once");
+        assert_eq!(world.starts.get(), 0, "nothing is started");
+        assert!(world.ran.borrow()[0].0.is_none(), "claude runs unchanged");
     }
 
     #[test]

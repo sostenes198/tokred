@@ -40,6 +40,10 @@ fn record(id: &str, ts: i64) -> ProxyRequestRecord {
         miss_cause: Some("idle_ttl".to_owned()),
         tools_hash: "t".repeat(64),
         system_hash: "s".repeat(64),
+        stop_reason: Some("tool_use".to_owned()),
+        tools: vec!["Read".to_owned(), "Grep".to_owned()],
+        cache_ttl: Some("1h".to_owned()),
+        routing_mode: Some("observe".to_owned()),
     }
 }
 
@@ -132,4 +136,31 @@ fn pruning_removes_rows_older_than_the_retention() {
         .collect();
     assert_eq!(ids, ["edge", "new"]);
     assert_eq!(store.prune_proxy_requests(Timestamp(now), 0).unwrap(), 2);
+}
+
+#[test]
+fn rows_written_before_the_richer_fields_stay_readable() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("old.db");
+    drop(Store::open(&db).unwrap());
+    // A row as version 4 of the schema wrote it: none of the v6 columns.
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute(
+        "INSERT INTO proxy_requests(id, ts, session_id, origin, model_requested, model_effective, \
+         input, output, cache_write, cache_write_1h, cache_read, thinking, bytes_in, bytes_out, \
+         upstream_ttfb_ms, total_ms, proxy_overhead_us, status, tools_hash, system_hash) \
+         VALUES ('old', 5, 's', 'main', 'm', 'm', 1, 2, 3, 0, 4, 0, 1, 1, 1, 1, 1, 200, 't', 's')",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+    let store = Store::open(&db).unwrap();
+    let rows = store
+        .proxy_requests_between(Timestamp(0), Timestamp(10))
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].stop_reason, None);
+    assert!(rows[0].tools.is_empty());
+    assert_eq!(rows[0].cache_ttl, None);
+    assert_eq!(rows[0].routing_mode, None);
 }

@@ -4,15 +4,17 @@
 //! `<data>/proxy/pid`, answers `GET /__tokred/health`, and accepts `GET /__tokred/status` and
 //! `POST /__tokred/shutdown` only with the secret from `<data>/proxy/secret`.
 
+use std::fmt::Write as _;
 use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
+use tokred_core::config::set_config_value;
 use tokred_core::proxy::ProxyRequestRecord;
 use tokred_core::{Clock, Config, Timestamp};
 
-use super::{SystemClock, existing_store};
+use super::{SystemClock, existing_store, initialize};
 use crate::args::{ProxyCommand, ServiceCommand};
 use crate::daemon::{
     ProxyFiles, SECRET_HEADER, ServiceKind, base_url, healthy, install_plan, port_of,
@@ -51,6 +53,7 @@ pub struct ProxyCtx<'a> {
 pub fn run(io: &mut Io, ctx: &ProxyCtx<'_>, command: &ProxyCommand) -> Result<()> {
     match command {
         ProxyCommand::Start { foreground, bind } => {
+            require_enabled(ctx)?;
             let bind = bind
                 .clone()
                 .unwrap_or_else(|| ctx.config.proxy.bind.clone());
@@ -61,9 +64,70 @@ pub fn run(io: &mut Io, ctx: &ProxyCtx<'_>, command: &ProxyCommand) -> Result<()
             }
         }
         ProxyCommand::Stop => stop(io, ctx),
+        ProxyCommand::Enable => set_enabled(io, ctx, true),
+        ProxyCommand::Disable => set_enabled(io, ctx, false),
         ProxyCommand::Status { json } => status(io, ctx, *json),
         ProxyCommand::Service { command } => service(io, ctx, command),
     }
+}
+
+/// `proxy start` and the user service refuse to run while the proxy features are off.
+fn require_enabled(ctx: &ProxyCtx<'_>) -> Result<()> {
+    if ctx.config.proxy.enabled {
+        return Ok(());
+    }
+    bail!(
+        "the tokred proxy is disabled ([proxy] enabled = false in tokred.toml); run `tokred proxy enable` first"
+    )
+}
+
+/// `proxy enable|disable`: sets `[proxy] enabled` in `tokred.toml`, then reconciles Claude Code's
+/// settings at once (enable starts the proxy and points Claude Code at it; disable removes
+/// tokred's URL). A running proxy is left running.
+fn set_enabled(io: &mut Io, ctx: &ProxyCtx<'_>, enabled: bool) -> Result<()> {
+    let path = ctx.env.data.config_path();
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let text = set_config_value(&existing, "proxy", "enabled", toml::Value::Boolean(enabled))?;
+    std::fs::create_dir_all(ctx.env.data.root())
+        .with_context(|| format!("could not create {}", ctx.env.data.root().display()))?;
+    std::fs::write(&path, text).with_context(|| format!("could not write {}", path.display()))?;
+
+    let report = initialize::reconcile(ctx.env, ctx.config, ctx.exe, enabled, ctx.settle)?;
+    let mut text = format!("[proxy] enabled = {enabled}\n");
+    for action in &report.actions {
+        writeln!(text, "  {action}")?;
+    }
+    let summary = match report.state {
+        initialize::State::Enabled => format!(
+            "The tokred proxy is on. Claude Code started from now on goes through {}.\n",
+            base_url(port_of(&ctx.config.proxy.bind)?)
+        ),
+        initialize::State::Disabled => disabled_summary(service_state(ctx.env) == Some(true)),
+        _ => "The setting is saved; see the warnings printed on stderr.\n".to_owned(),
+    };
+    write!(io.out(), "{text}{summary}")?;
+    write!(io.err(), "{}", report.warning_text())?;
+    Ok(())
+}
+
+/// What `proxy disable` ends with. An installed user service would keep trying to start a proxy
+/// that now refuses to run, so it is pointed out.
+fn disabled_summary(service_installed: bool) -> String {
+    let service = if service_installed {
+        "The user service is still installed and will keep failing to start the proxy: remove it with `tokred proxy service uninstall`.\n"
+    } else {
+        ""
+    };
+    format!(
+        "The proxy features are off. A running proxy keeps running until `tokred proxy stop`.\n{service}"
+    )
+}
+
+/// Starts `tokred proxy start --foreground` in the background (detached, no standard streams),
+/// creating the admin secret first because the child needs it. Does not wait for it.
+pub fn spawn_proxy(env: &Env, exe: &Path, bind: &str) -> Result<()> {
+    files(env).secret()?;
+    spawn_detached(exe, &["proxy", "start", "--foreground", "--bind", bind]).map(|_| ())
 }
 
 fn start_background(io: &mut Io, ctx: &ProxyCtx<'_>, bind: &str) -> Result<()> {
@@ -73,9 +137,7 @@ fn start_background(io: &mut Io, ctx: &ProxyCtx<'_>, bind: &str) -> Result<()> {
         writeln!(io.out(), "The tokred proxy is already running on {url}.")?;
         return Ok(());
     }
-    // Create the secret before the child needs it.
-    files(ctx.env).secret()?;
-    spawn_detached(ctx.exe, &["proxy", "start", "--foreground", "--bind", bind])?;
+    spawn_proxy(ctx.env, ctx.exe, bind)?;
     if !wait_until(ctx.settle, Duration::from_millis(50), &mut || {
         healthy(port, ADMIN_TIMEOUT)
     }) {
@@ -128,6 +190,15 @@ fn stop(io: &mut Io, ctx: &ProxyCtx<'_>) -> Result<()> {
     Ok(())
 }
 
+/// Whether the user service is installed, when it can be told: `None` where the service has no
+/// file to look for (a Windows logon task) or the operating system has none.
+pub fn service_state(env: &Env) -> Option<bool> {
+    let kind = ServiceKind::for_os(std::env::consts::OS)?;
+    let home = env.home_dir.as_deref()?;
+    let (path, _) = install_plan(kind, Path::new("tokred"), home).file?;
+    Some(path.exists())
+}
+
 fn service_installed(kind: Option<ServiceKind>, ctx: &ProxyCtx<'_>) -> bool {
     match (kind, &ctx.env.home_dir) {
         (Some(kind), Some(home)) => install_plan(kind, ctx.exe, home)
@@ -159,6 +230,7 @@ fn status(io: &mut Io, ctx: &ProxyCtx<'_>, json: bool) -> Result<()> {
         .is_some_and(|url| url.trim_end_matches('/') == base_url(port));
     let kind = ServiceKind::for_os(std::env::consts::OS);
     let value = json!({
+        "enabled": ctx.config.proxy.enabled,
         "running": running,
         "url": base_url(port),
         "pid": files.read_pid().map(|(pid, _)| pid),
@@ -184,7 +256,11 @@ fn status(io: &mut Io, ctx: &ProxyCtx<'_>, json: bool) -> Result<()> {
 
 /// The human-readable `tokred proxy status` from the figures of the JSON form.
 fn render_status(value: &Value, running: bool, points_here: bool) -> String {
-    let state = if running { "running" } else { "not running" };
+    let state = match (running, value["enabled"] == true) {
+        (true, _) => "running",
+        (false, true) => "not running",
+        (false, false) => "disabled",
+    };
     let url = value["url"].as_str().unwrap_or("?");
     let service = if value["service_installed"] == true {
         "installed"
@@ -265,6 +341,7 @@ fn service(io: &mut Io, ctx: &ProxyCtx<'_>, command: &ServiceCommand) -> Result<
         .context("could not determine the home folder")?;
     match command {
         ServiceCommand::Install => {
+            require_enabled(ctx)?;
             let plan = install_plan(kind, ctx.exe, home);
             plan.file
                 .iter()
@@ -363,6 +440,7 @@ mod tests {
 
     fn config_on(port: u16) -> Config {
         let mut config = Config::default();
+        config.proxy.enabled = true;
         config.proxy.bind = format!("127.0.0.1:{port}");
         config
     }
@@ -374,7 +452,7 @@ mod tests {
     #[test]
     fn foreground_start_runs_the_proxy_in_this_process() {
         let sb = Sandbox::new();
-        let config = Config::default();
+        let config = config_on(1);
         let served = std::cell::RefCell::new(String::new());
         let serve = |bind: &str| -> Result<()> {
             served.borrow_mut().push_str(bind);
@@ -486,7 +564,7 @@ mod tests {
         // Linux, macOS and Windows are all supported.
         let kind = ServiceKind::for_os(std::env::consts::OS).unwrap();
         let sb = Sandbox::new();
-        let config = Config::default();
+        let config = config_on(1);
         let ran = std::cell::RefCell::new(Vec::new());
         let record = |command: &[String]| -> Result<()> {
             ran.borrow_mut().push(command.join(" "));
@@ -536,6 +614,177 @@ mod tests {
         let (mut io, _) = scripted(false, "");
         run(&mut io, &failing, &uninstall).unwrap();
         assert!(!service_installed(None, &failing));
+    }
+
+    #[test]
+    fn a_disabled_proxy_refuses_to_start_or_to_become_a_service() {
+        let sb = Sandbox::new();
+        let config = Config::default();
+        assert!(!config.proxy.enabled);
+        for command in [
+            ProxyCommand::Start {
+                foreground: true,
+                bind: None,
+            },
+            ProxyCommand::Start {
+                foreground: false,
+                bind: None,
+            },
+            ProxyCommand::Service {
+                command: ServiceCommand::Install,
+            },
+        ] {
+            let (mut io, _) = scripted(false, "");
+            let err = run(&mut io, &ctx(&sb, &config, &no_serve), &command).unwrap_err();
+            let text = format!("{err:#}");
+            assert!(
+                text.contains("is disabled") && text.contains("tokred proxy enable"),
+                "{text}"
+            );
+        }
+        // Status and stop still work, and status says why nothing runs.
+        let (mut io, out) = scripted(false, "");
+        let status = ProxyCommand::Status { json: false };
+        run(
+            &mut io,
+            &ctx(&sb, &config_off_on_a_free_port(), &no_serve),
+            &status,
+        )
+        .unwrap();
+        let text = out.text();
+        assert!(text.contains("tokred proxy: disabled"), "{text}");
+    }
+
+    fn config_off_on_a_free_port() -> Config {
+        let closed = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        Config {
+            proxy: tokred_core::config::ProxyConfig {
+                enabled: false,
+                ..config_on(closed).proxy
+            },
+            ..Config::default()
+        }
+    }
+
+    /// A sandbox where `claude` would use the sandbox's Claude folder.
+    fn claude_sandbox(settings: &str) -> Sandbox {
+        let mut sb = Sandbox::new();
+        sb.env.claude_config_dir = Some(sb.claude.clone());
+        sb.write_settings(settings);
+        sb
+    }
+
+    fn settings_text(sb: &Sandbox) -> String {
+        std::fs::read_to_string(sb.settings()).unwrap()
+    }
+
+    fn enabled_in_file(sb: &Sandbox) -> bool {
+        let text = std::fs::read_to_string(sb.env.data.config_path()).unwrap();
+        Config::from_toml_str(&text).unwrap().proxy.enabled
+    }
+
+    #[test]
+    fn enable_and_disable_set_the_switch_and_reconcile_at_once() {
+        let sb = claude_sandbox(r#"{"model":"opus"}"#);
+        let (port, _) = fake_proxy(files(&sb.env).secret().unwrap());
+        let config = config_on(port);
+        let (mut io, out, err) = crate::io::testing::scripted_with_err(false, "");
+        run(
+            &mut io,
+            &ctx(&sb, &config, &no_serve),
+            &ProxyCommand::Enable,
+        )
+        .unwrap();
+        let text = out.text();
+        assert!(text.contains("[proxy] enabled = true"), "{text}");
+        assert!(
+            text.contains(&format!("goes through http://127.0.0.1:{port}")),
+            "{text}"
+        );
+        assert_eq!(err.text(), "");
+        assert!(enabled_in_file(&sb));
+        assert!(settings_text(&sb).contains(&format!("http://127.0.0.1:{port}")));
+
+        let (mut io, out, _) = crate::io::testing::scripted_with_err(false, "");
+        run(
+            &mut io,
+            &ctx(&sb, &config, &no_serve),
+            &ProxyCommand::Disable,
+        )
+        .unwrap();
+        let text = out.text();
+        assert!(text.contains("[proxy] enabled = false"), "{text}");
+        assert!(
+            text.contains("keeps running until `tokred proxy stop`"),
+            "{text}"
+        );
+        assert!(!enabled_in_file(&sb));
+        assert!(!settings_text(&sb).contains("ANTHROPIC_BASE_URL"));
+        assert!(settings_text(&sb).contains("opus"));
+    }
+
+    #[test]
+    fn disabling_with_a_user_service_installed_says_to_remove_it() {
+        assert!(!disabled_summary(false).contains("service"));
+        assert!(disabled_summary(true).contains("tokred proxy service uninstall"));
+
+        let sb = claude_sandbox("{}");
+        let config = config_on(1);
+        let kind = ServiceKind::for_os(std::env::consts::OS).unwrap();
+        let home = sb.env.home_dir.clone().unwrap();
+        // Where the service has a file (not on Windows), put one in place.
+        let plan = install_plan(kind, Path::new("tokred"), &home);
+        plan.file.iter().for_each(|(path, content)| {
+            write_service_file(path, content).unwrap();
+        });
+        let (mut io, out) = scripted(false, "");
+        let disable = ProxyCommand::Disable;
+        run(&mut io, &ctx(&sb, &config, &no_serve), &disable).unwrap();
+        let text = out.text();
+        // Where the service has a file (not on Windows), it is pointed out.
+        assert_eq!(
+            text.contains("tokred proxy service uninstall"),
+            plan.file.is_some(),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn enable_saves_the_switch_even_when_the_proxy_cannot_start_or_another_gateway_is_set() {
+        let down = config_on(1);
+        let sb = claude_sandbox("{}");
+        let (mut io, out, err) = crate::io::testing::scripted_with_err(false, "");
+        run(&mut io, &ctx(&sb, &down, &no_serve), &ProxyCommand::Enable).unwrap();
+        let (text, warnings) = (out.text(), err.text());
+        assert!(text.contains("The setting is saved"), "{text}");
+        assert!(warnings.contains("could not be started"), "{warnings}");
+        assert!(enabled_in_file(&sb));
+        assert!(!settings_text(&sb).contains("ANTHROPIC_BASE_URL"));
+
+        let sb = claude_sandbox(r#"{"env":{"ANTHROPIC_BASE_URL":"https://gateway.example"}}"#);
+        let (mut io, _, err) = crate::io::testing::scripted_with_err(false, "");
+        run(&mut io, &ctx(&sb, &down, &no_serve), &ProxyCommand::Enable).unwrap();
+        let warnings = err.text();
+        assert!(warnings.contains("https://gateway.example"), "{warnings}");
+        assert!(settings_text(&sb).contains("https://gateway.example"));
+    }
+
+    #[test]
+    fn enable_rejects_a_config_file_it_cannot_edit() {
+        let sb = claude_sandbox("{}");
+        std::fs::create_dir_all(sb.env.data.root()).unwrap();
+        std::fs::write(sb.env.data.config_path(), "[[[").unwrap();
+        let (mut io, _) = scripted(false, "");
+        let result = run(
+            &mut io,
+            &ctx(&sb, &config_on(1), &no_serve),
+            &ProxyCommand::Enable,
+        );
+        assert!(result.is_err());
     }
 
     fn ctx_with_refusal<'a>(sb: &'a Sandbox, config: &'a Config) -> ProxyCtx<'a> {

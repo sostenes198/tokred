@@ -20,19 +20,42 @@ tokred proxy stop
 
 `tokred claude` passes every argument to `claude` unchanged and exits with `claude`'s exit code. Nothing is written to Claude Code's settings. If the proxy cannot start, or `ANTHROPIC_BASE_URL` already points to another gateway, Claude Code runs exactly as before and tokred says why on stderr.
 
+### The switch: `[proxy] enabled`
+
+`enabled` in `tokred.toml` is the one switch of the proxy features; `tokred configure` turns it on for a new installation. `tokred proxy enable` and `tokred proxy disable` change it and take effect at once.
+
+```sh
+tokred proxy disable     # features off: tokred's URL is removed from Claude Code's settings, nothing else changes
+tokred proxy enable      # features on: start the proxy and point Claude Code's settings at it
+tokred initialize        # what the `claude` shell wrapper runs before each launch (see below)
+```
+
+`tokred initialize` makes Claude Code's `settings.json` agree with the switch, and it is what the `claude` wrapper installed by the installer runs before every launch. The one thing it reconciles is `env.ANTHROPIC_BASE_URL` (`http://127.0.0.1:<port>` from `[proxy] bind`):
+
+| `enabled` | The value is absent or tokred's | The value is another gateway |
+|---|---|---|
+| `true` | Starts the proxy if it is not running and, once it answers, sets the URL. If the proxy cannot be started the URL is removed again (a URL that points at a dead proxy would stop Claude Code) and a warning is printed | Nothing is changed and nothing is started; one line on stderr says tokred is enabled but `ANTHROPIC_BASE_URL` points elsewhere |
+| `false` | Removes tokred's URL (and the `env` object if that empties it). A running proxy is not stopped | Left alone |
+
+"Tokred's URL" is the current proxy URL or any URL tokred wrote before (for example after you changed the port); a value exported in the shell counts as the current value too. Your own gateway is never overwritten, even one on `127.0.0.1`. `initialize` never fails and never prints anything unless there is a warning (`--verbose` says what it did, `--json` prints a report); when everything is already right it costs one file read and one health probe.
+
+While the URL is in `settings.json`, Claude Code started from anywhere (an IDE, a terminal without the wrapper) goes through the proxy. If the proxy is not running at that moment the API cannot be reached, so there are three safeguards: the user service below; the `session-start` hook, which starts the proxy in the background when it is enabled, the session is pointed at it and it does not answer (see [hooks](hooks.md)); and `tokred doctor`, which warns when the URL is set and the proxy is down. To get out of any trouble: `tokred proxy disable` (or `tokred unconfigure`, or delete `ANTHROPIC_BASE_URL` from the `env` object of `settings.json`).
+
 To have the proxy always available, install it as a user service that starts at login (a systemd user unit on Linux, a launchd agent on macOS, a logon task on Windows):
 
 ```sh
 tokred proxy service install      # and later: tokred proxy service uninstall
 ```
 
-`tokred proxy start` runs it in the background without a service; `--foreground` keeps it in the terminal (the service uses that).
+`tokred proxy start` runs it in the background without a service; `--foreground` keeps it in the terminal (the service uses that). Both refuse while `enabled = false`.
+
+With `enabled = false`, `tokred claude` runs `claude` directly and says so on stderr.
 
 ## What it does
 
 | Feature | Default | What it changes |
 |---|---|---|
-| Measurement | always on | Nothing. Records each request's model, tokens (including 1-hour cache writes), latency and the likely cause of a prompt-cache miss; `tokred stats`, `tokred metrics` and the HTML report read it as their exact source ([metrics](metrics.md)) |
+| Measurement | always on | Nothing. Records each request's model, tokens (including 1-hour cache writes), latency, the stop reason, the names of the tools offered, the cache lifetime asked for (`5m` or `1h`), the routing mode in force and the likely cause of a prompt-cache miss; `tokred stats`, `tokred metrics` and the HTML report read them as their exact source ([metrics](metrics.md)) |
 | [Model routing](routing.md) | `observe` | Only subagent and auxiliary requests, and only in `enforce`. **The main loop's model is never changed** |
 | Suggestions | shown by `tokred suggest` and `tokred stats` (and, if you choose, the status line and a one-line message) | Nothing. Tells you when the main loop's last prompts were simple enough for a cheaper model |
 | Reversible compression | `observe` | Only in `enforce`: large tool results are replaced by a preview plus an id; the original is kept and the model reads it back with `tokred_retrieve` |
@@ -67,7 +90,10 @@ The settings are read when the proxy starts, from the environment of the process
 - Behind a corporate network only `http://` proxies are supported (no SOCKS), and the proxy settings are read once, when the proxy starts.
 - It reads response usage only from an uncompressed response. It asks the API for one (`Accept-Encoding: identity`); if a response comes back compressed anyway it is still forwarded unchanged, just not measured.
 - A compaction request carries no header that tells it apart, so it can be taken for a simple prompt. Routing never changes the main loop's model, so this only affects the advice.
-- Per-request records do not yet include the stop reason, the tool names or the cache lifetime used.
+
+## Retention
+
+What the proxy stores is deleted after `[proxy] retention_days` (default 90; `0` keeps everything): once when the proxy starts and then every hour. See [configuration](configuration.md).
 
 ## Configuration
 

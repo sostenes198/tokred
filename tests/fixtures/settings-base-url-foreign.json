@@ -1,0 +1,7 @@
+{
+  "model": "opus",
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://gateway.example.com",
+    "FOO": "1"
+  }
+}

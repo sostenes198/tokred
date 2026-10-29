@@ -69,11 +69,10 @@ l2_hits = 3
 l3_hits = 10
 
 [proxy]
-enabled = false                        # reserved: not read yet
+enabled = true                         # the proxy switch (set by `tokred configure` on a new install)
 bind = "127.0.0.1:1029"                # address the proxy listens on
 upstream = "https://api.anthropic.com" # the only host requests are forwarded to
-persist_base_url = false               # reserved: not read yet
-retention_days = 90                    # reserved: not read yet
+retention_days = 90                    # proxy data older than this is deleted (0 keeps everything)
 log_bodies = false                     # reserved: not read yet
 # ca_bundle = "/etc/ssl/corp-ca.pem"   # optional (not written by default): extra CA certificates (PEM) to trust
 
@@ -116,5 +115,9 @@ response_cache = true                  # count exact repeated requests
 The `[modes]` values take effect when the corresponding hook gets its real behaviour (phases F3 to F5).
 
 `ca_bundle` in `[proxy]` is optional and absent by default: the path of a PEM file with extra certificate authorities to trust for the upstream, in addition to the built-in roots, the operating system's store and the files named by `NODE_EXTRA_CA_CERTS` and `SSL_CERT_FILE`. The proxy also honours `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` and `NO_PROXY` (and the lower-case names) from its environment; see [behind a corporate proxy](proxy.md#behind-a-corporate-proxy).
+
+`[proxy] enabled` is the single switch of the proxy features. `tokred configure` sets it to `true` when you had no value yet (a value you wrote is kept, either way, and `unconfigure` leaves the file alone). While it is `true`, `tokred initialize` (run by the `claude` shell wrapper before every launch) starts the proxy when needed and keeps `env.ANTHROPIC_BASE_URL` in Claude Code's `settings.json` pointing at it; while it is `false`, tokred removes its own URL from there, `tokred claude` runs `claude` directly, `tokred proxy start` refuses, and `tokred doctor` shows "disabled". `tokred proxy enable` and `tokred proxy disable` change it and apply the effect at once. Installations configured before this switch existed have `enabled = false` written in `tokred.toml` (the old `configure` wrote every default), and tokred keeps explicit values: run `tokred proxy enable` once to turn the features on. A value of `ANTHROPIC_BASE_URL` that is not tokred's (your own gateway) is never overwritten or removed. The older `persist_base_url` key no longer exists; an old file that still has it keeps working (the key is ignored). See [proxy](proxy.md).
+
+`retention_days` applies to everything the proxy stores (requests, routing decisions, prompt summaries, suggestions, shadow measurements, kept tool results and compression replacements): it is deleted when the proxy starts and then every hour. `0` keeps everything. The kept tool results and replacements of a conversation that still had a request within the period are kept whatever their age. `log_bodies` is not read yet.
 
 The proxy sections only matter when the [proxy](proxy.md) runs. `tokred routing on|off` and `tokred compression on|off` set `mode` for you (restart the proxy to apply). `routing` and `compression` default to `observe`: they record what they would do and change nothing. `[routing]` never changes the main loop's model, whatever it says; see [routing](routing.md). `channel` in `[suggest]`: `stats` (default) makes them available in `tokred suggest`, `statusline` adds the status line, `message` also allows a one-line message at a safe moment (see [hooks](hooks.md)). `[shadow]` measurements never alter traffic.

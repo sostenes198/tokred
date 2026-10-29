@@ -55,6 +55,44 @@ pub(crate) fn thinking_signature(body: &Value) -> String {
     canonical_hash(Some(&signature))
 }
 
+/// The longest cache lifetime a request asks for: `"1h"` when any `cache_control` block says
+/// `ttl: "1h"`, `"5m"` when there is a `cache_control` without it (the API default), `None`
+/// when the request does not use prompt caching. Only the places Claude Code puts breakpoints
+/// are looked at: the top level, `system`, `tools` and the content blocks of `messages`.
+pub(crate) fn cache_ttl_of(body: &Value) -> Option<&'static str> {
+    let mut seen = false;
+    let mut mark = |holder: &Value| -> bool {
+        let Some(control) = holder.get("cache_control").filter(|c| !c.is_null()) else {
+            return false;
+        };
+        seen = true;
+        control.get("ttl").and_then(Value::as_str) == Some("1h")
+    };
+    let blocks = |key: &str| {
+        body.get(key)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+    };
+    let messages = body
+        .get("messages")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|message| message.get("content").and_then(Value::as_array))
+        .flatten();
+    let one_hour = std::iter::once(body)
+        .chain(blocks("system"))
+        .chain(blocks("tools"))
+        .chain(messages)
+        .any(&mut mark);
+    if one_hour {
+        Some("1h")
+    } else {
+        seen.then_some("5m")
+    }
+}
+
 /// `"<message.id>:<request-id>"`, the key transcripts use (empty request id when absent).
 pub(crate) fn message_key(message_id: Option<&str>, request_id: Option<&str>) -> Option<String> {
     message_id.map(|id| format!("{id}:{}", request_id.unwrap_or_default()))
@@ -117,6 +155,42 @@ mod tests {
         assert_eq!(thinking_signature(&base), thinking_signature(&other_model));
         assert_ne!(thinking_signature(&base), thinking_signature(&other_effort));
         assert_ne!(thinking_signature(&base), thinking_signature(&json!({})));
+    }
+
+    #[test]
+    fn the_cache_lifetime_is_the_longest_one_requested() {
+        let five = json!({"system": [{"type": "text", "cache_control": {"type": "ephemeral"}}]});
+        assert_eq!(cache_ttl_of(&five), Some("5m"));
+        let explicit_five =
+            json!({"tools": [{"name": "a", "cache_control": {"type": "ephemeral", "ttl": "5m"}}]});
+        assert_eq!(cache_ttl_of(&explicit_five), Some("5m"));
+        let mixed = json!({
+            "system": [{"cache_control": {"type": "ephemeral", "ttl": "1h"}}],
+            "messages": [{"role": "user", "content": [{"cache_control": {"type": "ephemeral"}}]}]
+        });
+        assert_eq!(cache_ttl_of(&mixed), Some("1h"));
+        let in_messages = json!({"messages": [
+            {"role": "user", "content": "plain text"},
+            {"role": "user", "content": [{"type": "text", "cache_control": {"ttl": "1h"}}]}
+        ]});
+        assert_eq!(cache_ttl_of(&in_messages), Some("1h"));
+        assert_eq!(
+            cache_ttl_of(&json!({"cache_control": {"ttl": "1h"}})),
+            Some("1h")
+        );
+        assert_eq!(
+            cache_ttl_of(&json!({"cache_control": {"type": "ephemeral"}})),
+            Some("5m")
+        );
+        assert_eq!(
+            cache_ttl_of(&json!({"system": [{"cache_control": null}]})),
+            None
+        );
+        assert_eq!(
+            cache_ttl_of(&json!({"system": "text", "messages": []})),
+            None
+        );
+        assert_eq!(cache_ttl_of(&json!([1])), None);
     }
 
     #[test]

@@ -123,6 +123,12 @@ pub enum ProxyCommand {
     },
     /// Stop the background proxy.
     Stop,
+    /// Turn the proxy features on (`[proxy] enabled = true`), start the proxy and point Claude
+    /// Code's settings at it.
+    Enable,
+    /// Turn the proxy features off (`[proxy] enabled = false`) and remove tokred's
+    /// `ANTHROPIC_BASE_URL` from Claude Code's settings.
+    Disable,
     /// Show whether the proxy is running and what it is doing.
     Status {
         /// Machine-readable output.
@@ -283,6 +289,19 @@ pub enum Command {
         #[command(subcommand)]
         command: ProxyCommand,
     },
+    /// Make Claude Code's settings agree with `[proxy] enabled` (run by the `claude` shell
+    /// wrapper before every launch; never fails, quiet unless it has something to say).
+    Initialize {
+        /// The default: print only warnings (accepted so the wrapper can say it explicitly).
+        #[arg(long, conflicts_with = "verbose")]
+        quiet: bool,
+        /// Also say what was changed.
+        #[arg(long, short)]
+        verbose: bool,
+        /// Machine-readable report on stdout.
+        #[arg(long)]
+        json: bool,
+    },
     /// Start Claude Code through the local proxy, for this run only.
     Claude {
         /// Arguments passed to `claude` unchanged.
@@ -431,6 +450,18 @@ mod tests {
             }
         ));
         assert!(matches!(
+            parse(&["proxy", "enable"]),
+            Command::Proxy {
+                command: ProxyCommand::Enable
+            }
+        ));
+        assert!(matches!(
+            parse(&["proxy", "disable"]),
+            Command::Proxy {
+                command: ProxyCommand::Disable
+            }
+        ));
+        assert!(matches!(
             parse(&["proxy", "status", "--json"]),
             Command::Proxy {
                 command: ProxyCommand::Status { json: true }
@@ -452,6 +483,32 @@ mod tests {
                 }
             }
         ));
+    }
+
+    #[test]
+    fn initialize_is_quiet_by_default_and_rejects_contradictions() {
+        assert!(matches!(
+            parse(&["initialize"]),
+            Command::Initialize {
+                quiet: false,
+                verbose: false,
+                json: false
+            }
+        ));
+        assert!(matches!(
+            parse(&["initialize", "--quiet"]),
+            Command::Initialize { quiet: true, .. }
+        ));
+        assert!(matches!(
+            parse(&["initialize", "--verbose", "--json"]),
+            Command::Initialize {
+                verbose: true,
+                json: true,
+                ..
+            }
+        ));
+        assert!(Cli::try_parse_from(["tokred", "initialize", "--quiet", "--verbose"]).is_err());
+        assert!(Cli::try_parse_from(["tokred", "initialize", "--nope"]).is_err());
     }
 
     #[test]

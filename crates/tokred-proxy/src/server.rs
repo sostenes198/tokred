@@ -123,6 +123,7 @@ impl Proxy {
             clock: self.config.clock,
             secret: self.config.admin_secret,
             session_cap: self.config.session_cap,
+            routing_mode: self.config.routing_mode,
             shutdown: shutdown.clone(),
         }));
         tracing::info!(addr = %self.local_addr, upstream = %shared.upstream_display(), "proxy listening");

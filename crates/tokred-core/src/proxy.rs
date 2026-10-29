@@ -360,6 +360,33 @@ pub struct ProxyRequestRecord {
     pub tools_hash: String,
     /// blake3 of the `system` block.
     pub system_hash: String,
+    /// `stop_reason` of the response (`end_turn`, `tool_use`, ...), when there was one.
+    pub stop_reason: Option<String>,
+    /// Names of the tools offered in the request (at most [`MAX_TOOLS_RECORDED`]); never inputs.
+    pub tools: Vec<String>,
+    /// Longest cache lifetime the request asked for: `"5m"`, `"1h"`, or `None` when it used no
+    /// `cache_control`.
+    pub cache_ttl: Option<String>,
+    /// `[routing] mode` in force for this request (`off`, `observe` or `enforce`); `None` for
+    /// rows recorded before it was stored.
+    pub routing_mode: Option<String>,
+}
+
+/// Tool names kept per request record.
+pub const MAX_TOOLS_RECORDED: usize = 200;
+
+impl ProxyRequestRecord {
+    /// The tool names as the JSON array text stored in the database (`[]` when none).
+    #[must_use]
+    pub fn tools_json(&self) -> String {
+        serde_json::to_string(&self.tools).unwrap_or_else(|_| "[]".to_owned())
+    }
+
+    /// Reads the text written by [`Self::tools_json`]; anything else is an empty list.
+    #[must_use]
+    pub fn tools_from_json(text: &str) -> Vec<String> {
+        serde_json::from_str(text).unwrap_or_default()
+    }
 }
 
 /// Read access to the stored proxy requests (`proxy_requests`), for the reports.
@@ -596,6 +623,21 @@ mod tests {
         let mut not_an_object = json!([1]);
         rewrite_model(&mut not_an_object, &ticket, "x");
         assert_eq!(not_an_object, json!([1]));
+    }
+
+    #[test]
+    fn tool_names_round_trip_through_their_json_text() {
+        let record = ProxyRequestRecord {
+            tools: vec!["Read".to_owned(), "mcp__x__y".to_owned()],
+            ..ProxyRequestRecord::default()
+        };
+        assert_eq!(record.tools_json(), r#"["Read","mcp__x__y"]"#);
+        assert_eq!(
+            ProxyRequestRecord::tools_from_json(&record.tools_json()),
+            record.tools
+        );
+        assert_eq!(ProxyRequestRecord::default().tools_json(), "[]");
+        assert!(ProxyRequestRecord::tools_from_json("not json").is_empty());
     }
 
     #[test]

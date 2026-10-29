@@ -1,7 +1,7 @@
 //! `tokred doctor`.
 
 use std::fmt::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use comfy_table::{Table, presets};
@@ -70,7 +70,7 @@ pub fn run(
         version,
         schema_version: store.as_ref().and_then(|s| s.schema_version().ok()),
         rtk_binary: binary::rtk_on_path(),
-        proxy: proxy_info(env, &super::housekeeping::load_config(env)),
+        proxy: proxy_info(env, &super::housekeeping::load_config(env), &claude_dir),
         config_exists: config_text.is_some(),
     };
 
@@ -217,6 +217,12 @@ pub struct ProxyInfo {
     pub url: String,
     /// `ANTHROPIC_BASE_URL` in the environment of this command.
     pub anthropic_base_url: Option<String>,
+    /// `[proxy] enabled`.
+    pub enabled: bool,
+    /// `env.ANTHROPIC_BASE_URL` in Claude Code's settings.json.
+    pub settings_base_url: Option<String>,
+    /// The user service is installed (`None`: cannot be told on this system).
+    pub service_installed: Option<bool>,
     /// Routing mode (`off`, `observe`, `enforce`).
     pub routing_mode: String,
     /// Compression mode.
@@ -229,12 +235,17 @@ fn mode_text(mode: tokred_core::config::TrafficMode) -> String {
     format!("{mode:?}").to_lowercase()
 }
 
-fn proxy_info(env: &Env, config: &Config) -> ProxyInfo {
+fn proxy_info(env: &Env, config: &Config, claude_dir: &Path) -> ProxyInfo {
     let port = crate::daemon::port_of(&config.proxy.bind).unwrap_or(1029);
     let port = super::proxy::files(env)
         .read_pid()
         .map_or(port, |(_, port)| port);
     ProxyInfo {
+        enabled: config.proxy.enabled,
+        settings_base_url: tokred_install::base_url::read_base_url(&StdFileSystem, claude_dir)
+            .ok()
+            .flatten(),
+        service_installed: super::proxy::service_state(env),
         running: crate::daemon::healthy(port, std::time::Duration::from_millis(300)),
         url: crate::daemon::base_url(port),
         anthropic_base_url: std::env::var("ANTHROPIC_BASE_URL")
@@ -247,14 +258,46 @@ fn proxy_info(env: &Env, config: &Config) -> ProxyInfo {
     }
 }
 
+/// What Claude Code's settings.json says about the proxy, with the warnings that go with a URL
+/// that points at a proxy that is not running.
+fn settings_lines(proxy: &ProxyInfo) -> String {
+    let Some(url) = proxy.settings_base_url.as_deref() else {
+        return String::new();
+    };
+    let mut out = format!("               settings.json ANTHROPIC_BASE_URL: {url}\n");
+    let ours = url.trim_end_matches('/') == proxy.url;
+    if ours && !proxy.running {
+        out.push_str(
+            "               warning: settings.json points Claude Code at the proxy but it is not running, \
+             so Claude Code cannot reach the API until it is; run `tokred proxy start`, or \
+             `tokred proxy disable` to remove the setting\n",
+        );
+    }
+    if ours && proxy.service_installed == Some(false) {
+        out.push_str(
+            "               note: no user service is installed, so nothing restarts the proxy after a reboot \
+             except the `claude` wrapper and the session-start hook; `tokred proxy service install` fixes that\n",
+        );
+    }
+    out
+}
+
 fn proxy_lines(proxy: &ProxyInfo) -> String {
     let mut out = String::new();
+    if !proxy.enabled {
+        let _ = writeln!(
+            out,
+            "  proxy:       disabled ([proxy] enabled = false; `tokred proxy enable` turns it on)"
+        );
+        return out;
+    }
     let state = if proxy.running {
         "running"
     } else {
         "not running"
     };
     let _ = writeln!(out, "  proxy:       {state} ({})", proxy.url);
+    out.push_str(&settings_lines(proxy));
     let _ = writeln!(
         out,
         "               routing {}, compression {}; the main loop's model is never changed",
@@ -459,6 +502,9 @@ mod tests {
 
     fn sample_proxy() -> ProxyInfo {
         ProxyInfo {
+            enabled: true,
+            settings_base_url: None,
+            service_installed: Some(true),
             running: false,
             url: "http://127.0.0.1:1029".to_owned(),
             anthropic_base_url: None,
@@ -540,6 +586,68 @@ mod tests {
     }
 
     #[test]
+    fn a_disabled_proxy_is_shown_as_disabled_and_nothing_else() {
+        let off = ProxyInfo {
+            enabled: false,
+            ..sample_proxy()
+        };
+        let text = proxy_lines(&off);
+        assert!(text.contains("proxy:       disabled"), "{text}");
+        assert!(text.contains("tokred proxy enable"), "{text}");
+        assert!(!text.contains("routing"), "{text}");
+    }
+
+    #[test]
+    fn a_url_in_settings_that_points_at_a_dead_proxy_is_a_warning() {
+        let pointing = ProxyInfo {
+            settings_base_url: Some("http://127.0.0.1:8787".to_owned()),
+            ..sample_proxy()
+        };
+        let text = proxy_lines(&pointing);
+        assert!(
+            text.contains("settings.json ANTHROPIC_BASE_URL: http://127.0.0.1:8787"),
+            "{text}"
+        );
+        assert!(
+            text.contains(
+                "warning: settings.json points Claude Code at the proxy but it is not running"
+            ),
+            "{text}"
+        );
+        assert!(!text.contains("no user service"), "{text}");
+
+        let no_service = ProxyInfo {
+            running: true,
+            service_installed: Some(false),
+            ..pointing.clone()
+        };
+        let text = proxy_lines(&no_service);
+        assert!(!text.contains("warning"), "{text}");
+        assert!(
+            text.contains("note: no user service is installed"),
+            "{text}"
+        );
+
+        let unknown = ProxyInfo {
+            service_installed: None,
+            ..no_service.clone()
+        };
+        assert!(!proxy_lines(&unknown).contains("no user service"));
+
+        let foreign = ProxyInfo {
+            settings_base_url: Some("https://gateway.example/".to_owned()),
+            service_installed: Some(false),
+            ..sample_proxy()
+        };
+        let text = proxy_lines(&foreign);
+        assert!(text.contains("https://gateway.example/"), "{text}");
+        assert!(
+            !text.contains("warning") && !text.contains("note:"),
+            "{text}"
+        );
+    }
+
+    #[test]
     fn doctor_reports_the_proxy_in_text_and_json() {
         let sb = Sandbox::new();
         configure(&sb);
@@ -550,6 +658,11 @@ mod tests {
         result.unwrap();
         let value: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(value["proxy"]["running"], false);
+        assert_eq!(
+            value["proxy"]["enabled"], true,
+            "a fresh configure enables it"
+        );
+        assert_eq!(value["proxy"]["settings_base_url"], serde_json::Value::Null);
         assert_eq!(value["proxy"]["routing_mode"], "observe");
         assert_eq!(value["proxy"]["compression_mode"], "observe");
     }

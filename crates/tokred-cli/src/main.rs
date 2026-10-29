@@ -115,6 +115,10 @@ fn compose_and_run_hook(name: Option<&str>, start: Instant) {
             .as_ref()
             .map(|store| store as &dyn tokred_core::prompts::SuggestionRepo),
     );
+    // After the answer was written: bring a dead proxy back before Claude Code needs it.
+    if event == HookEvent::SessionStart {
+        commands::ensure_proxy_for_session(&env, &config);
+    }
 }
 
 /// The time guard limit: `TOKRED_HOOK_GUARD_MS` (used by the tests), else 2 s.

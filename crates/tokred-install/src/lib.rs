@@ -7,6 +7,7 @@
 //! * [`fs`] – the `std::fs` adapter of the `FileSystem` port.
 
 pub mod agents;
+pub mod base_url;
 pub mod configure;
 pub mod doctor;
 pub mod error;

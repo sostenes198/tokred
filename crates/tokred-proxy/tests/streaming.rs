@@ -9,7 +9,7 @@ use http_body_util::BodyExt;
 use hyper::Method;
 use support::{
     Behavior, FakeUpstream, Reply, hook, main_body, post_messages, request, split_at, sse_body,
-    start,
+    start, start_with,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -30,7 +30,9 @@ async fn an_sse_stream_split_at_awkward_points_arrives_intact_and_is_measured() 
         FakeUpstream::always(Reply::stream(split_at(&body, &cuts)).header("request-id", "req_abc"))
             .await;
     let (observer, calls) = hook(Behavior::Observe);
-    let proxy = start(&upstream.url(), vec![observer]).await;
+    let mut config = support::config(&upstream.url());
+    config.routing_mode = Some("observe");
+    let proxy = start_with(config, vec![observer]).await;
 
     let answer = post_messages(
         proxy.addr,
@@ -62,6 +64,10 @@ async fn an_sse_stream_split_at_awkward_points_arrives_intact_and_is_measured() 
     assert_eq!(record.system_hash.len(), 64);
     assert_ne!(record.tools_hash, record.system_hash);
     assert_eq!(record.miss_cause, None, "first request of the session");
+    assert_eq!(record.stop_reason.as_deref(), Some("tool_use"));
+    assert_eq!(record.tools, ["Read", "Grep"]);
+    assert_eq!(record.cache_ttl.as_deref(), Some("5m"));
+    assert_eq!(record.routing_mode.as_deref(), Some("observe"));
 
     let summary = calls.after.lock().unwrap()[0].clone();
     assert_eq!(summary.tool_uses, ["Read"]);
@@ -92,6 +98,12 @@ async fn a_json_response_is_measured() {
     assert_eq!(record.message_key.as_deref(), Some("msg_j:req_j"));
     assert_eq!(record.usage.cache_read, 7);
     assert_eq!(record.status, 200);
+    assert_eq!(record.stop_reason.as_deref(), Some("end_turn"));
+    assert!(record.tools.is_empty());
+    assert_eq!(
+        (record.cache_ttl.as_deref(), record.routing_mode.as_deref()),
+        (None, None)
+    );
     proxy.stop().await;
 }
 

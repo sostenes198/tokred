@@ -76,6 +76,8 @@ Para a ferramenta de subagentes, compara o `subagent_type` escolhido com a últi
 
 Registra a sessão e o diretório de trabalho. Em `source` = `clear` ou `compact` marca o corte usado pelo `guard-read`. `startup`, `resume` e `fork` mantêm o contexto anterior, então não são cortes. Não imprime nada: no `SessionStart`, qualquer coisa no stdout seria adicionada ao contexto do modelo.
 
+É também a rede de segurança do proxy: quando `[proxy] enabled = true` e esta sessão aponta para o proxy (o `ANTHROPIC_BASE_URL` do ambiente dela, ou do `settings.json` do Claude Code, é a URL do tokred) mas o proxy não responde em cerca de 200 ms, ele sobe o proxy em segundo plano e retorna sem esperar. Isso impede que uma URL deixada no `settings.json` tranque o Claude Code para fora quando o proxy morreu. Nada acontece enquanto o proxy está desabilitado ou a sessão não o usa.
+
 ### `session-check`
 
 Pega o `usage` da última mensagem do assistente da conversa principal no transcript (`transcript_path`; só o fim do arquivo é lido) e estima o contexto como `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`. Acima de `context_warn_tokens` imprime uma `systemMessage` para o **usuário** sugerindo `/compact` ou `/clear`. Nunca bloqueia o stop, nunca usa `decision` nem `additionalContext` no `Stop` (isso faria o Claude continuar) e avisa uma vez por sessão: de novo só depois que o contexto crescer metade do limite, ou após um `clear`/`compact`. O estado do aviso fica no cache em camadas (entrada L1 de 4 h). O Claude Code grava o transcript de forma assíncrona, então o número pode atrasar uma mensagem.
