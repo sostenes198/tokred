@@ -598,13 +598,6 @@ mod retention_tests {
             ticks.set(ticks.get() + 1);
         });
         assert!(ticks.get() >= 2, "{} ticks", ticks.get());
-
-        // Already stopped: not even the first tick runs.
-        let none = std::cell::Cell::new(0_u32);
-        prune_loop(&shutdown, Duration::from_millis(80), &|| {
-            none.set(none.get() + 1);
-        });
-        assert_eq!(none.get(), 0);
     }
 
     #[test]

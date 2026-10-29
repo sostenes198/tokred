@@ -17,7 +17,9 @@ Todo comando que imprime um relatório aceita `--json` para saída legível por 
 | `tokred pricing sync` / `show` | Atualiza ou mostra a tabela de preços |
 | `tokred cache stats` / `prune` | Estado do cache em camadas; remove expirados |
 | `tokred proxy start` / `stop` / `status` | Executa e inspeciona o [proxy local](proxy.pt-BR.md) opcional |
+| `tokred proxy enable` / `disable` | Liga ou desliga os recursos do proxy (`[proxy] enabled`) e aplica na hora |
 | `tokred proxy service install` / `uninstall` | Inicia o proxy no login, como serviço de usuário |
+| `tokred initialize` | Faz as configurações do Claude Code concordarem com `[proxy] enabled`; executado pelo wrapper de shell do `claude` antes de toda abertura |
 | `tokred claude [args...]` | Executa o Claude Code pelo proxy, só nesta execução |
 | `tokred routing status` / `on` / `off` / `explain` | [Roteamento de modelo](routing.pt-BR.md) de requisições de subagentes e auxiliares |
 | `tokred compression on` / `off` / `status` | Compressão reversível de resultados grandes de ferramentas |
@@ -52,11 +54,11 @@ Depois que o binário muda de versão, o primeiro comando da CLI que você rodar
 
 ## `tokred unconfigure [--claude-dir <path>] [--purge]`
 
-Remove os hooks do tokred do `settings.json` e os arquivos de agente que o tokred instalou e que você não editou. Agentes editados são mantidos e informados. Arquivos sem o prefixo `tokred-` nunca são tocados, e o que o tokred não entende no `settings.json` fica como está. `--purge` também apaga a pasta de dados; ele se recusa a fazer isso se a pasta não contiver `tokred.db` ou `tokred.toml`.
+Remove os hooks do tokred do `settings.json` (e o `ANTHROPIC_BASE_URL` do tokred, quando foi gravado ali; o seu próprio gateway fica) e os arquivos de agente que o tokred instalou e que você não editou. Agentes editados são mantidos e informados. Arquivos sem o prefixo `tokred-` nunca são tocados, e o que o tokred não entende no `settings.json` fica como está. `--purge` também apaga a pasta de dados; ele se recusa a fazer isso se a pasta não contiver `tokred.db` ou `tokred.toml`.
 
 ## `tokred doctor [--claude-dir <path>] [--json] [--bench]`
 
-Mostra a versão do tokred, o path do binário, as pastas do Claude Code e de dados, a versão do schema do banco, o estado da config, a detecção do rtk, uma tabela de hooks (`ok`, `missing`, `outdated`, ou path de binário que não existe mais), uma tabela de agentes (`current`, `outdated`, `edited by you`, `missing`, `.new` pendente) e uma lista de problemas e observações. Uma seção do proxy mostra se o [proxy](proxy.pt-BR.md) está rodando, seus modos de roteamento e compressão, e se o `ANTHROPIC_BASE_URL` aponta para ele ou para outro gateway. Com `--bench` também executa cada hook muitas vezes com entrada realista e mede a latência real por fora (do início do processo até o fim); o resultado é salvo e usado pelo `stats latency`. `TOKRED_BENCH_RUNS` define as execuções por payload (padrão 50).
+Mostra a versão do tokred, o path do binário, as pastas do Claude Code e de dados, a versão do schema do banco, o estado da config, a detecção do rtk, uma tabela de hooks (`ok`, `missing`, `outdated`, ou path de binário que não existe mais), uma tabela de agentes (`current`, `outdated`, `edited by you`, `missing`, `.new` pendente) e uma lista de problemas e observações. Uma seção do proxy mostra se o [proxy](proxy.pt-BR.md) está rodando (ou "disabled" quando `[proxy] enabled = false`), seus modos de roteamento e compressão, o `ANTHROPIC_BASE_URL` do `settings.json` do Claude Code e deste terminal, e avisa quando o settings.json aponta para um proxy que não está rodando. Com `--bench` também executa cada hook muitas vezes com entrada realista e mede a latência real por fora (do início do processo até o fim); o resultado é salvo e usado pelo `stats latency`. `TOKRED_BENCH_RUNS` define as execuções por payload (padrão 50).
 
 ## `tokred stats [--since 7d] [--by model|day|project] [--json]`
 
@@ -86,13 +88,21 @@ Estima (caracteres / 4) o peso do contexto que o Claude Code carrega antes de vo
 
 O [proxy local](proxy.pt-BR.md) opcional. `start` o executa em segundo plano (o mesmo binário, `proxy start --foreground`); `--foreground` o mantém no terminal, que é o que o serviço de usuário usa. `--bind` substitui `[proxy] bind` (padrão `127.0.0.1:8787`). `stop` pede que ele encerre e espera até que isso aconteça. `status` mostra se está rodando, se o serviço de usuário está instalado, se o `ANTHROPIC_BASE_URL` deste terminal aponta para ele e os modos de roteamento e compressão.
 
+## `tokred proxy enable` / `disable`
+
+Definem `[proxy] enabled` no `tokred.toml` e aplicam na hora. O `enable` sobe o proxy se preciso e, quando ele responder, grava no `settings.json` do Claude Code o `env.ANTHROPIC_BASE_URL` com a URL do proxy. O `disable` remove dali a URL do tokred e deixa em execução um proxy que esteja rodando (`tokred proxy stop` o para). Enquanto desabilitado, `proxy start` e `proxy service install` se recusam, o `tokred claude` executa o `claude` direto e o `doctor` mostra "disabled"; `proxy stop` e `proxy status` continuam funcionando. Outro gateway em `ANTHROPIC_BASE_URL` nunca é sobrescrito nem removido: nesse caso o `enable` só salva a configuração e avisa. Veja [proxy](proxy.pt-BR.md).
+
+## `tokred initialize [--quiet | --verbose] [--json]`
+
+Reconcilia o `settings.json` do Claude Code com `[proxy] enabled`; o wrapper de shell do `claude` o executa antes de toda abertura, por isso ele foi feito para ser rápido e nunca atrapalhar. Lê um arquivo e sonda o proxy uma vez (sem banco de dados), não imprime nada a menos que haja um problema, e sempre sai com 0 (só argumentos inválidos falham). Habilitado: sobe o proxy quando ele não está rodando e grava o `env.ANTHROPIC_BASE_URL` quando ele responder, ou o remove de novo com um aviso se o proxy não puder subir. Desabilitado: remove a URL do tokred. Outro gateway, no arquivo ou exportado no shell, nunca é tocado e nada é iniciado. `--quiet` é o padrão; `--verbose` diz o que mudou; `--json` imprime um relatório (`state`, `started`, `actions`, `warnings`). As regras estão em [proxy](proxy.pt-BR.md).
+
 ## `tokred proxy service install` / `uninstall`
 
-Instala o proxy como serviço de usuário que inicia no login (uma unit de usuário do systemd no Linux, um agente do launchd no macOS, uma tarefa de logon no Windows), ou o remove. Nada é instalado a menos que você execute isto.
+Instala o proxy como serviço de usuário que inicia no login (uma unit de usuário do systemd no Linux, um agente do launchd no macOS, uma tarefa de logon no Windows), ou o remove. Nada é instalado a menos que você execute isto. O `install` se recusa enquanto `[proxy] enabled = false`.
 
 ## `tokred claude [args...]`
 
-Inicia o proxy se ele não estiver rodando e executa o Claude Code por ele, só nesta execução: nada é gravado nas configurações do Claude Code. Todo argumento vai para o `claude` sem alteração e o tokred sai com o código de saída do `claude`. Se o proxy não puder iniciar, ou se o `ANTHROPIC_BASE_URL` já apontar para outro gateway, o Claude Code roda como antes e o tokred explica o motivo no stderr.
+Inicia o proxy se ele não estiver rodando e executa o Claude Code por ele, só nesta execução: nada é gravado nas configurações do Claude Code. Todo argumento vai para o `claude` sem alteração e o tokred sai com o código de saída do `claude`. Se o proxy não puder iniciar, ou se o `ANTHROPIC_BASE_URL` já apontar para outro gateway, ou se `[proxy] enabled = false`, o Claude Code roda como antes e o tokred explica o motivo no stderr.
 
 ## `tokred routing status [--json]` / `on` / `off` / `explain <id>`
 

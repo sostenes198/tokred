@@ -897,11 +897,10 @@ mod tests {
         assert_eq!((out.text().as_str(), err.text().as_str()), ("", ""));
         let (mut io, out, _) = scripted_with_err(false, "");
         run(&sb.env, &mut io, true, false).unwrap();
+        let text = out.text();
         assert!(
-            out.text()
-                .contains("left ANTHROPIC_BASE_URL=https://gateway.example"),
-            "{}",
-            out.text()
+            text.contains("left ANTHROPIC_BASE_URL=https://gateway"),
+            "{text}"
         );
     }
 
@@ -985,6 +984,9 @@ mod tests {
         // The URL is there, the proxy is down and cannot be started.
         let url = "http://127.0.0.1:1";
         sb.write_settings(&format!(r#"{{"env":{{"ANTHROPIC_BASE_URL":"{url}"}}}}"#));
+        assert!(!ensure_for_session(&sb.env, &config, exe));
+        // Another gateway is not in use by tokred, whatever the proxy is doing.
+        sb.write_settings(r#"{"env":{"ANTHROPIC_BASE_URL":"https://gateway.example"}}"#);
         assert!(!ensure_for_session(&sb.env, &config, exe));
         config.proxy.bind = "garbage".to_owned();
         assert!(!ensure_for_session(&sb.env, &config, exe));

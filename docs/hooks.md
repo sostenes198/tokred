@@ -76,6 +76,8 @@ For the subagent tool, compares the chosen `subagent_type` with the session's la
 
 Registers the session and the working directory. On `source` = `clear` or `compact` it marks the cut used by `guard-read`. `startup`, `resume` and `fork` keep the earlier context, so they are not cuts. It prints nothing: on `SessionStart`, anything on stdout would be added to the model's context.
 
+It is also the safety net of the proxy: when `[proxy] enabled = true` and this session is pointed at the proxy (`ANTHROPIC_BASE_URL` in its environment, or in Claude Code's `settings.json`, is tokred's URL) but the proxy does not answer within about 200 ms, it starts the proxy in the background and returns without waiting. That keeps a URL left in `settings.json` from locking Claude Code out when the proxy has died. Nothing happens while the proxy is disabled or the session does not use it.
+
 ### `session-check`
 
 Takes the `usage` of the last main-conversation assistant message in the transcript (`transcript_path`; only the tail of the file is read) and estimates the context as `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`. Above `context_warn_tokens` it prints a `systemMessage` for the **user** suggesting `/compact` or `/clear`. It never blocks the stop, never uses `decision` or `additionalContext` on `Stop` (that would make Claude continue) and warns once per session: again only after the context grew by half the limit, or after a `clear`/`compact`. The warning state lives in the tiered cache (4 h L1 entry). Claude Code writes the transcript asynchronously, so the figure can lag by one message.

@@ -643,11 +643,8 @@ mod tests {
             &status,
         )
         .unwrap();
-        assert!(
-            out.text().contains("tokred proxy: disabled"),
-            "{}",
-            out.text()
-        );
+        let text = out.text();
+        assert!(text.contains("tokred proxy: disabled"), "{text}");
     }
 
     fn config_off_on_a_free_port() -> Config {
@@ -728,27 +725,17 @@ mod tests {
         let sb = claude_sandbox("{}");
         let (mut io, out, err) = crate::io::testing::scripted_with_err(false, "");
         run(&mut io, &ctx(&sb, &down, &no_serve), &ProxyCommand::Enable).unwrap();
-        assert!(
-            out.text().contains("The setting is saved"),
-            "{}",
-            out.text()
-        );
-        assert!(
-            err.text().contains("could not be started"),
-            "{}",
-            err.text()
-        );
+        let (text, warnings) = (out.text(), err.text());
+        assert!(text.contains("The setting is saved"), "{text}");
+        assert!(warnings.contains("could not be started"), "{warnings}");
         assert!(enabled_in_file(&sb));
         assert!(!settings_text(&sb).contains("ANTHROPIC_BASE_URL"));
 
         let sb = claude_sandbox(r#"{"env":{"ANTHROPIC_BASE_URL":"https://gateway.example"}}"#);
         let (mut io, _, err) = crate::io::testing::scripted_with_err(false, "");
         run(&mut io, &ctx(&sb, &down, &no_serve), &ProxyCommand::Enable).unwrap();
-        assert!(
-            err.text().contains("https://gateway.example"),
-            "{}",
-            err.text()
-        );
+        let warnings = err.text();
+        assert!(warnings.contains("https://gateway.example"), "{warnings}");
         assert!(settings_text(&sb).contains("https://gateway.example"));
     }
 

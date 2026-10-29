@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Changed
 
+- The `persist_base_url` key of `[proxy]` no longer exists (an old file that still has it keeps working): `enabled` now does what it was meant for.
 - `unconfigure` leaves settings it does not understand untouched instead of failing.
 
 ### Fixed
@@ -21,6 +22,9 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- `tokred initialize`: makes Claude Code's `settings.json` agree with `[proxy] enabled`, for a `claude` shell wrapper to run before every launch. Enabled: starts the proxy if needed and sets `env.ANTHROPIC_BASE_URL` once it answers (removing it again, with a warning, if the proxy cannot start); disabled: removes tokred's URL. Another gateway is never overwritten. It is quiet, fast (one file read, one health probe) and always exits 0. `tokred proxy enable|disable` switch it and apply it at once; `[proxy] enabled` is now the single switch (`tokred claude` runs `claude` directly, `proxy start` refuses and `doctor` shows "disabled" while it is off), `configure` turns it on for a new installation, and `unconfigure` removes tokred's URL. The `session-start` hook starts a dead proxy when the session is pointed at it, and `doctor` warns about a URL that points at a proxy that is not running.
+- Proxy request records now include the stop reason, the tool names offered, the cache lifetime asked for (`5m`/`1h`) and the routing mode in force (schema version 6).
+- `[proxy] retention_days` is applied: data older than that is deleted when the proxy starts and every hour (`0` keeps everything).
 - Optional local proxy between Claude Code and the Anthropic API, off until used ([proxy](docs/proxy.md)): exact measurement of every request (model, tokens including 1-hour cache writes, latency, cache-miss cause, proxy overhead); routing of subagent and auxiliary requests to a cheaper model (`observe` by default; the main loop's model is never changed); advice about the main loop (`tokred suggest`, `tokred statusline`, and an optional one-line message from the `route` hook); reversible compression of large tool results with the `tokred_retrieve` MCP server (`observe` by default). It is fail-open: if anything fails, the original request is forwarded unchanged.
 - `tokred claude [args...]`: starts the proxy if needed and runs Claude Code through it for this run only, passing every argument through.
 - `tokred proxy start|stop|status` and `tokred proxy service install|uninstall`; `tokred routing status|on|off|explain`; `tokred compression on|off|status` (`on` registers the MCP server in `~/.claude.json` with a `.tokred.bak` backup).

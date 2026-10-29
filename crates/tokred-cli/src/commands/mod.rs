@@ -45,7 +45,12 @@ use self::housekeeping::{Network, Switches};
 
 /// Runs the parsed command.
 pub fn run(cli: Cli, io: &mut Io) -> Result<()> {
-    let Some(env) = usable_env(Env::from_process(), &cli.command, io)? else {
+    run_in(Env::from_process(), cli, io)
+}
+
+/// [`run`] with the environment already resolved (so that it can be tested without one).
+fn run_in(env: Result<Env>, cli: Cli, io: &mut Io) -> Result<()> {
+    let Some(env) = usable_env(env, &cli.command, io)? else {
         return Ok(());
     };
     let version = env!("CARGO_PKG_VERSION");
@@ -587,6 +592,7 @@ mod tests {
     use super::testing::Sandbox;
     use super::*;
     use crate::io::testing::scripted;
+    use clap::Parser as _;
 
     #[test]
     fn initialize_never_fails_without_an_environment_but_other_commands_do() {
@@ -600,6 +606,11 @@ mod tests {
         let none = usable_env(Err(anyhow::anyhow!("no home folder")), &init, &mut io).unwrap();
         assert!(none.is_none());
         assert_eq!(err.text(), "tokred: initialize skipped: no home folder\n");
+        // Through the whole command: a warning and exit code 0; another command fails.
+        let cli = || Cli::parse_from(["tokred", "initialize"]);
+        run_in(Err(anyhow::anyhow!("no home folder")), cli(), &mut io).unwrap();
+        let other = Cli::parse_from(["tokred", "statusline"]);
+        assert!(run_in(Err(anyhow::anyhow!("no home folder")), other, &mut io).is_err());
         assert!(usable_env(Err(anyhow::anyhow!("x")), &Command::Statusline, &mut io).is_err());
         assert!(
             usable_env(Ok(sb.env.clone()), &init, &mut io)
