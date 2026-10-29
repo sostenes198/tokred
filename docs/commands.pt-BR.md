@@ -111,6 +111,8 @@ O `enable` escolhe duas coisas, grava-as junto com `[proxy] enabled = true` no `
 
 **Sem terminal** (ou com `--yes`) nada é perguntado: só muda o que uma flag ou variável disser; o resto mantém o valor salvo, senão os padrões (porta 1029, conteúdo **não** gravado). Se o proxy já estiver rodando em outra porta que não a nova, ele é parado e iniciado de novo na nova porta, e o comando avisa.
 
+Um proxy que já está rodando é reiniciado quando o que ele faz difere do que você pediu: outra porta, ou outra resposta sobre gravar o conteúdo das conversas (ele lê essa configuração só ao iniciar; um proxy antigo demais para dizer o que grava também é reiniciado). O `enable` avisa antes de pará-lo.
+
 O `disable` remove dali a URL do tokred e deixa em execução um proxy que esteja rodando (`tokred proxy stop` o para). Enquanto desabilitado, `proxy start` e `proxy service install` se recusam, o `tokred claude` executa o `claude` direto e o `doctor` mostra "disabled"; `proxy stop` e `proxy status` continuam funcionando. Outro gateway em `ANTHROPIC_BASE_URL` nunca é sobrescrito nem removido: nesse caso o `enable` só salva a configuração e avisa. Veja [proxy](proxy.pt-BR.md).
 
 ## `tokred initialize [--quiet | --verbose] [--json]`
