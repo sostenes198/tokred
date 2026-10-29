@@ -232,10 +232,16 @@ pub enum Command {
         force: bool,
     },
     /// Update tokred according to how it was installed, then re-apply the configuration.
+    // `--version` here is the version to install, not the program's own version flag.
+    #[command(disable_version_flag = true)]
     Update {
         /// Folder selection.
         #[command(flatten)]
         dir: ClaudeDirArg,
+        /// Install exactly this version (a release candidate like `0.2.0-rc.1`, or an older
+        /// one) instead of the latest stable release.
+        #[arg(long, value_name = "VERSION")]
+        version: Option<String>,
     },
     /// Remove tokred's hooks and agents from Claude Code.
     Unconfigure {
@@ -524,7 +530,14 @@ mod tests {
 
     #[test]
     fn the_other_commands_parse() {
-        assert!(matches!(parse(&["update"]), Command::Update { .. }));
+        assert!(matches!(
+            parse(&["update"]),
+            Command::Update { version: None, .. }
+        ));
+        assert!(matches!(
+            parse(&["update", "--version", "0.2.0-rc.1"]),
+            Command::Update { version: Some(ref v), .. } if v == "0.2.0-rc.1"
+        ));
         assert!(matches!(
             parse(&["doctor", "--bench", "--json"]),
             Command::Doctor {

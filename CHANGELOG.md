@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- `tokred update --version 0.2.0-rc.3` installs exactly that version (a release candidate, or an older one) instead of the latest stable release, which never includes pre-releases.
+
 - The dashboard names each session the way Claude Code does (the title you gave it or the generated one, plus the folder and a short id), instead of showing only the session id.
 
 ### Fixed

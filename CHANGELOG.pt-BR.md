@@ -8,6 +8,8 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ### Adicionado
 
+- `tokred update --version 0.2.0-rc.3` instala exatamente essa versão (um release candidate ou uma mais antiga) em vez da última release estável, que nunca inclui pré-releases.
+
 - O dashboard dá a cada sessão o nome que o Claude Code dá (o título que você escolheu ou o gerado, mais a pasta e um id curto), em vez de mostrar só o id da sessão.
 
 ### Corrigido

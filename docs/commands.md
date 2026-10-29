@@ -45,14 +45,16 @@ Running it again is safe: the result is the same. If `settings.json` is not vali
 
 A value that the user chose for the proxy (in `tokred.toml`, or through `proxy enable`) is never changed by `configure`, so the quiet re-run after every upgrade keeps it.
 
-## `tokred update [--claude-dir <path>]`
+## `tokred update [--version <version>] [--claude-dir <path>]`
 
-Checks the latest release and acts according to where the running binary lives:
+Checks the latest **stable** release (a pre-release is never offered: GitHub's "latest" skips them) and acts according to where the running binary lives:
 
 | The binary is | `tokred update` |
 |---|---|
 | In the install folder (`$TOKRED_HOME/bin`, where the install script puts it) | Downloads the archive for this platform from the GitHub release, **verifies its SHA-256**, replaces the binary atomically (on Windows the running `.exe` is renamed to `.exe.old` and removed on the next start) and re-applies the configuration with the new binary |
 | Anywhere else (built from source, copied by hand) | Says a new version exists and to reinstall with the install script |
+
+`--version 0.2.0-rc.3` (a leading `v` is fine) installs exactly that version instead of the latest stable one: this is how you try a release candidate, or go back to an older version. It does not ask GitHub what is latest: it downloads `releases/download/v<version>/` directly, verifies the checksum like any update, and says where the published versions are listed when the download fails. A version that is already installed is not downloaded again. A binary the install script did not put there is told to reinstall with the script and `--version`.
 
 After the binary changes version, the first CLI command you run re-applies the configuration quietly (hooks never do this), keeping your choices. Needs the network; refuses to run when `TOKRED_OFFLINE` is set. See [installation](installation.md).
 

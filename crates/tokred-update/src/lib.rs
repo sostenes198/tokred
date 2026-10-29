@@ -29,4 +29,4 @@ pub use swap::{
     cleanup_old_binary, current_target, old_binary_path, release_asset_url, self_update,
     target_triple,
 };
-pub use version::is_newer;
+pub use version::{is_newer, normalize};

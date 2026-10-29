@@ -230,7 +230,10 @@ fn dispatch(
         }
         Command::Audit { dir, project, json } => audit::run(env, io, dir.claude_dir, project, json),
         Command::Pricing { command } => pricing::run(env, io, &command, net),
-        Command::Update { dir } => {
+        Command::Update {
+            dir,
+            version: wanted,
+        } => {
             if switches.offline {
                 bail!("TOKRED_OFFLINE is set; `tokred update` needs the network");
             }
@@ -243,6 +246,7 @@ fn dispatch(
                 exe,
                 method: install_method(env, Some(exe)),
                 current: version,
+                requested: wanted.as_deref(),
                 releases: net.releases,
                 downloader: &downloader,
                 fs: &StdFileSystem,
