@@ -25,7 +25,8 @@ use serde_json::{Value, json};
 use tokred_core::Timestamp;
 use tokred_core::ports::Clock;
 use tokred_core::proxy::{
-    Origin, ProxyHook, ProxyRecord, ProxyRequestRecord, RecordSink, ResponseSummary,
+    MAX_TOOLS_RECORDED, Origin, ProxyHook, ProxyRecord, ProxyRequestRecord, RecordSink,
+    ResponseSummary,
 };
 
 use crate::admin::{self, Admin};
@@ -34,7 +35,7 @@ use crate::host::host_allowed;
 use crate::miss::{MainTurn, SessionTracker};
 use crate::pipeline::{self, Prepared};
 use crate::record::{
-    canonical_hash, message_key, micros, millis, new_request_id, thinking_signature,
+    cache_ttl_of, canonical_hash, message_key, micros, millis, new_request_id, thinking_signature,
 };
 use crate::server::Shutdown;
 use crate::tap::{Observed, ResponseTap};
@@ -72,6 +73,7 @@ pub(crate) struct Shared {
     clock: Arc<dyn Clock + Send + Sync>,
     secret: String,
     tracker: Mutex<SessionTracker>,
+    routing_mode: Option<&'static str>,
     counters: Counters,
     started: Instant,
     shutdown: Shutdown,
@@ -86,6 +88,7 @@ pub(crate) struct SharedParts {
     pub clock: Arc<dyn Clock + Send + Sync>,
     pub secret: String,
     pub session_cap: usize,
+    pub routing_mode: Option<&'static str>,
     pub shutdown: Shutdown,
 }
 
@@ -125,6 +128,7 @@ impl Shared {
             clock: parts.clock,
             secret: parts.secret,
             tracker: Mutex::new(SessionTracker::new(parts.session_cap)),
+            routing_mode: parts.routing_mode,
             counters: Counters::default(),
             started: Instant::now(),
             shutdown: parts.shutdown,
@@ -428,6 +432,16 @@ impl Finish {
             miss_cause,
             tools_hash,
             system_hash,
+            stop_reason: summary.stop_reason.clone(),
+            tools: prepared
+                .shape
+                .tool_names
+                .iter()
+                .take(MAX_TOOLS_RECORDED)
+                .cloned()
+                .collect(),
+            cache_ttl: body.and_then(cache_ttl_of).map(str::to_owned),
+            routing_mode: self.shared.routing_mode.map(str::to_owned),
         }
     }
 

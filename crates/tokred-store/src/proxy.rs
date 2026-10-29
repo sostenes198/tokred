@@ -14,16 +14,17 @@ const SECONDS_PER_DAY: i64 = 86_400;
 const INSERT: &str = "INSERT OR IGNORE INTO proxy_requests(id, ts, session_id, agent_id, \
     agent_type, prompt_id, origin, model_requested, model_effective, input, output, cache_write, \
     cache_write_1h, cache_read, thinking, message_key, bytes_in, bytes_out, upstream_ttfb_ms, \
-    total_ms, proxy_overhead_us, status, notes, miss_cause, tools_hash, system_hash) \
+    total_ms, proxy_overhead_us, status, notes, miss_cause, tools_hash, system_hash, \
+    stop_reason, tools, cache_ttl, routing_mode) \
     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, \
     ?20, ?21, ?22, json_object('decision_id', ?23, 'model_rewritten', ?24, \
-    'blocks_compressed', ?25), ?26, ?27, ?28)";
+    'blocks_compressed', ?25), ?26, ?27, ?28, ?29, ?30, ?31, ?32)";
 
 const SELECT: &str = "SELECT id, ts, session_id, agent_id, agent_type, prompt_id, origin, \
     model_requested, model_effective, input, output, cache_write, cache_write_1h, cache_read, \
     thinking, message_key, bytes_in, bytes_out, upstream_ttfb_ms, total_ms, proxy_overhead_us, \
     status, json_extract(notes, '$.decision_id'), json_extract(notes, '$.model_rewritten'), \
-    COALESCE(json_extract(notes, '$.blocks_compressed'), 0), miss_cause, tools_hash, system_hash \
+    COALESCE(json_extract(notes, '$.blocks_compressed'), 0), miss_cause, tools_hash, system_hash, stop_reason, tools, cache_ttl, routing_mode \
     FROM proxy_requests";
 
 /// SQLite integers are signed: counters beyond `i64::MAX` saturate (unreachable in practice).
@@ -70,6 +71,10 @@ fn row_to_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProxyRequestRecord
         miss_cause: row.get(25)?,
         tools_hash: row.get(26)?,
         system_hash: row.get(27)?,
+        stop_reason: row.get(28)?,
+        tools: ProxyRequestRecord::tools_from_json(&row.get::<_, String>(29)?),
+        cache_ttl: row.get(30)?,
+        routing_mode: row.get(31)?,
     })
 }
 
@@ -110,6 +115,10 @@ impl Store {
                     record.miss_cause,
                     record.tools_hash,
                     record.system_hash,
+                    record.stop_reason,
+                    record.tools_json(),
+                    record.cache_ttl,
+                    record.routing_mode,
                 ])
             })
             .map_err(StoreError::backend)?;

@@ -49,6 +49,8 @@ pub struct ServerConfig {
     pub drain_timeout: Duration,
     /// Source of request timestamps.
     pub clock: Arc<dyn Clock + Send + Sync>,
+    /// `[routing] mode`, stored with every request record. `None` records nothing.
+    pub routing_mode: Option<&'static str>,
 }
 
 impl ServerConfig {
@@ -66,6 +68,7 @@ impl ServerConfig {
             session_cap: DEFAULT_SESSION_CAP,
             drain_timeout: DEFAULT_DRAIN_TIMEOUT,
             clock: Arc::new(SystemClock),
+            routing_mode: None,
         }
     }
 

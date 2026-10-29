@@ -108,6 +108,17 @@ const MIGRATIONS: &[&str] = &[
         rules_version TEXT NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY(session_id, original_hash)
     );
     ",
+    // v5: reserved for the `captured_turns` table (dashboard workstream, W2). Kept as a no-op
+    // here so that v6 below has its final number; the merge replaces this entry with W2's.
+    "SELECT 1;",
+    // v6: richer per-request records. Existing rows stay valid (no stop reason, no tools, no
+    // cache lifetime, unknown routing mode).
+    "
+    ALTER TABLE proxy_requests ADD COLUMN stop_reason TEXT;
+    ALTER TABLE proxy_requests ADD COLUMN tools TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE proxy_requests ADD COLUMN cache_ttl TEXT;
+    ALTER TABLE proxy_requests ADD COLUMN routing_mode TEXT;
+    ",
 ];
 
 /// Highest schema version this build understands.

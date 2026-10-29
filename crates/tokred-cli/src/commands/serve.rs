@@ -82,8 +82,9 @@ pub fn assemble(
     registered: bool,
     now: Timestamp,
 ) -> Result<Assembly> {
-    let server = ServerConfig::from_proxy_config(&config.proxy, secret)
+    let mut server = ServerConfig::from_proxy_config(&config.proxy, secret)
         .context("invalid [proxy] settings in tokred.toml")?;
+    server.routing_mode = Some(config.routing.mode.as_str());
 
     let writer_store =
         Store::open(db).with_context(|| format!("could not open {}", db.display()))?;

@@ -199,6 +199,18 @@ pub enum TrafficMode {
     Enforce,
 }
 
+impl TrafficMode {
+    /// The name used in `tokred.toml` and in records.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Observe => "observe",
+            Self::Enforce => "enforce",
+        }
+    }
+}
+
 /// `[proxy]` section.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -515,6 +527,13 @@ mod tests {
         assert_eq!(cfg.update.mode, UpdateMode::Notify);
         assert!(cfg.pricing.auto_sync);
         assert_eq!(cfg.cache.l2_hits, 3);
+    }
+
+    #[test]
+    fn traffic_modes_have_their_toml_names() {
+        let names = [TrafficMode::Off, TrafficMode::Observe, TrafficMode::Enforce]
+            .map(TrafficMode::as_str);
+        assert_eq!(names, ["off", "observe", "enforce"]);
     }
 
     #[test]
