@@ -45,7 +45,11 @@ tokred proxy service install      # and later: tokred proxy service uninstall
 - **Fail-open.** If any step fails, the original request is forwarded unchanged. A rewritten request that the API rejects before anything reached Claude Code is sent again in its original form. The proxy never makes Claude Code stop working because of a tokred bug.
 - **Loopback only.** It listens on `127.0.0.1`, checks the `Host` header, and its admin endpoints need a secret stored in `<data>/proxy/secret` (owner-only permissions).
 - **Forwards everything it does not understand.** Headers (`anthropic-beta`, `x-claude-code-*`, credentials) and fields are passed through unchanged, so new Claude Code features keep working.
-- **Private.** Credentials and message contents are never logged or stored; only counts, hashes and the structure of requests.
+- **Private.** Credentials are never logged or stored. Message contents are not read, kept or stored unless you turn on `[proxy] log_bodies` (off by default), which feeds the [dashboard](dashboard.md); without it only counts, hashes and the structure of requests are recorded. See the [decision](decisions.md).
+
+## Dashboard and report
+
+The proxy also answers `GET /dashboard` (live sessions, what was sent and answered, subagents; server-sent events) and `GET /metrics` (the HTML report of `tokred metrics`) on its own port. They are never forwarded upstream, need a sign-in (`tokred dashboard` opens it) and carry no CORS headers. See [dashboard](dashboard.md).
 
 ## Logins
 
@@ -57,7 +61,7 @@ Both API-key and claude.ai subscription logins work (verified in the F7 spike). 
 - It reads response usage only from an uncompressed response. It asks the API for one (`Accept-Encoding: identity`); if a response comes back compressed anyway it is still forwarded unchanged, just not measured.
 - A compaction request carries no header that tells it apart, so it can be taken for a simple prompt. Routing never changes the main loop's model, so this only affects the advice.
 - On Windows, `tokred proxy start` run with its output captured by a pipe (for example `out=$(tokred proxy start)`, or a CI step that records output) does not return until the proxy stops: Windows lets the background process inherit the pipe. Run it in a terminal, send its output to a file or `NUL`, or use `tokred proxy service install`. The same applies to `tokred claude` when it has to start the proxy with its output piped; start the proxy first in that case.
-- Per-request records do not yet include the stop reason, the tool names or the cache lifetime used.
+- Per-request records do not include the cache lifetime used. The stop reason and the tool names are kept in `captured_turns` (see [dashboard](dashboard.md)).
 
 ## Configuration
 

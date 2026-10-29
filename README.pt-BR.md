@@ -22,6 +22,7 @@ Tudo roda na sua máquina, com um SQLite próprio e sem serviço externo. Foi pe
 - **Hooks que nunca atrapalham:** fail-open, modos `off | warn | enforce`; roteiam o trabalho para o modelo certo e bloqueiam leituras inúteis → [hooks](docs/hooks.pt-BR.md)
 - **Números no seu terminal:** `tokred stats` mostra tokens, custo, economia, projeção e a latência que o tokred acrescenta, num painel colorido; `tokred metrics` também gera um relatório HTML offline → [métricas](docs/metrics.pt-BR.md)
 - **Proxy local opcional:** fica entre o Claude Code e a API para medir cada requisição com exatidão, rotear requisições de subagentes e auxiliares para um modelo mais barato, aconselhar você sobre o loop principal e manter resultados grandes de ferramentas fora do contexto sem perdê-los. Desligado até você rodar `tokred claude`; o modelo do loop principal nunca é alterado → [proxy](docs/proxy.pt-BR.md), [roteamento](docs/routing.pt-BR.md)
+- **Painel ao vivo:** `tokred dashboard` abre no navegador as sessões em andamento agora e as últimas 10, com o que foi enviado ao Claude, o que voltou e os subagentes em execução, em tempo real → [painel](docs/dashboard.pt-BR.md)
 - **Audit:** quão pesado é seu contexto fixo e quais servidores MCP você nunca usa → [comandos](docs/commands.pt-BR.md)
 - **Store local:** SQLite com migrations versionadas e cache em camadas → [cache](docs/cache.pt-BR.md)
 
@@ -56,6 +57,7 @@ tokred metrics      # o mesmo, mais o relatório HTML
 | `tokred stats [--since 7d] [--by model\|day\|project]` | Painel de tokens, custo, economia e projeção |
 | `tokred stats latency` | Tempo que os hooks acrescentaram ao Claude Code |
 | `tokred metrics [--since 30d] [--no-open]` | O painel mais um relatório HTML |
+| `tokred dashboard [--no-open]` | Abre o painel ao vivo do proxy no navegador |
 | `tokred audit [--project <path>]` | Peso do contexto fixo e MCPs sem uso |
 | `tokred update` | Atualiza conforme o método de instalação |
 | `tokred pricing sync\|show`, `tokred cache stats\|prune` | Tabela de preços e cache |
@@ -76,7 +78,7 @@ Um único `tokred.toml` na pasta de dados, com merge (nunca substituição) a ca
 
 ## Privacidade
 
-Tudo fica na sua máquina. As únicas chamadas de rede (a sincronização diária de preços, a verificação de versão e o `update`) saem de comandos da CLI, nunca de hooks, e podem ser desligadas: `[pricing] auto_sync = false`, `[update] mode = "off"`, `TOKRED_NO_UPDATE_CHECK=1`, ou `TOKRED_OFFLINE=1` para todas. O proxy opcional escuta só em `127.0.0.1`, nunca registra credenciais nem o conteúdo das mensagens e encaminha requisições apenas para a API da Anthropic.
+Tudo fica na sua máquina. As únicas chamadas de rede (a sincronização diária de preços, a verificação de versão e o `update`) saem de comandos da CLI, nunca de hooks, e podem ser desligadas: `[pricing] auto_sync = false`, `[update] mode = "off"`, `TOKRED_NO_UPDATE_CHECK=1`, ou `TOKRED_OFFLINE=1` para todas. O proxy opcional escuta só em `127.0.0.1`, nunca registra credenciais, não lê nem guarda o conteúdo das mensagens a menos que você ligue `[proxy] log_bodies` para o [painel](docs/dashboard.pt-BR.md) (desligado por padrão; [decisão](docs/decisions.pt-BR.md)) e encaminha requisições apenas para a API da Anthropic.
 
 ## Desinstalação
 

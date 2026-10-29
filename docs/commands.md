@@ -19,6 +19,7 @@ Every command that prints a report accepts `--json` for machine-readable output.
 | `tokred proxy start` / `stop` / `status` | Run and inspect the optional [local proxy](proxy.md) |
 | `tokred proxy service install` / `uninstall` | Start the proxy at login, as a user service |
 | `tokred claude [args...]` | Run Claude Code through the proxy, for this run only |
+| `tokred dashboard [--no-open]` | Open the proxy's [live dashboard](dashboard.md) in the browser |
 | `tokred routing status` / `on` / `off` / `explain` | [Model routing](routing.md) of subagent and auxiliary requests |
 | `tokred compression on` / `off` / `status` | Reversible compression of large tool results |
 | `tokred suggest` | Cheaper-model suggestions for the main loop, with the evidence |
@@ -89,6 +90,10 @@ The optional [local proxy](proxy.md). `start` runs it in the background (the sam
 ## `tokred proxy service install` / `uninstall`
 
 Installs the proxy as a user service that starts at login (a systemd user unit on Linux, a launchd agent on macOS, a logon task on Windows), or removes it. Nothing is installed unless you run this.
+
+## `tokred dashboard [--no-open]`
+
+Opens the [live dashboard](dashboard.md) of the running proxy in your browser. It starts nothing: if the proxy is not running it says so (start it with `tokred proxy start` or `tokred claude`). It asks the proxy for a one-time token and opens `http://127.0.0.1:<port>/dashboard?token=...`; with `--no-open` it prints that address instead. **The token in the address works once and expires after 60 seconds**; run the command again for a new one.
 
 ## `tokred claude [args...]`
 
