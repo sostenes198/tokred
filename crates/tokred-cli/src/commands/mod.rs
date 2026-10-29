@@ -13,7 +13,7 @@ mod doctor;
 mod housekeeping;
 mod initialize;
 mod metrics;
-mod port;
+pub(crate) mod port;
 mod pricing;
 mod proxy;
 mod report_data;
@@ -41,7 +41,7 @@ use tokred_update::{InstallMethod, StdBinarySwap, current_target};
 
 use tokred_report::SystemOpener;
 
-use crate::args::{Cli, Command, ProxyArgs, StatsCommand};
+use crate::args::{Cli, Command, ProxyCommand, StatsCommand, parse_switch};
 use crate::env::Env;
 use crate::io::Io;
 
@@ -136,40 +136,40 @@ fn install_method(env: &Env, exe: Option<&Path>) -> InstallMethod {
     })
 }
 
-/// The proxy answers for `configure`: a flag wins over `TOKRED_PORT` / `TOKRED_RECORD_CONTENT`
-/// (read through `var` so tests need no process environment).
-fn proxy_choices(
-    args: ProxyArgs,
+/// `proxy enable` without a port or content flag falls back to `TOKRED_PORT` /
+/// `TOKRED_RECORD_CONTENT` (a flag wins; read through `var` so tests need no process
+/// environment). Every other command is returned as it is.
+fn with_env_answers(
+    command: ProxyCommand,
     var: impl Fn(&str) -> Option<String>,
-) -> Result<configure::ProxyChoices> {
-    let port = match (
-        args.proxy_port,
-        var("TOKRED_PORT").filter(|value| !value.is_empty()),
-    ) {
+) -> Result<ProxyCommand> {
+    let ProxyCommand::Enable {
+        port,
+        record_content,
+        yes,
+    } = command
+    else {
+        return Ok(command);
+    };
+    let given = |name: &str| var(name).filter(|value| !value.is_empty());
+    let port = match (port, given("TOKRED_PORT")) {
         (Some(port), _) => Some(port),
         (None, Some(text)) => {
             Some(port::parse_port(&text).map_err(|error| anyhow!("TOKRED_PORT: {error}"))?)
         }
         (None, None) => None,
     };
-    let from_env = var("TOKRED_RECORD_CONTENT")
-        .filter(|value| !value.is_empty())
-        .map(|value| {
-            !matches!(
-                value.to_ascii_lowercase().as_str(),
-                "0" | "false" | "no" | "off"
-            )
-        });
-    let record_content = if args.record_content {
-        Some(true)
-    } else if args.no_record_content {
-        Some(false)
-    } else {
-        from_env
+    let record_content = match (record_content, given("TOKRED_RECORD_CONTENT")) {
+        (Some(record), _) => Some(record),
+        (None, Some(text)) => {
+            Some(parse_switch(&text).map_err(|error| anyhow!("TOKRED_RECORD_CONTENT: {error}"))?)
+        }
+        (None, None) => None,
     };
-    Ok(configure::ProxyChoices {
+    Ok(ProxyCommand::Enable {
         port,
         record_content,
+        yes,
     })
 }
 
@@ -191,22 +191,8 @@ fn dispatch(
     version: &str,
 ) -> Result<()> {
     match command {
-        Command::Configure {
-            dir,
-            yes,
-            force,
-            proxy,
-        } => {
-            let choices = proxy_choices(proxy, |name| std::env::var(name).ok())?;
-            let probe = |port| port::probe(&self::proxy::files(env), port);
-            let options = configure::Options {
-                dir_flag: dir.claude_dir,
-                yes,
-                force,
-                choices,
-                probe: &probe,
-            };
-            configure::run_with(env, io, &options)
+        Command::Configure { dir, yes, force } => {
+            configure::run(env, io, dir.claude_dir, yes, force)
         }
         Command::Unconfigure { dir, purge } => unconfigure::run(env, io, dir.claude_dir, purge),
         Command::Uninstall { dir, yes, purge } => {
@@ -277,7 +263,10 @@ fn dispatch(
             no_open,
             &SystemOpener::new(),
         ),
-        Command::Proxy { command } => run_proxy(env, io, exe, &command),
+        Command::Proxy { command } => {
+            let command = with_env_answers(command, |name| std::env::var(name).ok())?;
+            run_proxy(env, io, exe, &command)
+        }
         Command::Claude { args } => run_claude(env, io, exe, &args),
         Command::Initialize { verbose, json, .. } => initialize::run(env, io, verbose, json),
         Command::Routing { command } => advice::routing(env, io, &command),
@@ -981,13 +970,27 @@ mod tests {
         );
     }
 
+    fn enable(port: Option<u16>, record_content: Option<bool>) -> ProxyCommand {
+        ProxyCommand::Enable {
+            port,
+            record_content,
+            yes: false,
+        }
+    }
+
+    fn answers(command: &ProxyCommand) -> Option<(Option<u16>, Option<bool>)> {
+        match command {
+            ProxyCommand::Enable {
+                port,
+                record_content,
+                ..
+            } => Some((*port, *record_content)),
+            _ => None,
+        }
+    }
+
     #[test]
-    fn proxy_choices_come_from_flags_then_the_environment() {
-        let none = ProxyArgs {
-            proxy_port: None,
-            record_content: false,
-            no_record_content: false,
-        };
+    fn proxy_enable_answers_come_from_flags_then_the_environment() {
         let env = |pairs: &'static [(&'static str, &'static str)]| {
             move |name: &str| {
                 pairs
@@ -996,55 +999,58 @@ mod tests {
                     .map(|(_, value)| (*value).to_owned())
             }
         };
-        let nothing = proxy_choices(none, env(&[])).unwrap();
-        assert_eq!(nothing, configure::ProxyChoices::default());
-        let empty = proxy_choices(
-            none,
-            env(&[("TOKRED_PORT", ""), ("TOKRED_RECORD_CONTENT", "")]),
-        );
-        assert_eq!(empty.unwrap(), nothing);
+        let both: &[(&str, &str)] = &[("TOKRED_PORT", "2222"), ("TOKRED_RECORD_CONTENT", "Yes")];
+        let blank: &[(&str, &str)] = &[("TOKRED_PORT", ""), ("TOKRED_RECORD_CONTENT", "")];
+        let resolve = |command, pairs| with_env_answers(command, env(pairs)).unwrap();
 
-        let from_env = proxy_choices(
-            none,
-            env(&[("TOKRED_PORT", "2222"), ("TOKRED_RECORD_CONTENT", "1")]),
-        )
-        .unwrap();
         assert_eq!(
-            (from_env.port, from_env.record_content),
-            (Some(2222), Some(true))
+            answers(&resolve(enable(None, None), &[])),
+            Some((None, None))
         );
-        for off in ["0", "false", "NO", "off"] {
-            let pairs: &'static [(&str, &str)] =
-                Box::leak(Box::new([("TOKRED_RECORD_CONTENT", off)]));
-            let choices = proxy_choices(none, env(pairs)).unwrap();
-            assert_eq!(choices.record_content, Some(false), "{off}");
-        }
+        assert_eq!(
+            answers(&resolve(enable(None, None), blank)),
+            Some((None, None))
+        );
+        assert_eq!(
+            answers(&resolve(enable(None, None), both)),
+            Some((Some(2222), Some(true)))
+        );
+        let off: &[(&str, &str)] = &[("TOKRED_RECORD_CONTENT", "0")];
+        assert_eq!(
+            answers(&resolve(enable(None, None), off)),
+            Some((None, Some(false)))
+        );
+        // A flag wins over the environment, field by field.
+        assert_eq!(
+            answers(&resolve(enable(Some(3333), Some(false)), both)),
+            Some((Some(3333), Some(false)))
+        );
+        assert_eq!(
+            answers(&resolve(enable(Some(3333), None), both)),
+            Some((Some(3333), Some(true)))
+        );
+        // Other proxy commands are left alone.
+        let stop = resolve(ProxyCommand::Stop, both);
+        assert!(matches!(stop, ProxyCommand::Stop));
+        assert_eq!(answers(&stop), None);
+    }
 
-        let flags = ProxyArgs {
-            proxy_port: Some(3333),
-            record_content: false,
-            no_record_content: true,
+    #[test]
+    fn a_bad_environment_answer_names_the_variable() {
+        let env = |name: &'static str, value: &'static str| {
+            move |asked: &str| (asked == name).then(|| value.to_owned())
         };
-        let both = env(&[("TOKRED_PORT", "2222"), ("TOKRED_RECORD_CONTENT", "1")]);
-        let chosen = proxy_choices(flags, both).unwrap();
-        assert_eq!(
-            (chosen.port, chosen.record_content),
-            (Some(3333), Some(false))
-        );
-        let yes = ProxyArgs {
-            record_content: true,
-            no_record_content: false,
-            ..flags
-        };
-        assert_eq!(
-            proxy_choices(yes, env(&[])).unwrap().record_content,
-            Some(true)
-        );
-
-        let err = proxy_choices(none, env(&[("TOKRED_PORT", "80")])).unwrap_err();
+        let err = with_env_answers(enable(None, None), env("TOKRED_PORT", "80")).unwrap_err();
         assert!(
             err.to_string()
                 .starts_with("TOKRED_PORT: `80` is not a port"),
+            "{err}"
+        );
+        let err = with_env_answers(enable(None, None), env("TOKRED_RECORD_CONTENT", "maybe"))
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .starts_with("TOKRED_RECORD_CONTENT: `maybe` is not a yes/no"),
             "{err}"
         );
     }

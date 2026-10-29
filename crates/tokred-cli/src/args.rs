@@ -22,18 +22,16 @@ pub struct ClaudeDirArg {
     pub claude_dir: Option<PathBuf>,
 }
 
-/// The proxy answers `tokred configure` can take up front instead of asking.
-#[derive(Debug, Clone, Copy, Args)]
-pub struct ProxyArgs {
-    /// Port the proxy listens on (1024-65535; default: the saved one, else 1029).
-    #[arg(long, value_name = "PORT")]
-    pub proxy_port: Option<u16>,
-    /// Let the dashboard show what was sent and returned (stored on this machine only).
-    #[arg(long, conflicts_with = "no_record_content")]
-    pub record_content: bool,
-    /// Do not record conversation content.
-    #[arg(long)]
-    pub no_record_content: bool,
+/// Parses a yes/no answer given as a flag or environment value: `true`, `false`, `yes`, `no`,
+/// `1` or `0`, in any letter case.
+pub fn parse_switch(text: &str) -> Result<bool, String> {
+    match text.trim().to_ascii_lowercase().as_str() {
+        "true" | "yes" | "1" => Ok(true),
+        "false" | "no" | "0" => Ok(false),
+        _ => Err(format!(
+            "`{text}` is not a yes/no value (use true, false, yes, no, 1 or 0)"
+        )),
+    }
 }
 
 /// Grouping of `tokred stats`.
@@ -137,9 +135,21 @@ pub enum ProxyCommand {
     },
     /// Stop the background proxy.
     Stop,
-    /// Turn the proxy features on (`[proxy] enabled = true`), start the proxy and point Claude
-    /// Code's settings at it.
-    Enable,
+    /// Turn the proxy features on: choose the port and whether conversation content is recorded
+    /// (asked in a terminal), save them, start the proxy and point Claude Code's settings at it.
+    Enable {
+        /// Port the proxy listens on (1024-65535; default: the saved one, else 1029). Also
+        /// `TOKRED_PORT`.
+        #[arg(long, value_name = "PORT", value_parser = crate::commands::port::parse_port)]
+        port: Option<u16>,
+        /// Let the dashboard show what was sent and returned: true, false, yes, no, 1 or 0
+        /// (kept on this machine only). Also `TOKRED_RECORD_CONTENT`.
+        #[arg(long, value_name = "BOOL", value_parser = parse_switch)]
+        record_content: Option<bool>,
+        /// Do not ask anything: use the values given, the saved ones or the defaults.
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
     /// Turn the proxy features off (`[proxy] enabled = false`) and remove tokred's
     /// `ANTHROPIC_BASE_URL` from Claude Code's settings.
     Disable,
@@ -220,9 +230,6 @@ pub enum Command {
         /// Overwrite agent files even if you edited them.
         #[arg(long)]
         force: bool,
-        /// Proxy port and content recording, when you do not want to be asked.
-        #[command(flatten)]
-        proxy: ProxyArgs,
     },
     /// Update tokred according to how it was installed, then re-apply the configuration.
     Update {
@@ -418,50 +425,90 @@ mod tests {
     }
 
     #[test]
-    fn configure_takes_the_proxy_answers_up_front() {
+    fn configure_takes_no_proxy_options() {
         assert!(matches!(
             parse(&["configure", "--yes"]),
-            Command::Configure {
-                yes: true,
-                proxy: ProxyArgs {
-                    proxy_port: None,
-                    record_content: false,
-                    no_record_content: false
-                },
-                ..
+            Command::Configure { yes: true, .. }
+        ));
+        for flag in [
+            ["configure", "--proxy-port", "2000"],
+            ["configure", "--record-content", "true"],
+            ["configure", "--no-record-content", "x"],
+        ] {
+            assert!(Cli::try_parse_from(["tokred"].into_iter().chain(flag)).is_err());
+        }
+    }
+
+    #[test]
+    fn proxy_enable_takes_its_answers_as_values() {
+        assert!(matches!(
+            parse(&["proxy", "enable"]),
+            Command::Proxy {
+                command: ProxyCommand::Enable {
+                    port: None,
+                    record_content: None,
+                    yes: false
+                }
             }
         ));
         assert!(matches!(
-            parse(&["configure", "--proxy-port", "2000", "--record-content"]),
-            Command::Configure {
-                proxy: ProxyArgs {
-                    proxy_port: Some(2000),
-                    record_content: true,
-                    no_record_content: false
-                },
-                ..
-            }
-        ));
-        assert!(matches!(
-            parse(&["configure", "--no-record-content"]),
-            Command::Configure {
-                proxy: ProxyArgs {
-                    no_record_content: true,
-                    ..
-                },
-                ..
-            }
-        ));
-        assert!(
-            Cli::try_parse_from([
-                "tokred",
-                "configure",
+            parse(&[
+                "proxy",
+                "enable",
+                "--port",
+                "1050",
                 "--record-content",
-                "--no-record-content"
-            ])
-            .is_err()
+                "Yes"
+            ]),
+            Command::Proxy {
+                command: ProxyCommand::Enable {
+                    port: Some(1050),
+                    record_content: Some(true),
+                    yes: false
+                }
+            }
+        ));
+        assert!(matches!(
+            parse(&["proxy", "enable", "--record-content=0"]),
+            Command::Proxy {
+                command: ProxyCommand::Enable {
+                    record_content: Some(false),
+                    ..
+                }
+            }
+        ));
+        for flag in ["--yes", "-y"] {
+            assert!(matches!(
+                parse(&["proxy", "enable", flag]),
+                Command::Proxy {
+                    command: ProxyCommand::Enable { yes: true, .. }
+                }
+            ));
+        }
+        for bad in [
+            ["--port", "80"],
+            ["--port", "99999"],
+            ["--port", "abc"],
+            ["--record-content", "maybe"],
+        ] {
+            let all = ["tokred", "proxy", "enable"].into_iter().chain(bad);
+            assert!(Cli::try_parse_from(all).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn yes_no_values_accept_the_usual_spellings() {
+        for yes in ["true", "TRUE", "yes", "Yes", "1", " yes\n"] {
+            assert_eq!(parse_switch(yes), Ok(true), "{yes}");
+        }
+        for no in ["false", "No", "NO", "0"] {
+            assert_eq!(parse_switch(no), Ok(false), "{no}");
+        }
+        let message = parse_switch("maybe").unwrap_err();
+        assert!(
+            message.contains("`maybe` is not a yes/no value"),
+            "{message}"
         );
-        assert!(Cli::try_parse_from(["tokred", "configure", "--proxy-port", "99999"]).is_err());
     }
 
     #[test]
@@ -562,12 +609,6 @@ mod tests {
             parse(&["proxy", "stop"]),
             Command::Proxy {
                 command: ProxyCommand::Stop
-            }
-        ));
-        assert!(matches!(
-            parse(&["proxy", "enable"]),
-            Command::Proxy {
-                command: ProxyCommand::Enable
             }
         ));
         assert!(matches!(
