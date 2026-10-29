@@ -21,6 +21,7 @@ use support::{
     start, start_dashboard,
 };
 use tokred_core::dashboard::{SessionList, SessionStatus, SessionView};
+use tokred_proxy::ServerConfig;
 
 const SESSION: &str = "sess-1";
 
@@ -83,7 +84,8 @@ async fn sign_in(proxy: &Running) -> String {
         cookie.starts_with("tokred_dash=")
             && cookie.contains("HttpOnly")
             && cookie.contains("SameSite=Strict")
-            && cookie.contains("Path=/"),
+            && cookie.contains("Path=/")
+            && cookie.contains("Max-Age=2592000"),
         "{cookie}"
     );
     cookie.split(';').next().unwrap().to_owned()
@@ -256,6 +258,29 @@ async fn every_route_needs_a_session_and_the_token_works_once() {
     // None of it reached the upstream.
     assert!(upstream.seen().is_empty());
     proxy.stop().await;
+}
+
+#[tokio::test]
+async fn a_session_survives_a_restart_of_the_proxy() {
+    let upstream = quiet_upstream().await;
+    let (first, _) = dashboard(&upstream, false).await;
+    let cookie = sign_in(&first).await;
+    assert_eq!(get(&first, "/dashboard", &cookie).await.status, 200);
+    first.stop().await;
+
+    // A new proxy with the same admin secret still knows the browser; one with another secret
+    // (the secret file was replaced) does not.
+    let (second, _) = dashboard(&upstream, false).await;
+    assert_eq!(get(&second, "/dashboard", &cookie).await.status, 200);
+    second.stop().await;
+    let other = ServerConfig::new(
+        "127.0.0.1:0".parse().unwrap(),
+        upstream.url(),
+        "a-replaced-admin-secret",
+    );
+    let third = start_dashboard(other, vec![], Arc::new(FakeSource::default()), false).await;
+    assert_eq!(get(&third, "/dashboard", &cookie).await.status, 401);
+    third.stop().await;
 }
 
 #[tokio::test]

@@ -117,13 +117,14 @@ impl Dashboard {
         capture: bool,
         decisions: Option<Arc<DecisionTap>>,
         shutdown: Shutdown,
+        secret: &str,
     ) -> Self {
         Self {
             source,
             capture,
             bus: EventBus::new(),
             live: Live::default(),
-            auth: DashAuth::default(),
+            auth: DashAuth::new(secret),
             shutdown,
             sent: Mutex::new(SentTracker::default()),
             decisions,
@@ -386,6 +387,7 @@ mod tests {
             capture,
             tap,
             Shutdown::new(),
+            "a-test-admin-secret",
         ))
     }
 

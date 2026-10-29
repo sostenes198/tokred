@@ -66,6 +66,7 @@ pub fn run(io: &mut Io, ctx: &ProxyCtx<'_>, command: &ProxyCommand) -> Result<()
             }
         }
         ProxyCommand::Stop => stop(io, ctx),
+        ProxyCommand::Restart => restart(io, ctx),
         ProxyCommand::Enable {
             port,
             record_content,
@@ -347,6 +348,35 @@ pub(super) fn admin(port: u16, secret: &str, method: &str, path: &str) -> Result
     }
     .with_context(|| format!("the proxy refused {method} {path}"))?;
     Ok(response.body_mut().read_to_string()?)
+}
+
+/// `proxy restart`: stops the proxy when it runs, then starts it again, so that a setting the
+/// proxy reads when it starts applies. A proxy that was not running is just started.
+fn restart(io: &mut Io, ctx: &ProxyCtx<'_>) -> Result<()> {
+    require_enabled(ctx)?;
+    stop(io, ctx)?;
+    start_background(io, ctx, &ctx.config.proxy.bind)
+}
+
+/// Restarts the proxy when it is running, for the commands that change a setting it reads when it
+/// starts; otherwise says when the setting will apply.
+pub fn restart_if_running(io: &mut Io, ctx: &ProxyCtx<'_>) -> Result<()> {
+    if !ctx.config.proxy.enabled {
+        writeln!(
+            io.out(),
+            "The proxy features are off: the setting applies once `tokred proxy enable` has started the proxy."
+        )?;
+        return Ok(());
+    }
+    if running_proxy(ctx).is_none() {
+        writeln!(
+            io.out(),
+            "The proxy is not running: the setting applies when it starts."
+        )?;
+        return Ok(());
+    }
+    writeln!(io.out(), "Restarting the proxy to apply the setting ...")?;
+    restart(io, ctx)
 }
 
 fn stop(io: &mut Io, ctx: &ProxyCtx<'_>) -> Result<()> {
@@ -728,6 +758,77 @@ mod tests {
         assert!(text.contains("stopped"), "{text}");
         assert!(stopped.load(Ordering::SeqCst));
         assert_eq!(files(&sb.env).read_pid(), None);
+    }
+
+    #[test]
+    fn restart_stops_the_running_proxy_and_then_starts_it_again() {
+        let sb = Sandbox::new();
+        let secret = files(&sb.env).secret().unwrap();
+        let (port, stopped) = fake_proxy(secret);
+        files(&sb.env).write_pid(1234, port).unwrap();
+        let config = config_on(port);
+        let (mut io, out) = scripted(false, "");
+        // The test has no executable to start, so the start that follows the stop fails; the
+        // proxy was stopped first.
+        let err = run(
+            &mut io,
+            &ctx(&sb, &config, &no_serve),
+            &ProxyCommand::Restart,
+        )
+        .unwrap_err();
+        assert!(format!("{err:#}").contains("could not start"), "{err:#}");
+        assert!(stopped.load(Ordering::SeqCst));
+        assert!(out.text().contains("stopped"), "{}", out.text());
+    }
+
+    #[test]
+    fn restart_refuses_while_the_proxy_features_are_off() {
+        let sb = Sandbox::new();
+        let (mut io, _) = scripted(false, "");
+        let err = run(
+            &mut io,
+            &ctx(&sb, &Config::default(), &no_serve),
+            &ProxyCommand::Restart,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("is disabled"), "{err:#}");
+    }
+
+    #[test]
+    fn a_setting_is_applied_by_a_restart_only_when_the_proxy_runs() {
+        let sb = Sandbox::new();
+        // Features off: nothing to restart.
+        let (mut io, out) = scripted(false, "");
+        restart_if_running(&mut io, &ctx(&sb, &Config::default(), &no_serve)).unwrap();
+        assert!(
+            out.text().contains("proxy features are off"),
+            "{}",
+            out.text()
+        );
+
+        // On but not running: it applies at the next start.
+        let closed = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let (mut io, out) = scripted(false, "");
+        restart_if_running(&mut io, &ctx(&sb, &config_on(closed), &no_serve)).unwrap();
+        assert!(out.text().contains("is not running"), "{}", out.text());
+
+        // Running: it is restarted (here the start fails, as in the test above).
+        let secret = files(&sb.env).secret().unwrap();
+        let (port, stopped) = fake_proxy(secret);
+        files(&sb.env).write_pid(1234, port).unwrap();
+        let (mut io, out) = scripted(false, "");
+        let err = restart_if_running(&mut io, &ctx(&sb, &config_on(port), &no_serve)).unwrap_err();
+        assert!(format!("{err:#}").contains("could not start"), "{err:#}");
+        assert!(stopped.load(Ordering::SeqCst));
+        assert!(
+            out.text().contains("Restarting the proxy"),
+            "{}",
+            out.text()
+        );
     }
 
     #[test]

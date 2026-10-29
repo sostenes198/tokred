@@ -10,6 +10,7 @@ An index of every guide, grouped by what you want to do. Start from the [project
 |---|---|
 | [installation](installation.md) | Install, update and uninstall; installer options; the `claude` wrapper; troubleshooting |
 | [commands](commands.md) | Every command and option |
+| [features](features.md) | Turning each feature on and off, and when it takes effect |
 | [configuration](configuration.md) | `tokred.toml`, the data folder and environment variables |
 | [hooks-and-agents](hooks-and-agents.md) | The hooks, their modes, and the six subagents |
 | [metrics](metrics.md) | How tokens, cost and savings are measured and reported |

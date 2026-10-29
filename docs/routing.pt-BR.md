@@ -50,7 +50,7 @@ A decisão é tomada na primeira volta do subagente e reaproveitada em todas as 
 | `tokred routing on` | `enforce`: troca o modelo das requisições elegíveis |
 | `tokred routing off` | `observe`: continua registrando o que o roteamento faria |
 
-O padrão é `observe`: as decisões são registradas com a economia estimada e nada muda, para você conferi-las antes de ligar o roteamento. `[routing] mode = "off"` no `tokred.toml` não registra nada. Reinicie o proxy para aplicar uma mudança de modo. Chaves: `[routing]` e `[routing.tiers]` em [configuration](configuration.pt-BR.md).
+O padrão é `observe`: as decisões são registradas com a economia estimada e nada muda, para você conferi-las antes de ligar o roteamento. `[routing] mode = "off"` no `tokred.toml` não registra nada. O `tokred routing on` e o `off` reiniciam um proxy em execução para aplicar o modo; depois de editar o `tokred.toml` à mão, rode `tokred proxy restart`. Chaves: `[routing]` e `[routing.tiers]` em [configuration](configuration.pt-BR.md).
 
 ## Sugestões para o loop principal
 

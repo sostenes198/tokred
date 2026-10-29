@@ -208,14 +208,15 @@ pub(crate) async fn handle(
         return method_not_allowed(if favicon { "GET, HEAD" } else { "GET" });
     }
     let now = Instant::now();
+    let unix_now = unix_seconds();
     if route == Route::Page
-        && let Some(cookie) =
-            query_param(asked.query, "token").and_then(|token| dashboard.auth.redeem(token, now))
+        && let Some(cookie) = query_param(asked.query, "token")
+            .and_then(|token| dashboard.auth.redeem(token, now, unix_now))
     {
         return signed_in(&cookie);
     }
-    let signed =
-        cookie_value(asked.headers).is_some_and(|cookie| dashboard.auth.session_valid(cookie, now));
+    let signed = cookie_value(asked.headers)
+        .is_some_and(|cookie| dashboard.auth.session_valid(cookie, unix_now));
     if !signed {
         return sign_in();
     }
@@ -252,6 +253,15 @@ pub(crate) async fn handle(
 }
 
 /// The cookie is set and the browser goes to the page without the token in its URL.
+/// Seconds since the unix epoch (0 before it, which no clock shows).
+fn unix_seconds() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            i64::try_from(elapsed.as_secs()).unwrap_or(i64::MAX)
+        })
+}
+
 fn signed_in(cookie: &str) -> Response<ProxyBody> {
     let mut response = text(StatusCode::SEE_OTHER, "");
     let headers = response.headers_mut();

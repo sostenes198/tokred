@@ -43,7 +43,7 @@ use tokred_update::{InstallMethod, StdBinarySwap, current_target};
 
 use tokred_report::SystemOpener;
 
-use crate::args::{Cli, Command, ProxyCommand, StatsCommand, parse_switch};
+use crate::args::{Cli, Command, ProxyCommand, RoutingCommand, StatsCommand, parse_switch};
 use crate::env::Env;
 use crate::io::Io;
 
@@ -288,7 +288,14 @@ fn dispatch(
         }
         Command::Claude { args } => run_claude(env, io, exe, &args),
         Command::Initialize { verbose, json, .. } => initialize::run(env, io, verbose, json),
-        Command::Routing { command } => advice::routing(env, io, &command),
+        Command::Routing { command } => {
+            advice::routing(env, io, &command)?;
+            // The mode is read when the proxy starts: apply it now.
+            if matches!(command, RoutingCommand::On | RoutingCommand::Off) {
+                with_proxy_ctx(env, io, exe, proxy::restart_if_running)?;
+            }
+            Ok(())
+        }
         Command::Compression { command } => run_compression(env, io, &command),
         Command::Suggest { since, json } => advice::suggest(env, io, &since, json),
         Command::Statusline => advice::statusline(env, io),

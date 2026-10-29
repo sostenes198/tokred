@@ -10,6 +10,7 @@ Um índice de todos os guias, agrupados pelo que você quer fazer. Se você é n
 |---|---|
 | [instalação](installation.pt-BR.md) | Instalar, atualizar e desinstalar; opções do instalador; o wrapper `claude`; resolução de problemas |
 | [comandos](commands.pt-BR.md) | Todos os comandos e opções |
+| [funcionalidades](features.pt-BR.md) | Ligar e desligar cada funcionalidade, e quando passa a valer |
 | [configuração](configuration.pt-BR.md) | O `tokred.toml`, a pasta de dados e as variáveis de ambiente |
 | [hooks e agentes](hooks-and-agents.pt-BR.md) | Os hooks, seus modos e os seis subagentes |
 | [métricas](metrics.pt-BR.md) | Como tokens, custo e economia são medidos e relatados |

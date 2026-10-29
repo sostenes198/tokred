@@ -12,7 +12,7 @@ use tokred_core::prompts::{PromptRepo, SuggestionRepo};
 use tokred_core::routing::RoutingRepo;
 use tokred_core::{Clock, Timestamp};
 use tokred_metrics::range_from_span;
-use tokred_routing::{explain, summarize_decisions};
+use tokred_routing::{explain, summarize_decisions, summarize_period, verdict};
 use tokred_suggest::{SessionFigures, StatuslineInput, statusline_text};
 
 use super::data::span_label;
@@ -82,16 +82,44 @@ pub fn routing(env: &Env, io: &mut Io, command: &RoutingCommand) -> Result<()> {
             let existing = std::fs::read_to_string(&path).unwrap_or_default();
             std::fs::write(&path, set_mode(&existing, "routing", mode)?)
                 .with_context(|| format!("could not write {}", path.display()))?;
-            let restart = "Restart the proxy to apply it: tokred proxy stop && tokred proxy start";
-            write!(io.out(), "[routing] mode = \"{mode}\"\n{note}\n{restart}\n")?;
+            write!(io.out(), "[routing] mode = \"{mode}\"\n{note}\n")?;
             Ok(())
         }
-        RoutingCommand::Status { json } => {
+        RoutingCommand::Status { since, json } => {
             let store = existing_store(env)?
                 .ok_or_else(|| anyhow!("no database yet; run `tokred configure` first"))?;
+            let now = SystemClock.now();
+            let range = range_from_span(now, since)
+                .map_err(|err| anyhow!("invalid --since `{since}`: {err}"))?;
+            let label = format!("last {}", span_label(since));
+            let days =
+                f64::from(i32::try_from(range.to.0 - range.from.0).unwrap_or(i32::MAX)) / 86_400.0;
+            let period = store.decisions_between(range.from, range.to)?;
+            let summary = summarize_period(&period);
+            let mode = mode_name(config.routing.mode);
+            let verdict = verdict(&summary, mode, &label, days);
             let recent = store.recent_decisions(RECENT_DECISIONS)?;
             if *json {
-                let value = json!({ "mode": config.routing.mode, "recent": recent });
+                let by_task: Vec<_> = summary
+                    .by_task
+                    .iter()
+                    .map(|(task, requests, saving)| {
+                        json!({ "task": task, "requests": requests, "saving_usd": saving })
+                    })
+                    .collect();
+                let value = json!({
+                    "mode": config.routing.mode,
+                    "period": span_label(since),
+                    "decisions": summary.decisions,
+                    "applied": summary.applied,
+                    "observed": summary.observed,
+                    "kept": summary.kept,
+                    "fallback": summary.fallback,
+                    "saving_usd": summary.saving_usd,
+                    "by_task": by_task,
+                    "verdict": verdict,
+                    "recent": recent,
+                });
                 writeln!(io.out(), "{}", serde_json::to_string_pretty(&value)?)?;
                 return Ok(());
             }
@@ -99,10 +127,11 @@ pub fn routing(env: &Env, io: &mut Io, command: &RoutingCommand) -> Result<()> {
             let mut out = title(term, "tokred Model Routing");
             out.push('\n');
             out.push_str(&key_values(&[
-                ("Mode", mode_name(config.routing.mode).to_owned()),
+                ("Mode", mode.to_owned()),
                 ("Main loop", term.heat(1.0, "never changed")),
-                ("Summary", summarize_decisions(&recent)),
+                ("Summary", summarize_decisions(&period)),
             ]));
+            let _ = write!(out, "\n{verdict}\n");
             if recent.is_empty() {
                 out.push_str("\nNo routing decisions recorded yet. Use `tokred claude` and run some subagents.\n");
             } else {
@@ -470,7 +499,15 @@ mod tests {
     fn routing_status_and_explain_read_the_stored_decisions() {
         let sb = configured();
         let (mut io, out) = scripted(false, "");
-        routing(&sb.env, &mut io, &RoutingCommand::Status { json: false }).unwrap();
+        routing(
+            &sb.env,
+            &mut io,
+            &RoutingCommand::Status {
+                since: "7d".to_owned(),
+                json: false,
+            },
+        )
+        .unwrap();
         assert!(out.text().contains("No routing decisions recorded yet"));
 
         let store = sb.store();
@@ -479,7 +516,15 @@ mod tests {
             .unwrap();
         store.insert_decision(&decision("rd-2", "kept")).unwrap();
         let (mut io, out) = scripted(false, "");
-        routing(&sb.env, &mut io, &RoutingCommand::Status { json: false }).unwrap();
+        routing(
+            &sb.env,
+            &mut io,
+            &RoutingCommand::Status {
+                since: "7d".to_owned(),
+                json: false,
+            },
+        )
+        .unwrap();
         for expected in [
             "tokred Model Routing",
             "Mode:",
@@ -493,10 +538,57 @@ mod tests {
             assert!(text.contains(expected), "missing {expected:?}:\n{text}");
         }
         let (mut io, out) = scripted(false, "");
-        routing(&sb.env, &mut io, &RoutingCommand::Status { json: true }).unwrap();
+        routing(
+            &sb.env,
+            &mut io,
+            &RoutingCommand::Status {
+                since: "7d".to_owned(),
+                json: true,
+            },
+        )
+        .unwrap();
         let value: serde_json::Value = serde_json::from_str(&out.text()).unwrap();
         assert_eq!(value["mode"], "observe");
         assert_eq!(value["recent"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            (value["decisions"].as_u64(), value["observed"].as_u64()),
+            (Some(2), Some(1))
+        );
+        assert!((value["saving_usd"].as_f64().unwrap() - 0.015).abs() < 1e-9);
+        assert_eq!(value["by_task"][0]["task"], "search");
+        let verdict = value["verdict"].as_str().unwrap();
+        assert!(
+            verdict.contains("would have changed 1 of 2 requests"),
+            "{verdict}"
+        );
+
+        // The text says it too, and a period that is not a span is refused.
+        let (mut io, out) = scripted(false, "");
+        routing(
+            &sb.env,
+            &mut io,
+            &RoutingCommand::Status {
+                since: "7d".to_owned(),
+                json: false,
+            },
+        )
+        .unwrap();
+        assert!(
+            out.text().contains("Turning routing on would have changed"),
+            "{}",
+            out.text()
+        );
+        let (mut io, _) = scripted(false, "");
+        let err = routing(
+            &sb.env,
+            &mut io,
+            &RoutingCommand::Status {
+                since: "soon".to_owned(),
+                json: false,
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("invalid --since"), "{err}");
 
         let (mut io, out) = scripted(false, "");
         routing(
@@ -524,7 +616,10 @@ mod tests {
     fn routing_needs_a_database_for_status_and_explain() {
         let sb = Sandbox::new();
         for command in [
-            RoutingCommand::Status { json: false },
+            RoutingCommand::Status {
+                since: "7d".to_owned(),
+                json: false,
+            },
             RoutingCommand::Explain { id: "x".to_owned() },
         ] {
             let (mut io, _) = scripted(false, "");

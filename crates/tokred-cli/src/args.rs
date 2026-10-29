@@ -135,6 +135,8 @@ pub enum ProxyCommand {
     },
     /// Stop the background proxy.
     Stop,
+    /// Restart the background proxy (start it when it is not running), to apply a changed setting.
+    Restart,
     /// Turn the proxy features on: choose the port and whether conversation content is recorded
     /// (asked in a terminal), save them, start the proxy and point Claude Code's settings at it.
     Enable {
@@ -179,8 +181,11 @@ pub enum ServiceCommand {
 /// Sub-commands of `tokred routing`.
 #[derive(Debug, Subcommand)]
 pub enum RoutingCommand {
-    /// Mode and recent routing decisions.
+    /// Mode, what routing did (or would do) over a period, and recent decisions.
     Status {
+        /// How far back to look (`12h`, `7d`, `2w`, `30d`).
+        #[arg(long, default_value = "7d")]
+        since: String,
         /// Machine-readable output.
         #[arg(long)]
         json: bool,
@@ -683,9 +688,21 @@ mod tests {
     #[test]
     fn routing_suggest_statusline_and_mcp_parse() {
         assert!(matches!(
+            parse(&["routing", "status", "--since", "14d"]),
+            Command::Routing {
+                command: RoutingCommand::Status { ref since, json: false }
+            } if since == "14d"
+        ));
+        assert!(matches!(
+            parse(&["proxy", "restart"]),
+            Command::Proxy {
+                command: ProxyCommand::Restart
+            }
+        ));
+        assert!(matches!(
             parse(&["routing", "status", "--json"]),
             Command::Routing {
-                command: RoutingCommand::Status { json: true }
+                command: RoutingCommand::Status { json: true, .. }
             }
         ));
         assert!(matches!(

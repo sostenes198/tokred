@@ -111,6 +111,92 @@ pub fn summarize_decisions(decisions: &[RoutingDecision]) -> String {
     )
 }
 
+/// What the decisions of a period say, to judge whether turning routing on is worth it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PeriodSummary {
+    /// Decisions taken in the period.
+    pub decisions: usize,
+    /// Requests routing changed (`applied`).
+    pub applied: usize,
+    /// Requests routing would have changed (`observed`).
+    pub observed: usize,
+    /// Requests it left alone.
+    pub kept: usize,
+    /// Requests that were rewritten, rejected and sent as asked.
+    pub fallback: usize,
+    /// Estimated saving of the applied and observed decisions, USD.
+    pub saving_usd: f64,
+    /// Applied and observed decisions per task class, with their saving, the largest saving first.
+    pub by_task: Vec<(String, usize, f64)>,
+}
+
+/// Counts the decisions of a period by outcome and adds up what the rerouted ones would save
+/// (`applied` and `observed`; the estimate is made on the request as it was sent).
+#[must_use]
+pub fn summarize_period(decisions: &[RoutingDecision]) -> PeriodSummary {
+    let count = |outcome: &str| decisions.iter().filter(|d| d.outcome == outcome).count();
+    let mut by_task: Vec<(String, usize, f64)> = Vec::new();
+    for decision in decisions
+        .iter()
+        .filter(|d| matches!(d.outcome.as_str(), "applied" | "observed"))
+    {
+        let saving = decision.est_cost_from - decision.est_cost_to;
+        match by_task
+            .iter_mut()
+            .find(|(task, _, _)| *task == decision.task_class)
+        {
+            Some((_, requests, total)) => {
+                *requests += 1;
+                *total += saving;
+            }
+            None => by_task.push((decision.task_class.clone(), 1, saving)),
+        }
+    }
+    by_task.sort_by(|a, b| b.2.total_cmp(&a.2));
+    // `+ 0.0` turns the `-0.0` that an empty float sum yields into `0.0`.
+    let saving_usd = by_task.iter().map(|(_, _, saving)| saving).sum::<f64>() + 0.0;
+    PeriodSummary {
+        decisions: decisions.len(),
+        applied: count("applied"),
+        observed: count("observed"),
+        kept: count("kept"),
+        fallback: count("fallback"),
+        saving_usd,
+        by_task,
+    }
+}
+
+/// One paragraph that says whether routing is worth turning on, from the period's decisions.
+/// `label` names the period ("last 7 days") and `days` is its length, to project a month.
+#[must_use]
+pub fn verdict(summary: &PeriodSummary, mode: &str, label: &str, days: f64) -> String {
+    let month = summary.saving_usd * 30.0 / days.max(1.0 / 24.0);
+    if mode == "off" {
+        return "Routing is off: nothing is recorded. Turn recording on with `tokred routing off` (it keeps changing nothing), or routing itself with `tokred routing on`.".to_owned();
+    }
+    if summary.decisions == 0 {
+        return format!(
+            "No routing decisions in the {label}: use `tokred claude` and run some subagents."
+        );
+    }
+    if mode == "enforce" {
+        return format!(
+            "Routing changed {} of {} requests in the {label} and saved about ${:.2} (about ${month:.2} a month at this pace).",
+            summary.applied, summary.decisions, summary.saving_usd
+        );
+    }
+    if summary.observed == 0 {
+        return format!(
+            "Of {} requests in the {label}, none would have been rerouted (all kept): turning routing on would change nothing yet.",
+            summary.decisions
+        );
+    }
+    format!(
+        "Turning routing on would have changed {} of {} requests in the {label} and saved about ${:.2} (about ${month:.2} a month at this pace). To turn it on: tokred routing on",
+        summary.observed, summary.decisions, summary.saving_usd
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use tokred_core::Timestamp;
@@ -210,5 +296,74 @@ mod tests {
     fn nothing_saved_prints_a_plain_zero() {
         let summary = summarize_decisions(&[decision("kept")]);
         assert!(summary.ends_with("estimated saving $0.000000"), "{summary}");
+    }
+
+    fn rerouted(task: &str, outcome: &str, from: f64, to: f64) -> RoutingDecision {
+        RoutingDecision {
+            task_class: task.to_owned(),
+            est_cost_from: from,
+            est_cost_to: to,
+            ..decision(outcome)
+        }
+    }
+
+    #[test]
+    fn a_period_counts_the_outcomes_and_adds_up_the_rerouted_saving() {
+        let decisions = [
+            rerouted("search", "observed", 0.10, 0.02),
+            rerouted("search", "observed", 0.10, 0.04),
+            rerouted("summary", "applied", 0.50, 0.10),
+            rerouted("other", "kept", 0.30, 0.30),
+            rerouted("other", "fallback", 0.30, 0.30),
+        ];
+        let summary = summarize_period(&decisions);
+        assert_eq!(
+            (
+                summary.decisions,
+                summary.applied,
+                summary.observed,
+                summary.kept,
+                summary.fallback
+            ),
+            (5, 1, 2, 1, 1)
+        );
+        assert!((summary.saving_usd - 0.54).abs() < 1e-9, "{summary:?}");
+        let tasks: Vec<(&str, usize)> = summary
+            .by_task
+            .iter()
+            .map(|(task, requests, _)| (task.as_str(), *requests))
+            .collect();
+        assert_eq!(
+            tasks,
+            [("summary", 1), ("search", 2)],
+            "largest saving first"
+        );
+        assert_eq!(summarize_period(&[]), PeriodSummary::default());
+    }
+
+    #[test]
+    fn the_verdict_says_whether_routing_is_worth_turning_on() {
+        let none = PeriodSummary::default();
+        assert!(verdict(&none, "off", "last 7 days", 7.0).contains("Routing is off"));
+        assert!(verdict(&none, "observe", "last 7 days", 7.0).contains("No routing decisions"));
+
+        let all_kept = summarize_period(&[decision("kept"), decision("kept")]);
+        let text = verdict(&all_kept, "observe", "last 7 days", 7.0);
+        assert!(text.contains("none would have been rerouted"), "{text}");
+
+        let worth =
+            summarize_period(&[rerouted("search", "observed", 0.10, 0.02), decision("kept")]);
+        let text = verdict(&worth, "observe", "last 7 days", 7.0);
+        assert!(
+            text.contains("would have changed 1 of 2 requests")
+                && text.contains("saved about $0.08")
+                && text.contains("about $0.34 a month")
+                && text.contains("tokred routing on"),
+            "{text}"
+        );
+
+        let applied = summarize_period(&[rerouted("search", "applied", 0.10, 0.02)]);
+        let text = verdict(&applied, "enforce", "last 24 hours", 1.0);
+        assert!(text.contains("Routing changed 1 of 1 requests"), "{text}");
     }
 }

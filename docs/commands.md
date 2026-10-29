@@ -17,7 +17,7 @@ Reference for every `tokred` command and its flags. `tokred <command> --help` pr
 | [`audit`](#audit) | Weight of the fixed context and unused MCP servers |
 | [`pricing sync` / `show`](#pricing) | Refresh or show the price table |
 | [`cache stats` / `prune`](#cache) | Inspect the tiered cache or remove expired entries |
-| [`proxy start` / `stop` / `status`](#proxy-start-stop-status) | Run and inspect the optional [local proxy](proxy.md) |
+| [`proxy start` / `stop` / `status`](#proxy-start-stop-restart-status) | Run and inspect the optional [local proxy](proxy.md) |
 | [`proxy enable` / `disable`](#proxy-enable-disable) | Turn the proxy features on or off and apply it at once |
 | [`proxy service install` / `uninstall`](#proxy-service) | Start the proxy at login, as a user service |
 | [`initialize`](#initialize) | Make Claude Code's settings agree with `[proxy] enabled` |
@@ -185,7 +185,7 @@ tokred cache prune
 
 `stats` shows entries and hits per tier (L1, L2, L3); `prune` removes expired entries. How the tiers work is in [architecture](architecture.md).
 
-## proxy start, stop, status
+## proxy start, stop, restart, status
 
 ```sh
 tokred proxy start [--foreground] [--bind <HOST:PORT>]
@@ -196,10 +196,14 @@ tokred proxy stop
 ```
 
 ```sh
+tokred proxy restart
+```
+
+```sh
 tokred proxy status [--json]
 ```
 
-The optional [local proxy](proxy.md). `start` runs it in the background and returns as soon as it answers (it waits up to 5 seconds), so `out=$(tokred proxy start)` does not hang. `stop` asks it to shut down and waits until it has. `status` shows whether it is running, whether the user service is installed, whether this terminal's `ANTHROPIC_BASE_URL` points to it, and the routing and compression modes. While `[proxy] enabled = false`, `start` refuses; `stop` and `status` still work.
+The optional [local proxy](proxy.md). `start` runs it in the background and returns as soon as it answers (it waits up to 5 seconds), so `out=$(tokred proxy start)` does not hang. `stop` asks it to shut down and waits until it has. `restart` does both, so that a setting the proxy reads when it starts applies (a proxy that was not running is just started); it refuses while the proxy features are off. `status` shows whether it is running, whether the user service is installed, whether this terminal's `ANTHROPIC_BASE_URL` points to it, and the routing and compression modes. While `[proxy] enabled = false`, `start` refuses; `stop` and `status` still work.
 
 | Flag | Effect |
 |---|---|
@@ -276,7 +280,7 @@ Opens the [live dashboard](dashboard.md) of the running proxy in the browser. It
 ## routing
 
 ```sh
-tokred routing status [--json]
+tokred routing status [--since <SPAN>] [--json]
 ```
 
 ```sh
@@ -291,7 +295,7 @@ tokred routing off
 tokred routing explain <ID>
 ```
 
-`status` shows the mode, the circuit breaker and recent decisions. `on` sets `[routing] mode = "enforce"` and `off` sets `"observe"` (both edit `tokred.toml`; restart the proxy to apply). `explain <ID>` says why one decision was taken (ids are in `status`). The main loop's model is never changed. See [routing](routing.md).
+`status` shows the mode, what routing did (or would have done, in `observe`) over the period (`--since`, default `7d`: requests changed, estimated saving and a monthly projection, so you can decide whether to turn it on) and the recent decisions. `on` sets `[routing] mode = "enforce"` and `off` sets `"observe"`: both edit `tokred.toml` and restart a running proxy to apply it. `explain <ID>` says why one decision was taken (ids are in `status`). The main loop's model is never changed. See [routing](routing.md).
 
 ## compression
 

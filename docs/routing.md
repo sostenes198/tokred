@@ -50,7 +50,7 @@ The decision is made on the subagent's first turn and reused for all its turns: 
 | `tokred routing on` | `enforce`: change the model of eligible requests |
 | `tokred routing off` | `observe`: keep recording what routing would do |
 
-The default is `observe`: decisions are recorded with their estimated saving and nothing changes, so you can check them before turning routing on. `[routing] mode = "off"` in `tokred.toml` records nothing. Restart the proxy to apply a mode change. Keys: `[routing]` and `[routing.tiers]` in [configuration](configuration.md).
+The default is `observe`: decisions are recorded with their estimated saving and nothing changes, so you can check them before turning routing on. `[routing] mode = "off"` in `tokred.toml` records nothing. `tokred routing on` and `off` restart a running proxy to apply the mode; after editing `tokred.toml` yourself, run `tokred proxy restart`. Keys: `[routing]` and `[routing.tiers]` in [configuration](configuration.md).
 
 ## Suggestions for the main loop
 

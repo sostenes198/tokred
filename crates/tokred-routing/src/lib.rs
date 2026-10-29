@@ -24,7 +24,9 @@ pub use classify::{
     Classification, Layer, RouteClass, classify_auxiliary, classify_subagent, first_user_text,
 };
 pub use hook::{RoutingHook, RoutingStatus};
-pub use report::{explain, render_status, summarize_decisions};
+pub use report::{
+    PeriodSummary, explain, render_status, summarize_decisions, summarize_period, verdict,
+};
 
 /// Version of the routing rules, stored with every decision (with the catalog version).
 pub const RULES_VERSION: &str = "routing-1";

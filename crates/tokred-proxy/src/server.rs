@@ -163,6 +163,7 @@ impl Proxy {
                 setup.capture,
                 setup.decisions,
                 shutdown.clone(),
+                &self.config.admin_secret,
             ))
         });
         let keeper = dashboard
