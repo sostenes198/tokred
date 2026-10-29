@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>tokred dashboard</title>
+<link rel="stylesheet" href="/dashboard/app.css">
+<script src="/dashboard/app.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <h1>tokred <span class="muted">dashboard</span></h1>
+  <span id="conn" class="conn" data-state="connecting" role="status">connecting</span>
+  <nav class="top-links"><a href="/metrics">Metrics report</a></nav>
+</header>
+<noscript><p class="notice">The dashboard needs JavaScript.</p></noscript>
+<div class="layout">
+  <aside class="sidebar" aria-label="Sessions">
+    <section aria-labelledby="active-h">
+      <h2 id="active-h">Active <span id="active-count" class="count">0</span></h2>
+      <ul id="active-list" class="session-list"></ul>
+      <p id="active-empty" class="empty">No active session.</p>
+    </section>
+    <section aria-labelledby="recent-h">
+      <h2 id="recent-h">Last 10 sessions <span id="recent-count" class="count">0</span></h2>
+      <ul id="recent-list" class="session-list"></ul>
+      <p id="recent-empty" class="empty">No past session yet.</p>
+    </section>
+  </aside>
+  <main class="detail" id="detail">
+    <p id="placeholder" class="placeholder">Select a session to follow it.</p>
+    <div id="session-view" class="session-view" hidden>
+      <section id="summary" class="summary" aria-label="Session summary"></section>
+      <p id="notice" class="notice" hidden></p>
+      <section id="subagents" class="subagents" aria-label="Subagents" hidden></section>
+      <div class="timeline-bar">
+        <h2>Timeline</h2>
+        <button id="follow" type="button" class="toggle" aria-pressed="true">Follow: on</button>
+      </div>
+      <div id="timeline-scroll" class="timeline-scroll" tabindex="0" aria-label="Turns of the selected session">
+        <div id="timeline" class="timeline" aria-live="polite" aria-relevant="additions"></div>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>
