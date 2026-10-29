@@ -17,7 +17,7 @@ Referência de todos os comandos do `tokred` e das suas flags. `tokred <comando>
 | [`audit`](#audit) | Peso do contexto fixo e dos servidores MCP sem uso |
 | [`pricing sync` / `show`](#pricing) | Atualiza ou mostra a tabela de preços |
 | [`cache stats` / `prune`](#cache) | Inspeciona o cache em camadas ou remove entradas expiradas |
-| [`proxy start` / `stop` / `status`](#proxy-start-stop-restart-status) | Executa e inspeciona o [proxy local](proxy.pt-BR.md) opcional |
+| [`proxy start` / `stop` / `restart` / `status`](#proxy-start-stop-restart-status) | Executa e inspeciona o [proxy local](proxy.pt-BR.md) opcional |
 | [`proxy enable` / `disable`](#proxy-enable-disable) | Liga ou desliga os recursos do proxy e aplica na hora |
 | [`proxy service install` / `uninstall`](#proxy-service) | Inicia o proxy no login, como serviço de usuário |
 | [`initialize`](#initialize) | Faz as configurações do Claude Code concordarem com `[proxy] enabled` |

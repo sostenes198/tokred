@@ -17,7 +17,7 @@ Reference for every `tokred` command and its flags. `tokred <command> --help` pr
 | [`audit`](#audit) | Weight of the fixed context and unused MCP servers |
 | [`pricing sync` / `show`](#pricing) | Refresh or show the price table |
 | [`cache stats` / `prune`](#cache) | Inspect the tiered cache or remove expired entries |
-| [`proxy start` / `stop` / `status`](#proxy-start-stop-restart-status) | Run and inspect the optional [local proxy](proxy.md) |
+| [`proxy start` / `stop` / `restart` / `status`](#proxy-start-stop-restart-status) | Run and inspect the optional [local proxy](proxy.md) |
 | [`proxy enable` / `disable`](#proxy-enable-disable) | Turn the proxy features on or off and apply it at once |
 | [`proxy service install` / `uninstall`](#proxy-service) | Start the proxy at login, as a user service |
 | [`initialize`](#initialize) | Make Claude Code's settings agree with `[proxy] enabled` |

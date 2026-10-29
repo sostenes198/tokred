@@ -18,6 +18,7 @@ The rest of tokred (the [hooks and agents](hooks-and-agents.md), `stats`, `audit
 | `tokred proxy disable` | Turns the features off and removes tokred's `ANTHROPIC_BASE_URL` from Claude Code's settings. A running proxy is not stopped |
 | `tokred proxy start` | Starts the proxy in the background. `--foreground` keeps it in the terminal (the user service uses that), `--bind HOST:PORT` overrides `[proxy] bind` for this run. Refuses while the features are off |
 | `tokred proxy stop` | Stops it and waits until it is gone |
+| `tokred proxy restart` | Stops it and starts it again, so a setting it reads at start applies (a proxy that was not running is just started). Refuses while the proxy features are off |
 | `tokred proxy status` | Is it running, on which port, and does this terminal use it (`--json` for scripts) |
 | `tokred proxy service install` / `uninstall` | Installs the proxy as a user service that starts at login (systemd user unit, launchd agent, Windows logon task), or removes it. `install` refuses while the features are off |
 | `tokred claude [args]` | Starts the proxy if needed and runs `claude` through it, for this run only. Arguments and exit code pass through (put `--` first to pass `-h`, `--help`, `-V` or `--version` as the first argument: tokred answers those itself); nothing is written to Claude Code's settings. If the proxy cannot start or `ANTHROPIC_BASE_URL` already points to another gateway, or the features are off, it runs `claude` directly and says why on stderr |
