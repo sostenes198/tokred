@@ -8,7 +8,7 @@ Para mantenedores: como uma versão é cortada, testada e publicada. Os usuário
 
 Uma versão passa por um release candidate (RC), é testada já publicada e só então vira a versão final.
 
-```
+```text
 scripts/release.sh rc 0.2.0-rc.1 ──► tag v0.2.0-rc.1 ──► workflow Release ──► Release smoke
                                                                                     │ verde
 scripts/release.sh promote 0.2.0-rc.1 ──► tag v0.2.0 ──► workflow Release ──► Release smoke
@@ -55,11 +55,11 @@ O workflow `Release` é gerado pelo `dist` e começa em uma tag com cara de vers
 | Arquivo | O que é |
 |---|---|
 | `tokred-<target>.tar.gz` / `.zip` | O binário com o README, as licenças e o changelog. Alvos: `aarch64-apple-darwin`, `x86_64-apple-darwin`, `aarch64-unknown-linux-musl`, `x86_64-unknown-linux-musl`, `x86_64-pc-windows-msvc` |
-| `tokred-<target>.tar.gz.sha256` / `.zip.sha256` | `<sha256>  <nome do arquivo>`; os scripts de instalação e o `tokred update` o verificam |
+| `tokred-<target>.tar.gz.sha256` / `.zip.sha256` | O SHA-256 do arquivo; os scripts de instalação e o `tokred update` o verificam |
 | `install.sh`, `install.ps1`, `uninstall.sh`, `uninstall.ps1` | Os scripts que os usuários executam, copiados de `install/` |
-| `source.tar.gz`, `sha256.sum` | Acrescentados pelo `dist` |
+| `source.tar.gz` (e o seu `.sha256`), `sha256.sum` | Acrescentados pelo `dist` |
 
-As notas do release vêm da seção correspondente do `CHANGELOG.md`. O pipeline só precisa do `GITHUB_TOKEN` do próprio repositório; nenhum gerenciador de pacotes ou registro está envolvido.
+As notas do release vêm da seção correspondente do `CHANGELOG.md`. O workflow `Release` só precisa do `GITHUB_TOKEN` do próprio repositório; nenhum gerenciador de pacotes ou registro está envolvido.
 
 Uma versão com sufixo (`-rc.1`) é publicada como **pre-release**. `releases/latest/download/` sempre aponta para o release estável mais novo, então quem executa o comando de instalação simples nunca recebe um RC. Para instalar uma versão específica, informe a versão:
 
@@ -95,18 +95,19 @@ Os arquivos são `tests/release/smoke.sh` (`sh` POSIX), `smoke.ps1` (Windows Pow
 
 | Etapa | Prova |
 |---|---|
+| 0. Download | O `install.sh` e o `uninstall.sh` do release são baixados da tag e se verifica que existem |
 | 1. Instalação | `tokred --version` é igual à tag; o binário está no lugar; um bloco marcado em cada perfil de shell com as linhas do usuário intactas; os seis hooks e agentes estão instalados ao lado das chaves e do hook do próprio usuário; o proxy responde no endpoint de saúde e a `ANTHROPIC_BASE_URL` aponta para ele |
 | 2. O wrapper `claude` | Em `sh`, `bash`, `dash` e `zsh` novos: `claude` é uma função, o `tokred initialize` realmente rodou, os argumentos chegam intactos e, sem o tokred no `PATH`, o `claude` ainda executa |
 | 3. Tráfego pelo proxy | Contra o upstream falso: requisições de loop principal e de subagente em streaming voltam como os bytes do falso; o link do dashboard funciona uma vez; a API de sessões e o detalhe de volta estão certos; `/metrics` é HTML; um `Host` errado é 421; `stats --json` tem a seção do proxy; desligar a gravação de conteúdo é aplicado |
 | 4. `unconfigure` e `configure` | O unconfigure remove hooks e agentes não editados e mantém as chaves do usuário e a URL do proxy; o configure traz tudo de volta |
 | 5. Chave do proxy | `proxy disable` remove só a URL do tokred e deixa a de terceiros; o wrapper não religa; `proxy enable` mantém a porta salva |
-| 6. Update | Com só um pre-release publicado, `tokred update` sai com 1 e diz que não existe release estável. O ramo que substitui o binário não é exercitado de propósito |
+| 6. Update | Com só pre-releases publicados, `tokred update` sai com 1 e diz que não existe release estável. Quando existe um release estável, verifica que o comando sai com 0 e informa que está atualizado ou que há versão mais nova; se o binário foi substituído corretamente não é verificado |
 | 7. Desinstalação, duas vezes | Com o binário instalado e, depois de reinstalar, com o script de desinstalação do release: nada sobra, o `settings.json` é igual ao documento inicial e os perfis ficam byte a byte como o usuário tinha. Duas coisas ficam por desenho e são impressas como notas: `settings.json.tokred.bak` e uma pasta `agents/` vazia (um agente que o usuário editou também é mantido) |
-| 8. Limpeza | Sempre (um trap): o proxy e o upstream falso são parados e as últimas 30 linhas de cada log são impressas |
+| 8. Limpeza | Sempre (um trap): o proxy e o upstream falso são parados. Depois de uma falha, as últimas 30 linhas de cada log são impressas |
 
 ### Lendo uma falha
 
-- A última linha é `not ok - [<etapa>] <o esperado>: <o encontrado>` e o código de saída é 1. Abaixo dela vêm as últimas 30 linhas de cada log. No CI os logs são o artefato `smoke-logs-*` do job que falhou; localmente, `SMOKE_KEEP=1` mantém o sandbox inteiro.
+- A verificação que falhou imprime `not ok - [<etapa>] <o esperado>: <o encontrado>` e o código de saída é 1. Depois dela vêm as últimas 30 linhas de cada log. No CI os logs são o artefato `smoke-logs-*` do job que falhou; localmente, `SMOKE_KEEP=1` mantém o sandbox inteiro.
 - Uma falha na etapa 1 ou 7 em **uma única plataforma** é problema de empacotamento ou do instalador. Uma falha nas etapas 3 a 5 em **todas as plataformas** é bug do produto: reproduza com os comandos da etapa em um sandbox ([development](development.pt-BR.md)).
 - Linhas `skip - ...` não são falhas: um shell que não está instalado, ou o limite de taxa da API do GitHub na etapa 6.
 - Um job vermelho é um achado sobre os artefatos publicados. Corrija na `main` e corte o próximo RC; não promova.

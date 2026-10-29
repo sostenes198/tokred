@@ -4,7 +4,7 @@
 
 The proxy is an optional local server between Claude Code and the Anthropic API: it measures every request exactly, can route subagent and auxiliary requests to a cheaper model, advises you about the main loop, and can keep large tool results out of the context without losing them.
 
-```
+```text
 Claude Code ──(ANTHROPIC_BASE_URL=http://127.0.0.1:1029)──► tokred proxy ──► api.anthropic.com
 ```
 
@@ -19,8 +19,8 @@ The rest of tokred (the [hooks and agents](hooks-and-agents.md), `stats`, `audit
 | `tokred proxy start` | Starts the proxy in the background. `--foreground` keeps it in the terminal (the user service uses that), `--bind HOST:PORT` overrides `[proxy] bind` for this run. Refuses while the features are off |
 | `tokred proxy stop` | Stops it and waits until it is gone |
 | `tokred proxy status` | Is it running, on which port, and does this terminal use it (`--json` for scripts) |
-| `tokred proxy service install` / `uninstall` | Installs the proxy as a user service that starts at login (systemd user unit, launchd agent, Windows logon task). Refuses while the features are off |
-| `tokred claude [args]` | Starts the proxy if needed and runs `claude` through it, for this run only. Arguments and exit code pass through; nothing is written to Claude Code's settings. Without the proxy features it runs `claude` directly |
+| `tokred proxy service install` / `uninstall` | Installs the proxy as a user service that starts at login (systemd user unit, launchd agent, Windows logon task), or removes it. `install` refuses while the features are off |
+| `tokred claude [args]` | Starts the proxy if needed and runs `claude` through it, for this run only. Arguments and exit code pass through (put `--` first to pass `-h`, `--help`, `-V` or `--version` as the first argument: tokred answers those itself); nothing is written to Claude Code's settings. If the proxy cannot start or `ANTHROPIC_BASE_URL` already points to another gateway, or the features are off, it runs `claude` directly and says why on stderr |
 | `tokred dashboard` | Opens the [live dashboard](dashboard.md) |
 
 The [install script](installation.md) runs `tokred proxy enable` (unless you pass `--no-proxy`), and installs the `claude` shell wrapper that runs `tokred initialize` before every launch. `tokred configure` only sets up hooks and agents and never touches the proxy.
@@ -29,7 +29,7 @@ The [install script](installation.md) runs `tokred proxy enable` (unless you pas
 
 | Flag | Meaning |
 |---|---|
-| `--port <n>` (or `TOKRED_PORT`) | Port of `[proxy] bind`, 1024 to 65535 on `127.0.0.1`. Asked in a terminal (default: the saved port, else 1029; the command checks that the port is free). A busy port given by flag only warns |
+| `--port <n>` (or `TOKRED_PORT`) | Port of `[proxy] bind`, 1024 to 65535 (the host of `bind` stays, `127.0.0.1` by default). Asked in a terminal (default: the saved port, else 1029; the command checks that the port is free, and accepts the one this installation's proxy already uses). A busy port given by flag only warns |
 | `--record-content <true\|false>` (or `TOKRED_RECORD_CONTENT`) | `[proxy] log_bodies`: whether the [dashboard](dashboard.md) may show what was sent and returned. Asked in a terminal (default: the saved answer, else yes). Without a terminal an unsaved answer is no |
 | `--yes`, `-y` | Ask nothing: use the flags, the saved values, else port 1029 and no recording |
 
@@ -57,7 +57,7 @@ While the URL is in `settings.json`, Claude Code started from anywhere (an IDE, 
 | Measurement | always on | Nothing. Records each request's model, tokens (including 1-hour cache writes), latency, stop reason, tool names, cache lifetime, the routing mode in force and the likely cause of a prompt-cache miss. `tokred stats`, `tokred metrics` and the report read them as their exact source ([metrics](metrics.md)) |
 | [Model routing](routing.md) | `observe` | Only subagent and auxiliary requests, and only in `enforce`. **The main loop's model is never changed** |
 | Suggestions | shown by `tokred suggest` and `tokred stats` | Nothing. Tells you when the main loop's last prompts were simple enough for a cheaper model |
-| Reversible compression | `observe` | Only in `enforce`: large tool results are replaced by a preview and an id; the original is kept and the model reads it back with `tokred_retrieve`. Turn it on with `tokred compression on` |
+| Reversible compression | `observe` | Only in `enforce`: large tool results are replaced by a preview and an id; the original is kept and the model reads it back with `tokred_retrieve`. Turn it on with `tokred compression on`, then restart the proxy and Claude Code |
 | Response-cache measurement | on | Nothing. Counts exact repeats to show whether a response cache would help |
 
 `observe` means the feature records what it would do, so `tokred routing status`, `tokred suggest` and `tokred stats` show the saving before you turn anything on. The keys are in [configuration](configuration.md).
@@ -65,16 +65,16 @@ While the URL is in `settings.json`, Claude Code started from anywhere (an IDE, 
 ## Guarantees
 
 - **Fail-open.** If any step fails, the original request is forwarded unchanged. A rewritten request that the API rejects (400, 404 or 422) before anything reached Claude Code is sent again in its original form. A tokred bug never stops Claude Code from working.
-- **Loopback only.** It refuses to listen on a non-loopback address, answers only requests whose `Host` header names a loopback address and its own port (the defence against DNS rebinding), and its admin endpoints (`/__tokred/...`) need a secret kept in `<data>/proxy/secret` with owner-only permissions.
-- **Nothing it does not understand is changed.** Headers (`anthropic-beta`, `x-claude-code-*`, credentials) and fields pass through untouched, so new Claude Code features keep working. The only header it rewrites is `Accept-Encoding`, set to `identity` upstream so the response can be read as it streams.
+- **Loopback only.** It refuses to listen on a non-loopback address, answers only requests whose `Host` header names a loopback address and its own port (the defence against DNS rebinding), and its admin endpoints (`/__tokred/...`, except `health`) need a secret kept in `<data>/proxy/secret` with owner-only permissions.
+- **Nothing it does not understand is changed.** Headers (`anthropic-beta`, `x-claude-code-*`, credentials) and fields pass through untouched, so new Claude Code features keep working. Apart from dropping hop-by-hop headers, the only header it rewrites is `Accept-Encoding` (when the client sends one), set to `identity` upstream so the response can be read as it streams.
 - **The main loop's model is never changed**, whatever the configuration says.
-- **Private.** Credentials are never logged or stored. Message contents are not read or stored unless you turn on `[proxy] log_bodies` (see [dashboard](dashboard.md)).
+- **Private.** Credentials are never logged or stored. Message text is stored only if you turn on `[proxy] log_bodies` (see [dashboard](dashboard.md)) or set compression to `enforce`, which keeps the original of each replaced tool result.
 
 ## Logins
 
 API-key and claude.ai subscription logins both work. With a subscription the credential travels in the `authorization` header, and the proxy forwards it and the OAuth `anthropic-beta` value untouched. Claude Code's own documentation describes measuring subscription traffic through a local gateway.
 
-Anthropic's terms do not address rewriting the model of subscription requests, so routing stays in `observe` by default for every login; `tokred doctor` says when `enforce` is on with a subscription login. Turning it on is your informed choice ([decisions](decisions.md)).
+Anthropic's terms do not address rewriting the model of subscription requests, so routing stays in `observe` by default for every login. `tokred doctor` prints a note whenever `enforce` is on. Turning it on is your informed choice ([decisions](decisions.md)).
 
 ## Behind a corporate network
 
@@ -82,20 +82,20 @@ The proxy reaches the API the way Claude Code does.
 
 | Setting | Effect |
 |---|---|
-| `HTTPS_PROXY` (then `ALL_PROXY`, `HTTP_PROXY`, and the lower-case names) | The proxy asks that HTTP proxy for a `CONNECT` tunnel to the API host. `user:password@` is sent as basic authentication and never logged |
-| `NO_PROXY` | As in curl: comma-separated host names (a suffix also matches subdomains), IP addresses, CIDR ranges, `*` |
+| `HTTPS_PROXY`, else `ALL_PROXY`, else `HTTP_PROXY` (each also in lower case) | The proxy asks that HTTP proxy for a `CONNECT` tunnel to the API host (an `https` upstream only). `user:password@` is sent as basic authentication and never logged |
+| `NO_PROXY` (or `no_proxy`) | As in curl: comma-separated host names (a suffix also matches subdomains), IP addresses, CIDR ranges, `*` |
 | `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `[proxy] ca_bundle` | PEM files of extra certificate authorities, trusted on top of the built-in roots and the operating system's store. This is what a TLS-inspecting proxy needs |
 
-A value that is not a proxy address, or a CA file that is missing or empty, is logged once (by name, never the value) and ignored: the proxy connects directly, or with the remaining roots. A proxy that refuses the tunnel, or an untrusted certificate, gives the usual `502`. `tokred doctor` and `tokred proxy status` show the proxy (host and port only) and the extra CA files in use.
+A proxy value that is not an address or uses `socks5://` or `https://`, and a CA file that is missing or empty, are logged once (by name, never the value) and ignored: the proxy connects directly, or with the remaining roots. A proxy that refuses the tunnel, or an untrusted certificate, gives the usual `502`. `tokred doctor` and `tokred proxy status --json` show the proxy (host and port only) and the extra CA files in use.
 
 The settings are read once, when the proxy starts, from the environment of the process that starts it. Set the variables before `tokred proxy start` or `tokred claude` (for the user service, in the environment the service runs in, or use `ca_bundle`) and restart the proxy after changing them.
 
 ## Retention
 
-What the proxy stores is deleted after `[proxy] retention_days` (default 90; `0` keeps everything), once when the proxy starts and then every hour. Kept tool results and replacements of a conversation that still has a request inside the period are kept whatever their age.
+What the proxy stores is deleted after `[proxy] retention_days` (default 90), once when the proxy starts and then every hour. `0` keeps every row; the dashboard's recorded text is still emptied for sessions that are neither active nor among the last 10 ([dashboard](dashboard.md)). Tool results kept for `tokred_retrieve` and the replacements of a conversation that still has a request inside the period are not deleted by this pruning, whatever their age.
 
 ## Limits
 
 - Only `http://` proxies are supported (no SOCKS, no TLS to the proxy).
 - Usage is read only from an uncompressed response. If a response comes back compressed anyway it is forwarded unchanged and not measured.
-- A compaction request carries no header that tells it apart, so it can be taken for a simple prompt. Routing never changes the main loop's model, so this only affects the advice.
+- A compaction request is recognised only when Claude Code sends `x-claude-code-compaction` or `x-claude-code-request-class: compaction`; the version tested sent neither, so such a request can be taken for a simple prompt. Routing never changes the main loop's model, so this only affects the advice.
