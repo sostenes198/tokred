@@ -124,7 +124,7 @@ Imprime a versão, o caminho do binário, as pastas do Claude Code e de dados, o
 tokred stats [--since <SPAN>] [--by <GROUP>] [--json] [--claude-dir <PATH>]
 ```
 
-O relatório de custo no terminal: totais, quanto os mesmos tokens custariam no opus, a economia do roteamento e dos guards (uma estimativa, rotulada como tal), a taxa de acerto do cache de prompt, a projeção mensal e uma tabela com coluna de participação e barra de impacto. Como cada número é calculado está em [métricas](metrics.pt-BR.md). Quando o [proxy](proxy.pt-BR.md) registrou algo, uma seção **Proxy** vem em seguida.
+O relatório de custo no terminal: totais, quanto os mesmos tokens custariam no opus, quanto abaixo de uma execução toda no opus os seus modelos deixam o custo (escolha sua, não do tokred), e o que o tokred economizou com o roteamento aplicado e os guards (uma estimativa, rotulada como tal), a taxa de acerto do cache de prompt, a projeção mensal e uma tabela com coluna de participação e barra de impacto. Como cada número é calculado está em [métricas](metrics.pt-BR.md). Quando o [proxy](proxy.pt-BR.md) registrou algo, uma seção **Proxy** vem em seguida.
 
 | Flag | Efeito |
 |---|---|

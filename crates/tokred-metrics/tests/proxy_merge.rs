@@ -171,6 +171,7 @@ fn stats_by(records: &[UsageRecord], group_by: GroupBy) -> tokred_metrics::Stats
         usage: records,
         prices: &prices(),
         events: &[],
+        decisions: &[],
         range: TimeRange::new(Timestamp(T0), Timestamp(T0 + 3_600)),
         group_by,
         now: Timestamp(T0 + 3_600),

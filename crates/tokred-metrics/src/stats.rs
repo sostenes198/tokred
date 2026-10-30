@@ -16,8 +16,10 @@ use tokred_core::hook_event::HookEventRecord;
 use tokred_core::pricing::{
     Family, ModelPrice, PriceTable, Resolution, Resolved, Usage, cost as usage_cost, request_cost,
 };
+use tokred_core::routing::RoutingDecision;
 use tokred_core::usage::UsageRecord;
 
+use crate::proxy::outcome_saving;
 use crate::report::{BYTES_PER_TOKEN, is_guard_block};
 use crate::span::TimeRange;
 use crate::util::{SECS_PER_DAY, day_string, len_u64, ratio, round6, to_f64};
@@ -53,6 +55,9 @@ pub struct StatsInput<'a> {
     pub prices: &'a PriceTable,
     /// Hook events (used for the guard savings estimate).
     pub events: &'a [HookEventRecord],
+    /// Routing decisions (the estimated saving of the applied ones in `range` is what routing
+    /// saved). Decisions outside `range` are ignored.
+    pub decisions: &'a [RoutingDecision],
     /// Period reported by totals, groups, savings and cache rate.
     pub range: TimeRange,
     /// Grouping of the `groups` list.
@@ -131,20 +136,27 @@ pub struct GuardSaving {
     pub saving_usd: f64,
 }
 
-/// Real cost against the "everything on opus" counterfactual.
+/// The real cost, what tokred saved, and the "everything on opus" reference.
+///
+/// What tokred saved is its applied routing plus its guards. The distance to "everything on
+/// opus" is a different thing: it comes from the models the user runs, and tokred only changes a
+/// small part of it, so it is kept apart in `model_choice_saving_usd`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Savings {
     /// Real cost in USD.
     pub real_cost_usd: f64,
     /// Same tokens at the latest opus price (`None` if the table has no opus). Messages of
-    /// models without a price are left out, so they cannot inflate the saving.
+    /// models without a price are left out, so they cannot inflate the figure.
     pub opus_cost_usd: Option<f64>,
-    /// `opus_cost_usd - real_cost_usd`.
-    pub routing_saving_usd: Option<f64>,
+    /// `opus_cost_usd - real_cost_usd`: how far below an everything-on-opus run the models in
+    /// use put the cost. Estimate, not what tokred saved (`None` without an opus price).
+    pub model_choice_saving_usd: Option<f64>,
+    /// What tokred's routing saved: the estimated saving of the decisions that were applied.
+    pub routing_saving_usd: f64,
     /// Guard saving estimate.
     pub guard: GuardSaving,
-    /// Routing plus guard saving (`None` when the routing saving is unknown).
-    pub total_saving_usd: Option<f64>,
+    /// What tokred saved: routing plus guards.
+    pub total_saving_usd: f64,
 }
 
 /// Prompt-cache hit rate of one day.
@@ -516,7 +528,14 @@ pub fn compute_stats(input: &StatsInput<'_>) -> Stats {
     let real_cost = round6(total.cost);
     let guard = guard_saving(input, &book);
     let opus_cost_usd = book.opus.map(|_| round6(opus_cost));
-    let routing_saving_usd = opus_cost_usd.map(|opus| round6(opus - real_cost));
+    let model_choice_saving_usd = opus_cost_usd.map(|opus| round6(opus - real_cost));
+    let routing_saving_usd = outcome_saving(
+        input
+            .decisions
+            .iter()
+            .filter(|decision| input.range.contains(decision.ts)),
+        "applied",
+    );
     Stats {
         range: input.range,
         group_by: input.group_by,
@@ -538,9 +557,10 @@ pub fn compute_stats(input: &StatsInput<'_>) -> Stats {
         savings: Savings {
             real_cost_usd: real_cost,
             opus_cost_usd,
+            model_choice_saving_usd,
             routing_saving_usd,
             guard,
-            total_saving_usd: routing_saving_usd.map(|routing| round6(routing + guard.saving_usd)),
+            total_saving_usd: round6(routing_saving_usd + guard.saving_usd),
         },
         cache_rate: CacheRate {
             overall: cache_rate_of(&total.usage),
@@ -678,6 +698,7 @@ mod tests {
             usage,
             prices: &table(),
             events: &events(),
+            decisions: &[],
             range,
             group_by,
             now: Timestamp(T0 + DAY + 100),
@@ -718,6 +739,7 @@ mod tests {
             usage: &usage,
             prices: &prices,
             events: &[],
+            decisions: &[],
             range: whole(),
             group_by: GroupBy::Model,
             now: Timestamp(T0 + 100),
@@ -843,13 +865,53 @@ mod tests {
     }
 
     #[test]
-    fn routing_saving_compares_with_everything_on_opus() {
+    fn the_model_choice_saving_compares_with_everything_on_opus() {
         let savings = stats_for(&dataset(), whole(), GroupBy::Model, None).savings;
         // Priced messages only (r5 excluded): 0.105 + 0.117 + 22.5 + 15 = 37.722.
         assert_eq!(savings.real_cost_usd, 5.4284);
         assert_eq!(savings.opus_cost_usd, Some(37.722));
-        assert_eq!(savings.routing_saving_usd, Some(32.2936));
-        assert_eq!(savings.total_saving_usd, Some(32.4744));
+        assert_eq!(savings.model_choice_saving_usd, Some(32.2936));
+        // No routing decision was applied, so tokred saved only what its guards estimate.
+        assert_eq!(savings.routing_saving_usd, 0.0);
+        assert_eq!(savings.total_saving_usd, 0.1808);
+    }
+
+    #[test]
+    fn the_routing_saving_is_what_the_applied_decisions_saved() {
+        let decision = |ts: i64, outcome: &str, from: f64, to: f64| RoutingDecision {
+            ts: Timestamp(ts),
+            outcome: outcome.to_owned(),
+            est_cost_from: from,
+            est_cost_to: to,
+            ..RoutingDecision::default()
+        };
+        let decisions = [
+            decision(T0 + 10, "applied", 0.10, 0.02),
+            decision(T0 + 20, "applied", 0.05, 0.01),
+            // Only applied decisions in the period count.
+            decision(T0 + 30, "observed", 9.0, 0.0),
+            decision(T0 + 40, "kept", 9.0, 9.0),
+            decision(T0 + 50, "fallback", 9.0, 0.0),
+            decision(T0 + 10 * DAY, "applied", 9.0, 0.0),
+        ];
+        let stats = compute_stats(&StatsInput {
+            usage: &dataset(),
+            prices: &table(),
+            events: &events(),
+            decisions: &decisions,
+            range: whole(),
+            group_by: GroupBy::Model,
+            now: Timestamp(T0 + DAY + 100),
+            first_configure: None,
+        });
+        let savings = stats.savings;
+        assert_eq!(savings.routing_saving_usd, 0.12);
+        assert_eq!(
+            savings.total_saving_usd, 0.3008,
+            "routing 0.12 + guards 0.1808"
+        );
+        // The gap to everything on opus is the models in use, whoever chose them.
+        assert_eq!(savings.model_choice_saving_usd, Some(32.2936));
     }
 
     #[test]
@@ -879,6 +941,7 @@ mod tests {
             usage: &[],
             prices: &no_opus,
             events: &events(),
+            decisions: &[],
             range: whole(),
             group_by: GroupBy::Model,
             now: Timestamp(T0),
@@ -895,14 +958,17 @@ mod tests {
             usage: &dataset(),
             prices: &no_opus,
             events: &[],
+            decisions: &[],
             range: whole(),
             group_by: GroupBy::Model,
             now: Timestamp(T0 + DAY),
             first_configure: None,
         });
         assert_eq!(stats.savings.opus_cost_usd, None);
-        assert_eq!(stats.savings.routing_saving_usd, None);
-        assert_eq!(stats.savings.total_saving_usd, None);
+        assert_eq!(stats.savings.model_choice_saving_usd, None);
+        // What tokred saved does not need an opus price.
+        assert_eq!(stats.savings.routing_saving_usd, 0.0);
+        assert_eq!(stats.savings.total_saving_usd, 0.0);
         let reasons: Vec<_> = stats
             .unpriced_models
             .iter()
@@ -1057,7 +1123,8 @@ mod tests {
         assert!(stats.before_after.is_none());
         assert!(stats.unpriced_models.is_empty());
         assert_eq!(stats.savings.opus_cost_usd, Some(0.0));
-        assert_eq!(stats.savings.routing_saving_usd, Some(0.0));
+        assert_eq!(stats.savings.model_choice_saving_usd, Some(0.0));
+        assert_eq!(stats.savings.routing_saving_usd, 0.0);
         let json = serde_json::to_string(&stats).unwrap();
         assert!(!json.contains("NaN") && !json.contains("inf"));
 

@@ -215,22 +215,28 @@ fn models(requests: &[&ProxyRequestRecord], prices: &PriceTable) -> Vec<ModelRou
     routes
 }
 
+/// Estimated saving, in USD, of the decisions whose outcome is `outcome`.
+pub(crate) fn outcome_saving<'a>(
+    decisions: impl IntoIterator<Item = &'a RoutingDecision>,
+    outcome: &str,
+) -> f64 {
+    // `+ 0.0` turns the `-0.0` of an empty float sum into `0.0`.
+    round6(
+        decisions
+            .into_iter()
+            .filter(|d| d.outcome == outcome)
+            .map(|d| d.est_cost_from - d.est_cost_to)
+            .sum::<f64>()
+            + 0.0,
+    )
+}
+
 fn routing(decisions: &[&RoutingDecision]) -> Option<RoutingOutcomes> {
     if decisions.is_empty() {
         return None;
     }
     let count = |outcome: &str| len_u64(decisions.iter().filter(|d| d.outcome == outcome).count());
-    // `+ 0.0` turns the `-0.0` of an empty float sum into `0.0`.
-    let saving = |outcome: &str| {
-        round6(
-            decisions
-                .iter()
-                .filter(|d| d.outcome == outcome)
-                .map(|d| d.est_cost_from - d.est_cost_to)
-                .sum::<f64>()
-                + 0.0,
-        )
-    };
+    let saving = |outcome: &str| outcome_saving(decisions.iter().copied(), outcome);
     Some(RoutingOutcomes {
         decisions: len_u64(decisions.len()),
         applied: count("applied"),

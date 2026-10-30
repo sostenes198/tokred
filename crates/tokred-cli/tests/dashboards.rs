@@ -78,7 +78,8 @@ fn stats_prints_the_dashboard_without_color_when_piped() {
         .stdout(predicate::str::contains(
             "tokred Token Savings (last 3650 days)",
         ))
-        .stdout(predicate::str::contains("Efficiency meter:"))
+        .stdout(predicate::str::contains("Saved by tokred:"))
+        .stdout(predicate::str::contains("Below all-opus cost:"))
         .stdout(predicate::str::contains("claude-sonnet-4-20250514"))
         .stdout(predicate::str::contains("\u{1b}[").not());
 }

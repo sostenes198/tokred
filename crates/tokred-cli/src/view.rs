@@ -10,7 +10,7 @@ use tokred_audit::report::{ItemKind, McpScope, Scope};
 use tokred_core::cache::CacheStats;
 use tokred_core::pricing::PriceEntry;
 use tokred_metrics::proxy::{CacheMisses, ModelRoute, ProxyStats};
-use tokred_metrics::stats::{BeforeAfter, Group, UnpricedReason};
+use tokred_metrics::stats::{BeforeAfter, Group, Savings, UnpricedReason};
 use tokred_metrics::{GroupBy, LatencyStats, Stats, Tradeoff};
 use tokred_report::format::{compact, integer, ms, percent, usd};
 
@@ -41,6 +41,49 @@ fn money_or_na(value: Option<f64>) -> String {
     value.map_or_else(|| "n/a".to_owned(), usd)
 }
 
+/// The rows about savings. What tokred saved (routing it applied plus its guards) is kept apart
+/// from the distance to an everything-on-opus run, which comes from the models the user runs.
+fn saving_rows(term: Term, savings: &Savings) -> Vec<(&'static str, String)> {
+    let guard = &savings.guard;
+    let share = |saving: Option<f64>| match (saving, savings.opus_cost_usd) {
+        (Some(saving), Some(opus)) if opus > 0.0 => format!(" ({})", percent(saving / opus)),
+        _ => String::new(),
+    };
+    vec![
+        ("If all on opus", money_or_na(savings.opus_cost_usd)),
+        (
+            "Model choice vs opus",
+            format!(
+                "{}{} {}",
+                money_or_na(savings.model_choice_saving_usd),
+                share(savings.model_choice_saving_usd),
+                term.dim("(the models you run; not tokred)")
+            ),
+        ),
+        (
+            "Routing saving",
+            format!(
+                "{} {}",
+                usd(savings.routing_saving_usd),
+                term.dim("(applied by tokred)")
+            ),
+        ),
+        (
+            "Guard saving",
+            format!(
+                "~{} {}",
+                usd(guard.saving_usd),
+                term.dim(&format!(
+                    "(estimate: {} blocks, ~{} tokens avoided)",
+                    integer(guard.blocks),
+                    compact(guard.tokens_avoided)
+                ))
+            ),
+        ),
+        ("Saved by tokred", term.bold(&usd(savings.total_saving_usd))),
+    ]
+}
+
 /// The cost dashboard.
 #[must_use]
 pub fn render_stats(term: Term, stats: &Stats, label: &str) -> String {
@@ -55,12 +98,6 @@ pub fn render_stats(term: Term, stats: &Stats, label: &str) -> String {
         return out;
     }
 
-    let guard = &savings.guard;
-    let routing = savings.routing_saving_usd;
-    let share = |saving: Option<f64>| match (saving, savings.opus_cost_usd) {
-        (Some(saving), Some(opus)) if opus > 0.0 => format!(" ({})", percent(saving / opus)),
-        _ => String::new(),
-    };
     let mut rows: Vec<(&str, String)> = vec![
         (
             "Messages",
@@ -81,35 +118,15 @@ pub fn render_stats(term: Term, stats: &Stats, label: &str) -> String {
             ),
         ),
         ("Real cost", usd(savings.real_cost_usd)),
-        ("If all on opus", money_or_na(savings.opus_cost_usd)),
-        (
-            "Routing saving",
-            format!("{}{}", money_or_na(routing), share(routing)),
-        ),
-        (
-            "Guard saving",
-            format!(
-                "~{} {}",
-                usd(guard.saving_usd),
-                term.dim(&format!(
-                    "(estimate: {} blocks, ~{} tokens avoided)",
-                    integer(guard.blocks),
-                    compact(guard.tokens_avoided)
-                ))
-            ),
-        ),
-        (
-            "Total saved",
-            term.bold(&money_or_na(savings.total_saving_usd)),
-        ),
-        (
-            "Prompt cache hit",
-            stats
-                .cache_rate
-                .overall
-                .map_or_else(|| "n/a".to_owned(), percent),
-        ),
     ];
+    rows.extend(saving_rows(term, savings));
+    rows.push((
+        "Prompt cache hit",
+        stats
+            .cache_rate
+            .overall
+            .map_or_else(|| "n/a".to_owned(), percent),
+    ));
     if let Some(projection) = &stats.projection {
         rows.push((
             "Projection / month",
@@ -120,9 +137,9 @@ pub fn render_stats(term: Term, stats: &Stats, label: &str) -> String {
             ),
         ));
     }
-    let meter = match savings.total_saving_usd.zip(savings.opus_cost_usd) {
-        Some((saved, opus)) => {
-            let f = fraction(saved, opus).unwrap_or(0.0);
+    let meter = match savings.model_choice_saving_usd.zip(savings.opus_cost_usd) {
+        Some((below, opus)) => {
+            let f = fraction(below, opus).unwrap_or(0.0);
             format!(
                 "{} {}",
                 term.meter(f, METER_WIDTH),
@@ -131,7 +148,7 @@ pub fn render_stats(term: Term, stats: &Stats, label: &str) -> String {
         }
         None => "n/a (no opus price)".to_owned(),
     };
-    rows.push(("Efficiency meter", meter));
+    rows.push(("Below all-opus cost", meter));
     out.push_str(&key_values(&rows));
 
     out.push_str(&notes(term, stats));
@@ -570,7 +587,7 @@ pub fn render_latency(
                 compact(tradeoff.tokens_avoided),
                 tradeoff
                     .saving_usd
-                    .map_or_else(String::new, |s| format!(" and {} saved", usd(s)))
+                    .map_or_else(String::new, |s| format!(" and {} saved by tokred", usd(s)))
             ),
         ),
     ];
@@ -1275,6 +1292,7 @@ mod tests {
             usage,
             prices: &table,
             events,
+            decisions: &[],
             range: TimeRange::new(Timestamp(NOW - 40 * DAY), Timestamp(NOW + 1)),
             group_by: by,
             now: Timestamp(NOW),
@@ -1314,12 +1332,13 @@ mod tests {
             "Cache read/write:",
             "Real cost:",
             "If all on opus:",
+            "Model choice vs opus:",
             "Routing saving:",
             "Guard saving:",
             "estimate: 1 blocks",
-            "Total saved:",
+            "Saved by tokred:",
             "Prompt cache hit:",
-            "Efficiency meter:",
+            "Below all-opus cost:",
             "By Model",
             "claude-sonnet-4-20250514",
             "claude-opus-4-1-20250805",
@@ -1337,6 +1356,59 @@ mod tests {
             .find(|l| l.trim_start().starts_with("1."))
             .unwrap();
         assert!(first.contains("claude-opus-4-1-20250805"), "{first}");
+    }
+
+    /// The text of the row that starts with `label:`.
+    fn row<'a>(text: &'a str, label: &str) -> &'a str {
+        text.lines()
+            .find(|line| line.trim_start().starts_with(label))
+            .unwrap_or_else(|| panic!("no row {label:?} in:\n{text}"))
+    }
+
+    #[test]
+    fn what_tokred_saved_is_kept_apart_from_the_models_you_chose() {
+        let mut stats = rich();
+        stats.savings.opus_cost_usd = Some(1_000.0);
+        stats.savings.model_choice_saving_usd = Some(400.0);
+        stats.savings.routing_saving_usd = 1.5;
+        stats.savings.guard.saving_usd = 0.25;
+        stats.savings.total_saving_usd = 1.75;
+        let text = render_stats(OFF, &stats, "last 7 days");
+
+        let choice = row(&text, "Model choice vs opus:");
+        assert!(
+            choice.contains("$400.00") && choice.contains("40.0%"),
+            "{choice}"
+        );
+        assert!(choice.contains("not tokred"), "{choice}");
+        let routing = row(&text, "Routing saving:");
+        assert!(
+            routing.contains("$1.50") && routing.contains("applied"),
+            "{routing}"
+        );
+        let total = row(&text, "Saved by tokred:");
+        assert!(total.contains("$1.75"), "{total}");
+        assert!(
+            !total.contains("$400"),
+            "the model choice is not in the total: {total}"
+        );
+        // The meter shows how far below an everything-on-opus run the cost is, not tokred's share.
+        let meter = row(&text, "Below all-opus cost:");
+        assert!(meter.contains("40.0%"), "{meter}");
+    }
+
+    #[test]
+    fn without_an_opus_price_the_model_choice_and_the_meter_say_so() {
+        let mut stats = rich();
+        stats.savings.opus_cost_usd = None;
+        stats.savings.model_choice_saving_usd = None;
+        let text = render_stats(OFF, &stats, "last 7 days");
+        assert!(
+            row(&text, "Model choice vs opus:").contains("n/a"),
+            "{text}"
+        );
+        assert!(row(&text, "Below all-opus cost:").contains("n/a"), "{text}");
+        assert!(row(&text, "Saved by tokred:").contains('$'), "{text}");
     }
 
     #[test]
@@ -1381,6 +1453,7 @@ mod tests {
             usage: &usage,
             prices: &table,
             events: &[],
+            decisions: &[],
             range: TimeRange::new(Timestamp(NOW - 10 * DAY), Timestamp(NOW + 1)),
             group_by: GroupBy::Model,
             now: Timestamp(NOW),
@@ -1442,6 +1515,7 @@ mod tests {
                 usage: &usage,
                 prices: &table,
                 events: &[],
+                decisions: &[],
                 range,
                 group_by: GroupBy::Model,
                 now: Timestamp(NOW),
@@ -1462,6 +1536,7 @@ mod tests {
             usage: &worse_usage,
             prices: &table,
             events: &[],
+            decisions: &[],
             range,
             group_by: GroupBy::Model,
             now: Timestamp(NOW),
@@ -1540,6 +1615,15 @@ mod tests {
         let text = render_latency(OFF, &lat, &trade, None, "last 7 days");
         assert!(text.contains("No hook runs recorded for this period."));
         assert!(text.contains("tokred configure"));
+    }
+
+    #[test]
+    fn the_tradeoff_counts_only_what_tokred_saved() {
+        let events = vec![event("guard-read", decision::ALLOW, "", 0, 2_000, 1)];
+        let (lat, mut trade) = latency(&events, 0);
+        trade.saving_usd = Some(0.0);
+        let text = render_latency(OFF, &lat, &trade, None, "x");
+        assert!(text.contains("and $0.00 saved by tokred"), "{text}");
     }
 
     #[test]
@@ -1778,6 +1862,7 @@ mod tests {
             usage: &usage,
             prices: &table,
             events: &[],
+            decisions: &[],
             range: TimeRange::new(Timestamp(NOW - 40 * DAY), Timestamp(NOW + 1)),
             group_by: GroupBy::Model,
             now: Timestamp(NOW),

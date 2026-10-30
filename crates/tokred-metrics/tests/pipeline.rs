@@ -214,6 +214,7 @@ fn stats_match_a_manual_sum_over_the_ingested_transcripts() {
         usage: &usage,
         prices: &prices(),
         events: &events(),
+        decisions: &[],
         range: range(),
         group_by: GroupBy::Model,
         now: Timestamp(T0 + 3_600),
@@ -225,7 +226,9 @@ fn stats_match_a_manual_sum_over_the_ingested_transcripts() {
     assert_eq!((stats.totals.messages, stats.totals.sessions), (3, 1));
     // Same tokens on opus: 0.105 + 0.117 + 22.5.
     assert_eq!(stats.savings.opus_cost_usd, Some(22.722));
-    assert_eq!(stats.savings.routing_saving_usd, Some(18.0936));
+    assert_eq!(stats.savings.model_choice_saving_usd, Some(18.0936));
+    // No routing decision was applied.
+    assert_eq!(stats.savings.routing_saving_usd, 0.0);
     // Guards: 120_000 bytes -> 30_000 tokens at the session's model (sonnet, 3 messages: 2 sonnet
     // 1 opus) input price: 30_000 x 3 / 1e6.
     assert_eq!(stats.savings.guard.tokens_avoided, 30_000);
@@ -298,6 +301,7 @@ fn latency_routing_and_guards_snapshots() {
         usage: &[],
         prices: &prices(),
         events: &events(),
+        decisions: &[],
         range: range(),
         group_by: GroupBy::Day,
         now: Timestamp(T0),

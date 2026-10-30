@@ -6,6 +6,11 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+### Alterado
+
+- O `tokred stats` e o relatório HTML não chamam mais de economia do roteamento a distância até uma execução "toda no opus". Esse valor vem dos modelos que você usa, não do tokred, então tem linha própria (**Model choice vs opus**), e o total virou **Saved by tokred**: a economia das decisões de roteamento aplicadas mais a dos guards, que é $0,00 enquanto o roteamento só observa. O medidor de eficiência agora é **Below all-opus cost**. No `tokred stats --json`, `routing_saving_usd` traz o que as decisões aplicadas economizaram, o valor antigo é `model_choice_saving_usd`, e `total_saving_usd` é sempre um número. O `tokred stats latency` diz "saved by tokred" na linha de trade-off.
+- O card de latência do relatório mostra o tempo médio que uma execução de hook acrescenta, com o total do período na nota. "Latency added, in total" parecia um atraso em cada uso.
+
 ### Corrigido
 
 - O Claude Haiku 5.5 é cobrado pelo tamanho do prompt: uma requisição cujo prompt passa de 100.000 tokens paga cinco vezes cada preço, como a Anthropic publica. O custo real, a tabela de modelos do proxy, o dashboard e a estimativa de Haiku de uma sugestão agora usam isso. Antes, todo prompt do Haiku 5.5 era cobrado à tarifa barata, e a economia sugerida para uma sessão longa era exagerada.

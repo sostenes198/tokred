@@ -61,7 +61,8 @@ expression: stats
   "savings": {
     "real_cost_usd": 25.01,
     "opus_cost_usd": 105.15,
-    "routing_saving_usd": 80.14,
+    "model_choice_saving_usd": 80.14,
+    "routing_saving_usd": 0.0,
     "guard": {
       "estimate": true,
       "blocks": 0,
@@ -69,7 +70,7 @@ expression: stats
       "tokens_avoided": 0,
       "saving_usd": 0.0
     },
-    "total_saving_usd": 80.14
+    "total_saving_usd": 0.0
   },
   "cache_rate": {
     "overall": 0.0,

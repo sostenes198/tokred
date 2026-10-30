@@ -34,13 +34,18 @@ Totals, groups, savings and the cache rate cover the period given by `--since` (
 |---|---|---|
 | Totals | Messages, sessions, the four token counters and cost over the period | No |
 | Real cost | Sum over messages of tokens times price (USD per million tokens). A model with no price costs 0 and is listed as unpriced | No |
-| Everything on opus | The same tokens at the latest opus price (messages of a model with no price are left out). The difference to the real cost is the **routing saving** | Yes: what routing changed is measured, the opus price is a counterfactual |
+| Everything on opus | The same tokens at the latest opus price (messages of a model with no price are left out) | Yes: the opus price is a counterfactual |
+| Model choice vs opus | `everything on opus - real cost`: how far below an all-opus run the models you run put the cost. It comes from your choice of models, so it is **not** what tokred saved. `tokred stats` also draws it as the "Below all-opus cost" meter | Yes |
+| Routing saving | The estimated saving of the routing decisions that were applied in the period: what tokred's routing really changed. It is 0 while [routing](routing.md) only observes | Yes, and labelled as such |
 | Guard saving | Each denial by a `guard-*` hook counts `bytes avoided / 4` tokens at the input price of the model the session used most. Only denials count: in `warn` mode the read still happens | Yes, and labelled as such |
+| Saved by tokred | Routing saving plus guard saving. The model choice is left out of it | Yes |
 | Prompt cache hit rate | `cache read / (cache read + cache write + input)`, overall and per day | No |
 | Monthly projection | Average daily cost of the last 7 days and of the last 30 days, times 30. A data set younger than the window is divided by its real number of days, so a new install is not diluted | Yes |
 | Before and after | Cost per session before and after the first `tokred configure`; shown only when there is data from before it | No |
 
 Anything derived from bytes is labelled an estimate. Money is rounded to 6 decimals, and an empty period never produces a NaN.
+
+The HTML report's cards follow the same split: **Saved by tokred** is the routing and guard saving, and the **Real cost** card says how far below an all-opus run your models put it. The **Latency added per hook run** card is the average time one hook execution adds; the total over the period is in its note.
 
 ### Groupings
 

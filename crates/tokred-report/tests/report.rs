@@ -53,11 +53,13 @@ fn rich() -> ReportData {
         },
         summary: Some(Summary {
             real_cost_usd: 123.456,
+            model_choice_saving_usd: 900.0,
             routing_saving_usd: 210.5,
             guard_saving_usd: 12.3456,
             tokens_avoided: 1_234_567,
             monthly_projection_usd: 135.0,
             latency_added_ms: 4_321.5,
+            hook_runs: 784,
             since: None,
         }),
         summary_7d: None,
@@ -179,6 +181,58 @@ fn rich_report_is_offline_and_labels_estimates() {
     assert!(page.contains("p95 above budget"));
     assert!(page.contains("No tool call in the last 30 days"));
     assert!(!page.contains("No data yet."));
+}
+
+#[test]
+fn the_cards_keep_what_tokred_saved_apart_from_the_model_choice() {
+    let page = render_html(&rich());
+    // Routing 210.50 + guards 12.35 is what tokred saved; the 900 below an all-opus run is the
+    // models in use and is not part of it.
+    assert!(page.contains("Saved by tokred"), "{page}");
+    assert!(page.contains("$222.85"), "routing + guards");
+    assert!(page.contains("routing $210.50 + guards $12.35"));
+    assert!(page.contains("$900.00 below an all-opus run (your models)"));
+    assert!(!page.contains("Total saving"));
+    assert!(
+        !page.contains("$1,122"),
+        "the model choice is not added to the total"
+    );
+}
+
+#[test]
+fn the_latency_card_is_the_average_of_a_hook_run_with_the_total_as_its_note() {
+    let page = render_html(&rich());
+    // 4,321.5 ms over 784 runs is 5.51 ms a run.
+    assert!(page.contains("Latency added per hook run"), "{page}");
+    assert!(page.contains("5.51 ms"));
+    assert!(page.contains("4.32 s in total over 784 runs"));
+    assert!(!page.contains("by all hooks, in total"));
+}
+
+#[test]
+fn the_latency_card_without_hook_runs_does_not_divide_by_zero() {
+    let mut data = rich();
+    data.summary.as_mut().unwrap().hook_runs = 0;
+    data.summary.as_mut().unwrap().latency_added_ms = 0.0;
+    let page = render_html(&data);
+    assert!(page.contains("Latency added per hook run"));
+    assert!(page.contains("no hook ran in this period"), "{page}");
+    assert!(!page.contains("NaN") && !page.contains("inf ms"));
+}
+
+#[test]
+fn a_summary_saved_before_the_new_cards_still_reads() {
+    let mut value = serde_json::to_value(rich()).unwrap();
+    let summary = value["summary"].as_object_mut().unwrap();
+    summary.remove("model_choice_saving_usd");
+    summary.remove("hook_runs");
+    let back: ReportData = serde_json::from_value(value).unwrap();
+    let summary = back.summary.unwrap();
+    assert_eq!(
+        (summary.hook_runs, summary.model_choice_saving_usd),
+        (0, 0.0)
+    );
+    assert!((summary.routing_saving_usd - 210.5).abs() < 1e-12);
 }
 
 #[test]

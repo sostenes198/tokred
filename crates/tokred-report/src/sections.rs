@@ -120,11 +120,11 @@ fn summary_cards(summary: Option<&Summary>) -> String {
                 card(
                     "Real cost",
                     &format::usd(s.real_cost_usd),
-                    "over the period",
+                    &cost_note(s.model_choice_saving_usd),
                     false,
                 ),
                 card(
-                    "Total saving",
+                    "Saved by tokred",
                     &format::usd(saving),
                     &format!(
                         "routing {} + guards {}",
@@ -148,15 +148,48 @@ fn summary_cards(summary: Option<&Summary>) -> String {
                     "at the recent daily average",
                     true,
                 ),
-                card(
-                    "Latency added",
-                    &format::ms(s.latency_added_ms),
-                    "by all hooks, in total",
-                    false,
-                ),
+                latency_card(s),
             ];
             format!("<div class=\"cards\">{}</div>", cards.concat())
         },
+    )
+}
+
+/// The note under the real cost: what the models in use put it below an all-opus run, which is
+/// not tokred's doing.
+fn cost_note(below_opus: f64) -> String {
+    if below_opus > 0.0 {
+        format!(
+            "over the period; {} below an all-opus run (your models)",
+            format::usd(below_opus)
+        )
+    } else {
+        "over the period".to_owned()
+    }
+}
+
+/// The latency card: what one hook run adds on average, with the total as its note. A total of
+/// seconds over some hundred runs reads as a delay on every use, which it is not.
+fn latency_card(s: &Summary) -> String {
+    if s.hook_runs == 0 {
+        return card(
+            "Latency added per hook run",
+            &format::ms(0.0),
+            "no hook ran in this period",
+            false,
+        );
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let average = s.latency_added_ms / s.hook_runs as f64;
+    card(
+        "Latency added per hook run",
+        &format::ms(average),
+        &format!(
+            "{} in total over {} runs",
+            format::ms(s.latency_added_ms),
+            format::integer(s.hook_runs)
+        ),
+        false,
     )
 }
 

@@ -64,7 +64,11 @@ pub struct ReportMeta {
 pub struct Summary {
     /// Real cost over the period.
     pub real_cost_usd: f64,
-    /// Saving from model routing (real cost versus "everything on opus").
+    /// How far below an "everything on opus" run the models in use put the cost. It comes from
+    /// the models the user runs, not from tokred.
+    #[serde(default)]
+    pub model_choice_saving_usd: f64,
+    /// What tokred's routing saved: the estimated saving of the decisions that were applied.
     pub routing_saving_usd: f64,
     /// Saving from the guards (an estimate, derived from bytes).
     pub guard_saving_usd: f64,
@@ -74,6 +78,9 @@ pub struct Summary {
     pub monthly_projection_usd: f64,
     /// Total latency tokred added to the session, in milliseconds.
     pub latency_added_ms: f64,
+    /// Hook executions behind `latency_added_ms`.
+    #[serde(default)]
+    pub hook_runs: u64,
     /// First day these cards cover (`YYYY-MM-DD`), shown when the toolbar switches them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub since: Option<String>,

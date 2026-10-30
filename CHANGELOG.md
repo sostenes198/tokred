@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Changed
+
+- `tokred stats` and the HTML report no longer call the distance to an "everything on opus" run a routing saving. That figure comes from the models you run, not from tokred, so it has its own line (**Model choice vs opus**), and the total became **Saved by tokred**: the saving of the routing decisions that were applied plus the guards, which is $0.00 while routing only observes. The efficiency meter is now **Below all-opus cost**. In `tokred stats --json`, `routing_saving_usd` holds what the applied decisions saved, the old value is `model_choice_saving_usd`, and `total_saving_usd` is always a number. `tokred stats latency` says "saved by tokred" in its trade-off line.
+- The latency card of the report shows the average time one hook run adds, with the total over the period in its note. "Latency added, in total" read as a delay on every use.
+
 ### Fixed
 
 - Claude Haiku 5.5 is priced by prompt length: a request whose prompt is over 100,000 tokens pays five times every price, as Anthropic publishes. The real cost, the proxy's model table, the dashboard and the Haiku estimate of a suggestion now use it. Before, every Haiku 5.5 prompt was priced at the cheap rate, so the saving suggested for a long session was overstated.

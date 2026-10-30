@@ -39,6 +39,7 @@ fn daily_costs(data: &Gathered) -> Vec<DayCost> {
                 usage: &slice,
                 prices: &data.prices,
                 events: &[],
+                decisions: &[],
                 range,
                 group_by: GroupBy::Model,
                 now: data.now,
@@ -81,6 +82,7 @@ pub fn model_stats(data: &Gathered, prices: &PriceTable) -> Stats {
         usage: &data.usage,
         prices,
         events: &data.events,
+        decisions: &data.decisions,
         range: data.range,
         group_by: GroupBy::Model,
         now: data.now,
@@ -97,7 +99,8 @@ fn summary_of(stats: &Stats, latency: &LatencyStats) -> Option<Summary> {
 fn summary_with(stats: &Stats, latency: &LatencyStats, from_30d: bool) -> Option<Summary> {
     (stats.totals.messages > 0).then(|| Summary {
         real_cost_usd: stats.savings.real_cost_usd,
-        routing_saving_usd: stats.savings.routing_saving_usd.unwrap_or(0.0),
+        model_choice_saving_usd: stats.savings.model_choice_saving_usd.unwrap_or(0.0),
+        routing_saving_usd: stats.savings.routing_saving_usd,
         guard_saving_usd: stats.savings.guard.saving_usd,
         tokens_avoided: stats.savings.guard.tokens_avoided,
         monthly_projection_usd: stats.projection.as_ref().map_or(0.0, |p| {
@@ -108,6 +111,7 @@ fn summary_with(stats: &Stats, latency: &LatencyStats, from_30d: bool) -> Option
             }
         }),
         latency_added_ms: latency.total_ms,
+        hook_runs: latency.runs,
         since: None,
     })
 }
@@ -122,6 +126,7 @@ fn summary_of_last(data: &Gathered, days: i64) -> Option<Summary> {
         usage: &data.usage,
         prices: &data.prices,
         events: &data.events,
+        decisions: &data.decisions,
         range,
         group_by: GroupBy::Model,
         now: data.now,
@@ -180,7 +185,7 @@ fn latency_of(data: &Gathered, stats: &Stats, latency: &LatencyStats) -> Option<
             })
             .collect(),
         total_added_ms: latency.total_ms,
-        saved_usd: stats.savings.total_saving_usd.unwrap_or(0.0),
+        saved_usd: stats.savings.total_saving_usd,
         saved_tokens: stats.savings.guard.tokens_avoided,
         spawn_overhead_ms: (data.spawn_overhead_us > 0)
             .then(|| u64_to_f64(data.spawn_overhead_us) / 1_000.0),

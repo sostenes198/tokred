@@ -34,13 +34,18 @@ Totais, grupos, economia e a taxa do cache cobrem o período dado por `--since` 
 |---|---|---|
 | Totais | Mensagens, sessões, os quatro contadores de tokens e o custo no período | Não |
 | Custo real | Soma, por mensagem, de tokens vezes preço (USD por milhão de tokens). Um modelo sem preço custa 0 e é listado como sem preço | Não |
-| Tudo no opus | Os mesmos tokens ao preço mais recente do opus (mensagens de um modelo sem preço ficam de fora). A diferença para o custo real é a **economia do roteamento** | Sim: o que o roteamento mudou é medido, o preço do opus é um contrafactual |
+| Tudo no opus | Os mesmos tokens ao preço mais recente do opus (mensagens de um modelo sem preço ficam de fora) | Sim: o preço do opus é um contrafactual |
+| Escolha de modelo vs opus | `tudo no opus - custo real`: quanto abaixo de uma execução toda no opus os modelos que você usa deixam o custo. Vem da sua escolha de modelos, então **não** é o que o tokred economizou. O `tokred stats` também o desenha como o medidor "Below all-opus cost" | Sim |
+| Economia do roteamento | A economia estimada das decisões de roteamento aplicadas no período: o que o roteamento do tokred realmente mudou. É 0 enquanto o [roteamento](routing.pt-BR.md) só observa | Sim, e rotulada como tal |
 | Economia dos guards | Cada negação de um hook `guard-*` conta `bytes evitados / 4` tokens ao preço de entrada do modelo mais usado pela sessão. Só negações contam: no modo `warn` a leitura ainda acontece | Sim, e rotulada como tal |
+| Economizado pelo tokred | Economia do roteamento mais economia dos guards. A escolha de modelo fica de fora | Sim |
 | Taxa de acerto do cache de prompt | `leitura do cache / (leitura do cache + escrita no cache + entrada)`, no total e por dia | Não |
 | Projeção mensal | Custo médio diário dos últimos 7 dias e dos últimos 30 dias, vezes 30. Dados mais novos que a janela são divididos pelo número real de dias, para uma instalação nova não ser diluída | Sim |
 | Antes e depois | Custo por sessão antes e depois do primeiro `tokred configure`; só aparece quando há dados anteriores a ele | Não |
 
 Tudo que é derivado de bytes é rotulado como estimativa. O dinheiro é arredondado em 6 casas decimais, e um período vazio nunca produz NaN.
+
+Os cards do relatório HTML seguem a mesma divisão: **Saved by tokred** é a economia do roteamento e dos guards, e o card **Real cost** diz quanto abaixo de uma execução toda no opus os seus modelos o deixam. O card **Latency added per hook run** é o tempo médio que uma execução de hook acrescenta; o total do período está na nota dele.
 
 ### Agrupamentos
 

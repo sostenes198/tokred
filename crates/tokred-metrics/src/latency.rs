@@ -209,7 +209,8 @@ pub struct Tradeoff {
     pub ms_added: f64,
     /// Estimated tokens the guards avoided.
     pub tokens_avoided: u64,
-    /// Routing plus guard saving in USD (`None` when the routing saving is unknown).
+    /// What tokred saved in USD: applied routing plus guards. `None` when there is no figure to
+    /// show (the view then leaves the dollar amount out).
     pub saving_usd: Option<f64>,
 }
 
@@ -220,7 +221,7 @@ pub fn tradeoff(latency: &LatencyStats, stats: &Stats) -> Tradeoff {
         estimate: true,
         ms_added: latency.total_ms,
         tokens_avoided: stats.savings.guard.tokens_avoided,
-        saving_usd: stats.savings.total_saving_usd,
+        saving_usd: Some(stats.savings.total_saving_usd),
     }
 }
 
@@ -398,6 +399,7 @@ mod tests {
             usage: &[],
             prices: &PriceTable::default(),
             events: &[],
+            decisions: &[],
             range: whole(),
             group_by: GroupBy::Day,
             now: Timestamp(T0),
@@ -410,7 +412,8 @@ mod tests {
                 estimate: true,
                 ms_added: 5.0,
                 tokens_avoided: 0,
-                saving_usd: None
+                // Nothing was saved, with or without an opus price to compare with.
+                saving_usd: Some(0.0)
             }
         );
     }
