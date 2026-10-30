@@ -14,7 +14,7 @@ use serde::Serialize;
 use tokred_core::Timestamp;
 use tokred_core::hook_event::HookEventRecord;
 use tokred_core::pricing::{
-    Family, ModelPrice, PriceTable, Resolution, Resolved, Usage, cost as usage_cost,
+    Family, ModelPrice, PriceTable, Resolution, Resolved, Usage, cost as usage_cost, request_cost,
 };
 use tokred_core::usage::UsageRecord;
 
@@ -279,10 +279,11 @@ impl PriceBook {
         self.by_model.get(model).copied().flatten()
     }
 
-    /// Real cost of a record; zero when the model has no price.
+    /// Real cost of a record, which is one request; zero when the model has no price.
     fn cost(&self, record: &UsageRecord) -> f64 {
-        self.resolved(&record.model)
-            .map_or(0.0, |resolved| usage_cost(&record.usage, &resolved.price))
+        self.resolved(&record.model).map_or(0.0, |resolved| {
+            request_cost(&record.usage, &resolved.price, &record.model)
+        })
     }
 
     /// Cost of the same tokens at the latest opus price, for priced records only.
@@ -686,6 +687,53 @@ mod tests {
 
     fn whole() -> TimeRange {
         TimeRange::new(Timestamp(T0), Timestamp(T0 + 3 * DAY))
+    }
+
+    #[test]
+    fn a_haiku_5_5_message_with_a_long_prompt_is_priced_at_the_long_prompt_rates() {
+        let prices = PriceTable::new(vec![
+            price_entry("claude-haiku-5-5", 0.1, 0.5, 0.125, 0.01),
+            price_entry(OPUS, 15.0, 75.0, 18.75, 1.5),
+        ]);
+        // Prompts of 50,000 and 150,000 tokens (input + cache writes + cache reads).
+        let usage = vec![
+            rec(
+                "short",
+                "s1",
+                "A",
+                T0 + 10,
+                "claude-haiku-5-5",
+                [1_000, 2_000, 4_000, 45_000],
+            ),
+            rec(
+                "long",
+                "s1",
+                "A",
+                T0 + 20,
+                "claude-haiku-5-5",
+                [1_000, 2_000, 4_000, 145_000],
+            ),
+        ];
+        let stats = compute_stats(&StatsInput {
+            usage: &usage,
+            prices: &prices,
+            events: &[],
+            range: whole(),
+            group_by: GroupBy::Model,
+            now: Timestamp(T0 + 100),
+            first_configure: None,
+        });
+        // short: 100 + 1,000 + 500 + 450 = 2,050 micro-dollars; long: (100 + 1,000 + 500 + 1,450) x 5.
+        let expected = 0.002_05 + 5.0 * 0.003_05;
+        assert!(
+            (stats.totals.cost_usd - expected).abs() < 1e-9,
+            "{}",
+            stats.totals.cost_usd
+        );
+        assert!((stats.groups[0].cost_usd - expected).abs() < 1e-9);
+        // The "everything on opus" figure has one price per model: it is not tiered.
+        let opus = stats.savings.opus_cost_usd.unwrap();
+        assert!(opus > expected);
     }
 
     #[test]

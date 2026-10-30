@@ -475,6 +475,41 @@ fn simple_prompts_lead_to_one_suggestion_then_the_cooldown_holds() {
 }
 
 #[test]
+fn a_haiku_5_5_response_with_a_long_prompt_costs_five_times_the_base_price() {
+    let h = Harness::default();
+    // Haiku costs $1 per million input tokens and $0.10 per million cache reads here.
+    let prompt_of = |cache_read: u64| Usage {
+        input: 1_000,
+        output: 0,
+        cache_write: 0,
+        cache_write_1h: 0,
+        cache_read,
+    };
+    // A prompt of 100,000 tokens pays the base price; one of 200,000 pays five times it.
+    Req {
+        model: Some(HAIKU),
+        ..Req::prompt(100, 1)
+    }
+    .usage(prompt_of(99_000))
+    .send(&h.tracker);
+    Req {
+        model: Some(HAIKU),
+        ..Req::main(110, 3)
+    }
+    .usage(prompt_of(199_000))
+    .send(&h.tracker);
+    Req::prompt(200, 5).send(&h.tracker);
+    let prompts = h.sink.prompts();
+    assert_eq!(prompts.len(), 1);
+    let expected = 0.0109 + 5.0 * 0.0209;
+    assert!(
+        close(prompts[0].cost_usd, expected),
+        "{}",
+        prompts[0].cost_usd
+    );
+}
+
+#[test]
 fn a_haiku_main_loop_never_gets_a_suggestion() {
     let h = Harness::new(TrackerSettings {
         rule: tokred_suggest::SuggestRule {

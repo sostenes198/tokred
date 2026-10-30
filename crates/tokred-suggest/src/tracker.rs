@@ -28,7 +28,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use serde_json::json;
 use tokred_core::Timestamp;
 use tokred_core::config::SuggestConfig;
-use tokred_core::pricing::{PriceTable, Usage, cost};
+use tokred_core::pricing::{PriceTable, Usage, request_cost};
 use tokred_core::prompts::PromptSummary;
 use tokred_core::proxy::{
     HookFailure, Origin, ProxyHook, ProxyRecord, RecordSink, RequestCtx, ResponseSummary,
@@ -399,7 +399,7 @@ impl PromptTracker {
             cost: state
                 .prices
                 .resolve(&model)
-                .map(|resolved| cost(&response.usage, &resolved.price)),
+                .map(|resolved| request_cost(&response.usage, &resolved.price, &model)),
             model,
             end: Timestamp(
                 ctx.now

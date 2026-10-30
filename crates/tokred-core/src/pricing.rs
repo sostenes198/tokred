@@ -209,7 +209,40 @@ fn id_version(model: &str) -> Vec<u32> {
         .collect()
 }
 
-/// Cost in USD of `usage` at `price`.
+/// Prompt length (input, cache reads and cache writes) above which Claude Haiku 5.5 charges
+/// [`LONG_PROMPT_MULTIPLIER`] times every price.
+pub const LONG_PROMPT_TOKENS: u64 = 100_000;
+
+/// The long-prompt prices of Claude Haiku 5.5 ($0.50 input, $2.50 output, $0.625 and $1 cache
+/// writes, $0.05 cache reads) are exactly this many times the base ones.
+pub const LONG_PROMPT_MULTIPLIER: f64 = 5.0;
+
+/// The factor a request of `prompt_tokens` pays on every price of `model`: Claude Haiku 5.5 is
+/// priced by prompt length, every other model has one price whatever the prompt.
+#[must_use]
+pub fn long_prompt_multiplier(model: &str, prompt_tokens: u64) -> f64 {
+    let haiku_5_5 = model
+        .strip_prefix("claude-haiku-5-5")
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('-'));
+    if haiku_5_5 && prompt_tokens > LONG_PROMPT_TOKENS {
+        LONG_PROMPT_MULTIPLIER
+    } else {
+        1.0
+    }
+}
+
+/// Cost in USD of the usage of **one request** to `model`, at the price of its prompt length.
+/// Use [`cost`] for usage added up over several requests: their prompt lengths are unknown.
+#[must_use]
+pub fn request_cost(usage: &Usage, price: &ModelPrice, model: &str) -> f64 {
+    let prompt = usage
+        .input
+        .saturating_add(usage.cache_read)
+        .saturating_add(usage.cache_write);
+    cost(usage, price) * long_prompt_multiplier(model, prompt)
+}
+
+/// Cost in USD of `usage` at `price`: the base prices, whatever the prompt length.
 #[must_use]
 pub fn cost(usage: &Usage, price: &ModelPrice) -> f64 {
     #[allow(clippy::cast_precision_loss)]
@@ -321,6 +354,86 @@ mod tests {
             ..Usage::default()
         };
         assert!((cost(&odd, &price) - 100.0 * 6.0 / 1e6).abs() < 1e-12);
+    }
+
+    /// The published prices of Claude Haiku 5.5 up to 100,000 prompt tokens (USD per million).
+    fn haiku_price() -> ModelPrice {
+        ModelPrice {
+            input: 0.1,
+            output: 0.5,
+            cache_write: 0.125,
+            cache_write_1h: 0.2,
+            cache_read: 0.01,
+        }
+    }
+
+    fn prompt_of(tokens: u64) -> Usage {
+        Usage {
+            input: 1_000,
+            output: 2_000,
+            cache_write: 4_000,
+            cache_write_1h: 1_000,
+            cache_read: tokens - 5_000,
+        }
+    }
+
+    #[test]
+    fn a_haiku_5_5_prompt_over_100k_tokens_pays_five_times_every_price() {
+        let price = haiku_price();
+        // The prompt is input + cache reads + cache writes; the output does not count.
+        let at_limit = prompt_of(100_000);
+        let over = prompt_of(100_001);
+        let base = |usage: &Usage| cost(usage, &price);
+        assert!(
+            (request_cost(&at_limit, &price, "claude-haiku-5-5") - base(&at_limit)).abs() < 1e-12
+        );
+        let got = request_cost(&over, &price, "claude-haiku-5-5");
+        assert!((got - 5.0 * base(&over)).abs() < 1e-12, "{got}");
+        // The multiplier is on every category: the published long-prompt prices are
+        // $0.50 input, $2.50 output, $0.625 / $1 cache writes and $0.05 cache reads.
+        let long = Usage {
+            input: 1_000_000,
+            output: 1_000_000,
+            cache_write: 2_000_000,
+            cache_write_1h: 1_000_000,
+            cache_read: 1_000_000,
+        };
+        let expected = 0.5 + 2.5 + 0.625 + 1.0 + 0.05;
+        let got = request_cost(&long, &price, "claude-haiku-5-5");
+        assert!((got - expected).abs() < 1e-9, "{got} vs {expected}");
+    }
+
+    #[test]
+    fn only_haiku_5_5_is_priced_by_prompt_length() {
+        let usage = prompt_of(500_000);
+        let price = haiku_price();
+        for model in ["claude-haiku-5-5-20260301", "claude-haiku-5-5"] {
+            assert!(
+                (long_prompt_multiplier(model, 100_001) - 5.0).abs() < f64::EPSILON,
+                "{model}"
+            );
+            assert!(
+                (long_prompt_multiplier(model, 100_000) - 1.0).abs() < f64::EPSILON,
+                "{model}"
+            );
+        }
+        for model in [
+            "claude-haiku-4-5",
+            "claude-haiku-5-50",
+            "claude-sonnet-5-5",
+            "claude-opus-5-5",
+            "claude-fable-5-1",
+            "",
+        ] {
+            assert!(
+                (long_prompt_multiplier(model, 900_000) - 1.0).abs() < f64::EPSILON,
+                "{model}"
+            );
+            assert!(
+                (request_cost(&usage, &price, model) - cost(&usage, &price)).abs() < 1e-12,
+                "{model}"
+            );
+        }
     }
 
     #[test]

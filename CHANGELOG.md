@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Fixed
+
+- Claude Haiku 5.5 is priced by prompt length: a request whose prompt is over 100,000 tokens pays five times every price, as Anthropic publishes. The real cost, the proxy's model table, the dashboard and the Haiku estimate of a suggestion now use it. Before, every Haiku 5.5 prompt was priced at the cheap rate, so the saving suggested for a long session was overstated.
+
 ## [1.4.0] - 2026-10-30
 
 ### Added

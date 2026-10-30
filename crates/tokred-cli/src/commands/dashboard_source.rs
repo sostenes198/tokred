@@ -12,7 +12,7 @@ use tokred_core::dashboard::{
     SessionDetail, SessionList, SessionModelRow, SessionStatus, SessionView, StoredTurn, TurnView,
     UsageView, origin_label, session_status,
 };
-use tokred_core::pricing::{PriceTable, Usage, cost};
+use tokred_core::pricing::{PriceTable, Usage, request_cost};
 use tokred_store::Store;
 
 use super::SystemClock;
@@ -59,11 +59,11 @@ impl StoreSource {
     }
 }
 
-/// Estimated cost of `usage` for `model` at `prices`.
+/// Estimated cost of `usage`, which is one request or one message, for `model` at `prices`.
 fn cost_of(prices: &PriceTable, model: &str, usage: &Usage) -> Option<f64> {
     prices
         .resolve(model)
-        .map(|resolved| cost(usage, &resolved.price))
+        .map(|resolved| request_cost(usage, &resolved.price, model))
 }
 
 /// One session per run of rows with the same id (the rows come newest session first).
@@ -299,6 +299,31 @@ mod tests {
             })
             .unwrap();
         now
+    }
+
+    #[test]
+    fn a_request_to_haiku_5_5_is_priced_by_the_length_of_its_prompt() {
+        use tokred_core::pricing::{ModelPrice, PriceEntry};
+        let prices = PriceTable::new(vec![PriceEntry {
+            model: "claude-haiku-5-5".to_owned(),
+            price: ModelPrice {
+                input: 0.1,
+                output: 0.5,
+                cache_write: 0.125,
+                cache_write_1h: 0.2,
+                cache_read: 0.01,
+            },
+            source: "test".to_owned(),
+            updated_at: Timestamp(0),
+        }]);
+        let prompt = |input: u64| Usage {
+            input,
+            ..Usage::default()
+        };
+        let cost = |input: u64| cost_of(&prices, "claude-haiku-5-5", &prompt(input)).unwrap();
+        assert!((cost(100_000) - 0.01).abs() < 1e-12);
+        assert!((cost(200_000) - 0.1).abs() < 1e-12, "five times $0.02");
+        assert_eq!(cost_of(&prices, "claude-opus-5-5", &prompt(9)), None);
     }
 
     #[test]

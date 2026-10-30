@@ -81,6 +81,37 @@ fn a_subagent_is_decided_once_and_the_decision_sticks() {
 }
 
 #[test]
+fn the_estimate_on_haiku_5_5_is_priced_by_the_length_of_the_prompt() {
+    let (hook, sink) = new_hook(TrafficMode::Observe);
+    let short = first_turn("s1", "a1", SONNET, READ_ONLY, SEARCH_PROMPT, 101);
+    let long_prompt = format!("{SEARCH_PROMPT} {}", "y".repeat(500_000));
+    let long = first_turn("s2", "a2", SONNET, READ_ONLY, &long_prompt, 102);
+    // A subagent is only decided once its session's main loop model is known.
+    run(&hook, &main_turn("s1", SONNET, 100));
+    run(&hook, &main_turn("s2", SONNET, 100));
+    run(&hook, &short);
+    run(&hook, &long);
+    let decisions = sink.decisions();
+    assert_eq!(decisions.len(), 2);
+
+    // The estimated prompt is a quarter of the body's bytes; the output is the same in both.
+    let tokens = |request: &Req| {
+        f64::from(u32::try_from(serde_json::to_vec(&request.body).unwrap().len() / 4).unwrap())
+    };
+    assert!(tokens(&short) <= 100_000.0 && tokens(&long) > 100_000.0);
+    // Haiku 5.5 costs $0.10 per million input tokens and $0.50 per million output tokens; a
+    // prompt over 100,000 tokens pays five times both.
+    let output_part = decisions[0].est_cost_to - tokens(&short) * 0.1 / 1e6;
+    let expected = (tokens(&long) * 0.1 / 1e6 + output_part) * 5.0;
+    let got = decisions[1].est_cost_to;
+    let why = (&decisions[1].outcome, &decisions[1].reason);
+    assert!(
+        (got - expected).abs() < 1e-9,
+        "{got} vs {expected} ({why:?})"
+    );
+}
+
+#[test]
 fn observe_mode_decides_and_records_but_never_changes_the_body() {
     let (hook, sink) = new_hook(TrafficMode::Observe);
     run(&hook, &main_turn("s1", SONNET, 100));

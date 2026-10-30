@@ -5,8 +5,12 @@
 //! cache, so the counterfactual also pays for writing the prompt's context once on the target
 //! model (at the 1-hour write price when the session writes 1-hour cache). Charging that rebuild
 //! to every prompt is deliberately conservative.
+//!
+//! A target priced by prompt length (Claude Haiku 5.5) is priced at the context the prompt
+//! started from: the usage is added up over the prompt's requests, so their own prompt lengths
+//! are unknown, and each of them is at least as long as that context.
 
-use tokred_core::pricing::{Family, PriceTable, Usage, cost};
+use tokred_core::pricing::{Family, PriceTable, Usage, cost, long_prompt_multiplier, request_cost};
 
 /// The family one step cheaper: opus, fable and mythos go to sonnet, sonnet to haiku, and haiku
 /// has nothing cheaper (so tokred never suggests anything to a haiku main loop).
@@ -67,8 +71,9 @@ pub fn counterfactual(
     Some(Counterfactual {
         target_model: target.model.clone(),
         target_family,
-        target_usd: cost(main_usage, &target.price),
-        rebuild_usd: cost(&rebuild, &target.price),
+        target_usd: cost(main_usage, &target.price)
+            * long_prompt_multiplier(&target.model, context_tokens),
+        rebuild_usd: request_cost(&rebuild, &target.price, &target.model),
     })
 }
 
@@ -169,5 +174,32 @@ pub(crate) mod tests {
                 .collect(),
         );
         assert!(counterfactual(&no_haiku, "claude-sonnet-5-5", &usage, 9, false).is_none());
+    }
+
+    #[test]
+    fn haiku_5_5_as_the_target_is_priced_by_the_context_the_prompt_starts_from() {
+        let usage = Usage {
+            input: 1_000_000,
+            ..Usage::default()
+        };
+        // Haiku (1 per million input, 1.25 per million cache write) up to 100,000 tokens of
+        // prompt; five times that above it.
+        let at_limit = counterfactual(&prices(), "claude-sonnet-5-5", &usage, 100_000, false);
+        let at_limit = at_limit.unwrap();
+        assert!(close(at_limit.target_usd, 1.0), "{}", at_limit.target_usd);
+        assert!(
+            close(at_limit.rebuild_usd, 0.125),
+            "{}",
+            at_limit.rebuild_usd
+        );
+
+        let over = counterfactual(&prices(), "claude-sonnet-5-5", &usage, 100_001, false).unwrap();
+        assert!(close(over.target_usd, 5.0), "{}", over.target_usd);
+        let rebuild = 100_001.0 * 1.25 / 1e6 * 5.0;
+        assert!(close(over.rebuild_usd, rebuild), "{}", over.rebuild_usd);
+
+        // Sonnet and the others have one price whatever the context.
+        let sonnet = counterfactual(&prices(), "claude-opus-5-5", &usage, 900_000, false).unwrap();
+        assert!(close(sonnet.target_usd, 2.0), "{}", sonnet.target_usd);
     }
 }

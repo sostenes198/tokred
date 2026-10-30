@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokred_core::Timestamp;
 use tokred_core::config::{RoutingConfig, TierChoice, TrafficMode};
-use tokred_core::pricing::{ModelPrice, PriceTable, Usage, cost};
+use tokred_core::pricing::{ModelPrice, PriceTable, Usage, request_cost};
 use tokred_core::proxy::{
     HookFailure, Origin, ProxyHook, ProxyRecord, RecordSink, RequestCtx, rewrite_model,
     rewrite_ticket,
@@ -424,7 +424,7 @@ impl RoutingHook {
     fn estimate(&self, usage: &Usage, model: &str) -> f64 {
         self.prices
             .resolve(model)
-            .map_or(0.0, |resolved| cost(usage, &resolved.price))
+            .map_or(0.0, |resolved| request_cost(usage, &resolved.price, model))
     }
 
     /// Why a sticky rewrite cannot go on for this request: the requested model changed, or

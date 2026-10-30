@@ -6,6 +6,10 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+### Corrigido
+
+- O Claude Haiku 5.5 é cobrado pelo tamanho do prompt: uma requisição cujo prompt passa de 100.000 tokens paga cinco vezes cada preço, como a Anthropic publica. O custo real, a tabela de modelos do proxy, o dashboard e a estimativa de Haiku de uma sugestão agora usam isso. Antes, todo prompt do Haiku 5.5 era cobrado à tarifa barata, e a economia sugerida para uma sessão longa era exagerada.
+
 ## [1.4.0] - 2026-10-30
 
 ### Adicionado

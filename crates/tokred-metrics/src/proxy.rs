@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 use tokred_core::Timestamp;
-use tokred_core::pricing::{PriceTable, Usage, cost as usage_cost};
+use tokred_core::pricing::{PriceTable, Usage, request_cost};
 use tokred_core::prompts::SuggestionRecord;
 use tokred_core::proxy::ProxyRequestRecord;
 use tokred_core::routing::RoutingDecision;
@@ -183,28 +183,33 @@ fn coverage(usage: &[UsageRecord], range: TimeRange) -> Coverage {
 }
 
 fn models(requests: &[&ProxyRequestRecord], prices: &PriceTable) -> Vec<ModelRoute> {
-    let mut pairs: BTreeMap<(&str, &str), (u64, Usage)> = BTreeMap::new();
+    // Count, usage and cost of each (requested, effective) pair. The cost is added request by
+    // request: a model priced by prompt length cannot be priced from the sum.
+    let mut pairs: BTreeMap<(&str, &str), (u64, Usage, f64)> = BTreeMap::new();
     for request in requests.iter().filter(|request| is_message(request)) {
         let entry = pairs
             .entry((&request.model_requested, &request.model_effective))
             .or_default();
         entry.0 += 1;
         entry.1.add(&request.usage);
+        entry.2 += prices
+            .resolve(&request.model_effective)
+            .map_or(0.0, |resolved| {
+                request_cost(&request.usage, &resolved.price, &request.model_effective)
+            });
     }
     let mut routes: Vec<ModelRoute> = pairs
         .into_iter()
-        .map(|((requested, effective), (count, usage))| ModelRoute {
-            requested: requested.to_owned(),
-            effective: effective.to_owned(),
-            rewritten: requested != effective,
-            requests: count,
-            tokens: usage.total(),
-            cost_usd: round6(
-                prices
-                    .resolve(effective)
-                    .map_or(0.0, |resolved| usage_cost(&usage, &resolved.price)),
-            ),
-        })
+        .map(
+            |((requested, effective), (count, usage, cost))| ModelRoute {
+                requested: requested.to_owned(),
+                effective: effective.to_owned(),
+                rewritten: requested != effective,
+                requests: count,
+                tokens: usage.total(),
+                cost_usd: round6(cost),
+            },
+        )
         .collect();
     routes.sort_by_key(|route| std::cmp::Reverse(route.requests));
     routes
@@ -485,6 +490,41 @@ mod tests {
                 measured: 2,
                 transcript_only: 1
             }
+        );
+    }
+
+    #[test]
+    fn a_models_cost_prices_each_request_at_its_own_prompt_length() {
+        const MODEL: &str = "claude-haiku-5-5";
+        let prices = PriceTable::new(vec![PriceEntry {
+            model: MODEL.to_owned(),
+            price: ModelPrice {
+                input: 1.0,
+                output: 5.0,
+                cache_write: 1.25,
+                cache_write_1h: 2.0,
+                cache_read: 0.1,
+            },
+            source: "test".to_owned(),
+            updated_at: Timestamp(0),
+        }]);
+        let on_haiku = |id: &str, input: u64| {
+            let mut one = request(id, 110);
+            MODEL.clone_into(&mut one.model_requested);
+            MODEL.clone_into(&mut one.model_effective);
+            one.usage.input = input;
+            one
+        };
+        // 50,000 tokens at the base price ($0.05) and 200,000 at five times it ($1.00). Added up
+        // first, 250,000 tokens would be one long prompt ($1.25); at the base price, $0.25.
+        let (short, long) = (on_haiku("short", 50_000), on_haiku("long", 200_000));
+        let routes = models(&[&short, &long], &prices);
+        assert_eq!(routes.len(), 1);
+        assert_eq!(routes[0].requests, 2);
+        assert!(
+            (routes[0].cost_usd - 1.05).abs() < 1e-9,
+            "{}",
+            routes[0].cost_usd
         );
     }
 
