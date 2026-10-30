@@ -27,6 +27,11 @@ pr-run-mode = "plan"
 # failing the plan step ("out of date contents"). `dist generate` still works when asked.
 allow-dirty = ["ci"]
 
+# GitHub retires its macOS 14 runner images on 2026-11-02 and fails jobs on them on purpose in
+# scheduled brownouts before that. dist picks `macos-14` for this target by default.
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
+
 # The install scripts are release assets too, next to the archives (so
 # `releases/latest/download/install.sh` works). They are copied from `install/` as they are.
 [[dist.extra-artifacts]]
