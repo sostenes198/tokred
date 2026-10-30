@@ -110,6 +110,17 @@ expression: "merged(\"settings-unknown-keys.json\")"
           }
         ]
       }
+    ],
+    "PreModelSwitch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/opt/homebrew/bin/tokred\" hook model-guard",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   },
   "model": "opus"

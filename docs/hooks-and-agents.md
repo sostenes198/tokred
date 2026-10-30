@@ -2,9 +2,9 @@
 
 # Hooks and agents
 
-How tokred plugs into Claude Code without the proxy: six hooks that run around your prompts and tool calls, and six subagents with a fixed model each. `tokred configure` installs both; `tokred unconfigure` removes them.
+How tokred plugs into Claude Code without the proxy: seven hooks that run around your prompts and tool calls, and six subagents with a fixed model each. `tokred configure` installs both; `tokred unconfigure` removes them.
 
-## The six hooks
+## The seven hooks
 
 Each hook is registered in `settings.json` as `"<path>/tokred" hook <name>` with a 5 second timeout. Input and output formats follow Claude Code's [hooks reference](https://code.claude.com/docs/en/hooks).
 
@@ -16,6 +16,7 @@ Each hook is registered in `settings.json` as `"<path>/tokred" hook <name>` with
 | `guard-search` | `PreToolUse` | `Grep\|Glob` | Denies overly broad searches in large repositories | `warn` |
 | `session-check` | `Stop` | none | Warns you (never the model) when the context grows past a limit | `warn` |
 | `session-start` | `SessionStart` | none | Registers the session; after `/clear` or `/compact` allows re-reads again | no mode |
+| `model-guard` | `PreModelSwitch` | none | Tells you what a model switch costs in prompt cache, or asks you to confirm it | `warn` |
 
 ### Modes
 
@@ -25,7 +26,7 @@ Every hook except `session-start` honors its mode in `[modes]` of `tokred.toml`:
 |---|---|
 | `off` | Does nothing and records nothing |
 | `warn` | Advises; the call goes ahead |
-| `enforce` | Denies the call |
+| `enforce` | Denies the call (`on` is accepted as another name for it) |
 
 To turn a hook off, set its mode to `"off"`; no need to touch `settings.json`:
 
@@ -34,7 +35,7 @@ To turn a hook off, set its mode to `"off"`; no need to touch `settings.json`:
 guard_read = "off"
 ```
 
-The keys are `route`, `enforce`, `guard_read`, `guard_search` and `session_check`. `route` and `session_check` never deny, so `enforce` behaves like `warn` for them. The thresholds of each hook (`max_read_bytes`, `deny_globs`, `large_repo_files`, `context_warn_tokens`) are in [configuration](configuration.md).
+The keys are `route`, `enforce`, `guard_read`, `guard_search`, `session_check` and `model_guard`. `route` and `session_check` never deny, so `enforce` behaves like `warn` for them. `model_guard` never denies either: with `"on"` it asks you to confirm the switch. The thresholds of each hook (`max_read_bytes`, `deny_globs`, `large_repo_files`, `context_warn_tokens`, `min_context_tokens`) are in [configuration](configuration.md).
 
 How an answer reaches Claude Code:
 
@@ -43,9 +44,10 @@ How an answer reaches Claude Code:
 | Deny (`enforce`) | `permissionDecision: "deny"` with a short reason |
 | Advise (`warn`) | `additionalContext`: one line, no decision |
 | Allow | No output |
-| Message for you (`session-check`) | `systemMessage`; it never reaches the model |
+| Ask (`model-guard` with `on`) | `permissionDecision: "ask"`: Claude Code asks you to confirm the switch |
+| Message for you (`session-check`, `model-guard`) | `systemMessage`; it never reaches the model |
 
-tokred never sends `permissionDecision: "allow"`, because Claude Code would then skip its permission prompt.
+tokred never sends `permissionDecision: "allow"`, because Claude Code would then skip its permission prompt (or, for a model switch, the confirmation it shows while the prompt cache is warm).
 
 ### What each hook decides
 
@@ -82,6 +84,10 @@ Registers the session and its folder, and marks the cut after `/clear` or `/comp
 **`session-check`**
 
 Reads the token usage of the last main-conversation message in the transcript and estimates the context size. Above `context_warn_tokens` it tells you to consider `/compact` or `/clear`. It never blocks the stop and warns once per session: again only after the context grew by half the limit, or after a `/clear` or `/compact`. The figure can lag by one message.
+
+**`model-guard`**
+
+Runs before Claude Code applies a model change you asked for: `/model`, the model picker, the model setting in `/config` or fast mode. It needs Claude Code 2.1.251 or later, the version that added the `PreModelSwitch` event, and it does not run for changes Claude Code makes on its own, such as a fallback. Claude Code sends the size of the context, whether the prompt cache is still warm and the estimated price of writing the context to the new model's cache, so tokred estimates nothing. When the cache is warm and the context has at least `min_context_tokens` tokens (100,000 by default), `warn` shows you a one-line message and `on` asks you to confirm the switch, both with those figures. Any other switch (a small context, a cold cache, the model already in use) gets no answer, so Claude Code's own confirmation applies. `ask` only works in the interactive `/model`: on the other surfaces (`-p`, `/config`, the Agent SDK) Claude Code treats it as a refusal. A model change never gets a `deny`.
 
 ### Guarantees
 

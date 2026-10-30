@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- `model-guard`, a seventh hook (on Claude Code's `PreModelSwitch` event): when you switch models (`/model`, the model picker, `/config` or fast mode) while the prompt cache is warm and the context has at least `[model_guard] min_context_tokens` tokens (100,000 by default), it says what the switch costs (`warn`, the default) or asks you to confirm it (`on`). It uses the figures Claude Code sends, never blocks by itself and needs Claude Code 2.1.251 or later.
+
+### Changed
+
+- `on` is accepted as another name for `enforce` in `[modes]`.
+
 ## [1.2.0] - 2026-10-29
 
 ### Added

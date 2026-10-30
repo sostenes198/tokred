@@ -21,7 +21,7 @@ Use-case and adapter crates depend on `tokred-core` and never on each other (onl
 |---|---|
 | `tokred-core` | Domain: types, errors, the `tokred.toml` model, path rules, the hook event model, the tiered-cache policy and the ports (traits such as `Clock`, `FileSystem` and the repositories). **No I/O** |
 | `tokred-install` | `configure`, `unconfigure`, `doctor`: pure settings merge, agent templates (`templates/`, embedded in the binary) and install rules; its `fs` module is the `std::fs` adapter |
-| `tokred-hooks` | The six hook handlers, the time guard and the benchmark payloads. Fail-open |
+| `tokred-hooks` | The seven hook handlers, the time guard and the benchmark payloads. Fail-open |
 | `tokred-metrics` | Pure: transcript ingestion, the merge of transcript and proxy usage, cost, savings, projection, latency and the routing and guard summaries |
 | `tokred-pricing` | Price list parsing, the embedded fallback snapshot, sync use cases and the LiteLLM adapter |
 | `tokred-update` | Install-method detection, version check, self-update with checksum verification, GitHub adapter |

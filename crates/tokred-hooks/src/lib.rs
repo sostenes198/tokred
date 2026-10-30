@@ -16,6 +16,7 @@ mod error;
 pub mod fs;
 mod guard;
 mod io;
+mod model_guard;
 pub mod ports;
 mod route;
 mod runtime;

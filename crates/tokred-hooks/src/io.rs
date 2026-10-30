@@ -4,7 +4,8 @@
 //! Input fields used (all optional except `session_id` for the stateful hooks):
 //! `session_id`, `cwd`, `transcript_path`, `agent_id` (present only inside a subagent),
 //! `source` (`SessionStart`), `prompt` (`UserPromptSubmit`), `tool_name` and `tool_input`
-//! (`PreToolUse`). Unknown fields are ignored.
+//! (`PreToolUse`), `from_model`, `to_model`, `context_tokens`, `prompt_cache_warm` and
+//! `estimated_cache_write_usd` (`PreModelSwitch`). Unknown fields are ignored.
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -31,6 +32,16 @@ pub struct HookInput {
     pub tool_name: Option<String>,
     /// `PreToolUse`: the tool arguments.
     pub tool_input: Option<Value>,
+    /// `PreModelSwitch`: the model the session is on.
+    pub from_model: Option<String>,
+    /// `PreModelSwitch`: the model the session switches to.
+    pub to_model: Option<String>,
+    /// `PreModelSwitch`: tokens the next request re-sends as its prompt.
+    pub context_tokens: Option<u64>,
+    /// `PreModelSwitch`: whether the current model's prompt cache is likely still warm.
+    pub prompt_cache_warm: Option<bool>,
+    /// `PreModelSwitch`: estimated dollars to write the context to the new model's cache.
+    pub estimated_cache_write_usd: Option<f64>,
 }
 
 impl HookInput {
@@ -69,6 +80,23 @@ pub fn deny(reason: &str) -> String {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
+    })
+    .to_string()
+}
+
+/// `PreModelSwitch` answer that asks the user to confirm the switch; `reason` is shown in the
+/// prompt. Claude Code treats `ask` as a refusal wherever it cannot prompt (`-p`, `/config`).
+///
+/// `permissionDecision: "allow"` is never used: it would skip the confirmation Claude Code shows
+/// by itself while the prompt cache is warm.
+#[must_use]
+pub fn ask_switch(reason: &str) -> String {
+    json!({
+        "hookSpecificOutput": {
+            "hookEventName": "PreModelSwitch",
+            "permissionDecision": "ask",
             "permissionDecisionReason": reason,
         }
     })

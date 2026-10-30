@@ -21,6 +21,7 @@ use tokred_core::savings::SavingsRepo;
 use crate::error::HookError;
 use crate::guard::{guard_read, guard_search};
 use crate::io::HookInput;
+use crate::model_guard::model_guard;
 use crate::ports::{EventNote, HookDeps, HookResponse};
 use crate::route::{enforce, route};
 use crate::session::{session_check, session_start};
@@ -56,6 +57,7 @@ pub fn handle_with(
         HookEvent::GuardSearch => guard_search(&input, deps),
         HookEvent::SessionCheck => session_check(&input, deps),
         HookEvent::SessionStart => session_start(&input, deps),
+        HookEvent::ModelGuard => model_guard(&input, deps),
     }
 }
 

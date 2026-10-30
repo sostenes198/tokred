@@ -6,6 +6,14 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+### Adicionado
+
+- `model-guard`, um sétimo hook (no evento `PreModelSwitch` do Claude Code): quando você troca de modelo (`/model`, o seletor de modelo, o `/config` ou o fast mode) com o cache de prompt quente e o contexto com pelo menos `[model_guard] min_context_tokens` tokens (100.000 por padrão), ele diz quanto a troca custa (`warn`, o padrão) ou pede que você confirme (`on`). Usa os números que o Claude Code envia, nunca bloqueia sozinho e exige o Claude Code 2.1.251 ou mais novo.
+
+### Alterado
+
+- `on` é aceito como outro nome de `enforce` em `[modes]`.
+
 ## [1.2.0] - 2026-10-29
 
 ### Adicionado

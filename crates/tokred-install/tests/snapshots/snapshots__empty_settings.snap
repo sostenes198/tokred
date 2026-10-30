@@ -68,6 +68,17 @@ expression: "merged(\"settings-empty.json\")"
           }
         ]
       }
+    ],
+    "PreModelSwitch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/opt/homebrew/bin/tokred\" hook model-guard",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

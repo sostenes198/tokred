@@ -97,7 +97,7 @@ Os arquivos são `tests/release/smoke.sh` (`sh` POSIX), `smoke.ps1` (Windows Pow
 | Etapa | Prova |
 |---|---|
 | 0. Download | O `install.sh` e o `uninstall.sh` do release são baixados da tag e se verifica que existem |
-| 1. Instalação | `tokred --version` é igual à tag; o binário está no lugar; um bloco marcado em cada perfil de shell com as linhas do usuário intactas; os seis hooks e agentes estão instalados ao lado das chaves e do hook do próprio usuário; o proxy responde no endpoint de saúde e a `ANTHROPIC_BASE_URL` aponta para ele |
+| 1. Instalação | `tokred --version` é igual à tag; o binário está no lugar; um bloco marcado em cada perfil de shell com as linhas do usuário intactas; os sete hooks e os seis agentes estão instalados ao lado das chaves e do hook do próprio usuário; o proxy responde no endpoint de saúde e a `ANTHROPIC_BASE_URL` aponta para ele |
 | 2. O wrapper `claude` | Em `sh`, `bash`, `dash` e `zsh` novos: `claude` é uma função, o `tokred initialize` realmente rodou, os argumentos chegam intactos e, sem o tokred no `PATH`, o `claude` ainda executa |
 | 3. Tráfego pelo proxy | Contra o upstream falso: requisições de loop principal e de subagente em streaming voltam como os bytes do falso; o link do dashboard funciona uma vez; a API de sessões e o detalhe de volta estão certos; `/metrics` é HTML; um `Host` errado é 421; `stats --json` tem a seção do proxy; desligar a gravação de conteúdo é aplicado |
 | 4. `unconfigure` e `configure` | O unconfigure remove hooks e agentes não editados e mantém as chaves do usuário e a URL do proxy; o configure traz tudo de volta |

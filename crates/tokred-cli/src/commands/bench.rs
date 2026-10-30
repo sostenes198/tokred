@@ -240,6 +240,7 @@ mod tests {
             "guard-search",
             "session-check",
             "session-start",
+            "model-guard",
         ] {
             assert!(
                 names.contains(&expected),

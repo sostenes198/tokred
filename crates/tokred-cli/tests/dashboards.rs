@@ -203,7 +203,7 @@ fn doctor_bench_measures_every_hook_and_saves_the_overhead() {
         .stdout
         .clone();
     let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
-    assert_eq!(json["bench"]["hooks"].as_array().unwrap().len(), 6);
+    assert_eq!(json["bench"]["hooks"].as_array().unwrap().len(), 7);
     assert_eq!(json["bench"]["budget_ms"], 50.0);
     assert!(json["bench"]["spawn_overhead_us"].as_u64().is_some());
 

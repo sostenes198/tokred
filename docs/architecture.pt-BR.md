@@ -21,7 +21,7 @@ Os crates de casos de uso e de adaptadores dependem do `tokred-core` e nunca uns
 |---|---|
 | `tokred-core` | Domínio: tipos, erros, o modelo do `tokred.toml`, regras de caminhos, o modelo de eventos de hook, a política do cache em camadas e as portas (traits como `Clock`, `FileSystem` e os repositórios). **Sem I/O** |
 | `tokred-install` | `configure`, `unconfigure`, `doctor`: merge puro de settings, templates de agentes (`templates/`, embutidos no binário) e regras de instalação; o módulo `fs` é o adaptador de `std::fs` |
-| `tokred-hooks` | Os seis handlers de hook, a guarda de tempo e as cargas do benchmark. Fail-open |
+| `tokred-hooks` | Os sete handlers de hook, a guarda de tempo e as cargas do benchmark. Fail-open |
 | `tokred-metrics` | Puro: ingestão dos transcripts, o merge do uso dos transcripts com o do proxy, custo, economia, projeção, latência e os resumos de roteamento e de guardas |
 | `tokred-pricing` | Leitura da lista de preços, snapshot embutido de reserva, casos de uso de sincronização e o adaptador do LiteLLM |
 | `tokred-update` | Detecção do método de instalação, verificação de versão, autoatualização com checagem de checksum, adaptador do GitHub |

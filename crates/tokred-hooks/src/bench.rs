@@ -38,6 +38,15 @@ pub fn bench_fixtures() -> Vec<(HookEvent, String)> {
         json!("Implement pagination on the users list endpoint in src/users/list.ts and add tests");
     let mut stop = base("Stop");
     stop["stop_hook_active"] = json!(false);
+    let mut switch = base("PreModelSwitch");
+    switch["from_model"] = json!("claude-sonnet-5");
+    switch["to_model"] = json!("claude-opus-5");
+    switch["requested_model"] = json!("opus");
+    switch["source"] = json!("command");
+    switch["context_tokens"] = json!(182_340);
+    switch["prompt_cache_warm"] = json!(true);
+    switch["cache_ttl"] = json!("5m");
+    switch["estimated_cache_write_usd"] = json!(1.1396);
 
     vec![
         (HookEvent::SessionStart, start.to_string()),
@@ -75,6 +84,7 @@ pub fn bench_fixtures() -> Vec<(HookEvent, String)> {
             pre_tool_use("Glob", json!({"pattern": "**/*"})),
         ),
         (HookEvent::SessionCheck, stop.to_string()),
+        (HookEvent::ModelGuard, switch.to_string()),
     ]
 }
 

@@ -107,6 +107,17 @@ expression: "merged(\"settings-user-hooks.json\")"
           }
         ]
       }
+    ],
+    "PreModelSwitch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/opt/homebrew/bin/tokred\" hook model-guard",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

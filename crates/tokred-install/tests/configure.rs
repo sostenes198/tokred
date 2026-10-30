@@ -105,7 +105,7 @@ fn configure_configure_unconfigure_returns_the_original_semantically() {
         );
 
         let entries = tokred_entries(&env.settings_json());
-        assert_eq!(entries.len(), 6, "{name}");
+        assert_eq!(entries.len(), 7, "{name}");
 
         unconfigure(&StdFileSystem, Some(&env.store), &env.claude).unwrap();
         // Old tokred entries in the original are replaced, never restored; everything else
@@ -118,7 +118,7 @@ fn configure_configure_unconfigure_returns_the_original_semantically() {
 fn missing_settings_file_is_created_and_left_as_empty_object_after_unconfigure() {
     let env = Env::new(None);
     env.configure(&env.input()).unwrap();
-    assert_eq!(tokred_entries(&env.settings_json()).len(), 6);
+    assert_eq!(tokred_entries(&env.settings_json()).len(), 7);
     assert!(
         !env.claude.join("settings.json.tokred.bak").exists(),
         "nothing to back up"

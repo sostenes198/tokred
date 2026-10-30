@@ -204,7 +204,7 @@ mod tests {
         done.result.unwrap();
         let out = done.out;
         assert!(out.contains("The tokred proxy is not running."), "{out}");
-        assert!(out.contains("hooks removed from settings.json: 6"), "{out}");
+        assert!(out.contains("hooks removed from settings.json: 7"), "{out}");
         assert!(
             out.contains("ANTHROPIC_BASE_URL removed from settings.json: http://127.0.0.1:1029"),
             "{out}"

@@ -74,13 +74,14 @@ def load(path):
 
 # ------------------------------------------------------------------ settings.json
 
-SIX_HOOKS = [
+TOKRED_HOOKS = [
     ("UserPromptSubmit", None, "route"),
     ("PreToolUse", "Agent|Task", "enforce"),
     ("PreToolUse", "Read", "guard-read"),
     ("PreToolUse", "Grep|Glob", "guard-search"),
     ("Stop", None, "session-check"),
     ("SessionStart", None, "session-start"),
+    ("PreModelSwitch", None, "model-guard"),
 ]
 
 
@@ -101,7 +102,7 @@ def tokred_hook_entries(settings, event, name):
 def cmd_settings(args):
     settings = load(args.file)
     if args.hooks == "present":
-        for event, matcher, name in SIX_HOOKS:
+        for event, matcher, name in TOKRED_HOOKS:
             found = tokred_hook_entries(settings, event, name)
             expect(len(found) == 1, "settings.json has the tokred hook %s (%s) once" % (name, event),
                    "settings.json has %d tokred `hook %s` entries under %s, expected exactly 1" % (len(found), name, event))

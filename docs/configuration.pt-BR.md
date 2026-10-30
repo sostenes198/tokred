@@ -57,12 +57,13 @@ O `tokred configure` cria o arquivo com todas as chaves no valor padrão (só `c
 [claude]
 dir = "/Users/you/.claude"   # salvo pelo `tokred configure`
 
-[modes]                      # off | warn | enforce, um por hook
+[modes]                      # off | warn | enforce (ou on), um por hook
 route = "warn"
 enforce = "warn"
 guard_read = "enforce"
 guard_search = "warn"
 session_check = "warn"
+model_guard = "warn"         # warn: diz o que uma troca de modelo custa; on: pede que você confirme
 
 [guard_read]
 max_read_bytes = 204800      # arquivos maiores exigem offset/limit
@@ -75,6 +76,9 @@ large_repo_files = 5000      # um repositório com mais arquivos conta como gran
 
 [session_check]
 context_warn_tokens = 120000 # avisa o usuário quando o contexto passa disto
+
+[model_guard]
+min_context_tokens = 100000  # só reporta uma troca de modelo a partir deste tamanho de contexto
 
 [update]
 mode = "notify"              # off | notify | auto (auto é aceito e se comporta como notify)
@@ -137,8 +141,8 @@ response_cache = true                  # conta requisições repetidas exatas
 
 | Seção | O que saber |
 |---|---|
-| `[modes]` | O que cada modo faz está em [hooks e agentes](hooks-and-agents.pt-BR.md). `route` e `session_check` nunca negam, então `enforce` se comporta como `warn` para eles. |
-| `[guard_read]`, `[guard_search]`, `[session_check]` | Limites dos hooks de mesmo nome. Os `deny_globs` são comparados com o caminho relativo à pasta da sessão. |
+| `[modes]` | O que cada modo faz está em [hooks e agentes](hooks-and-agents.pt-BR.md). `route` e `session_check` nunca negam, então `enforce` se comporta como `warn` para eles. `on` é aceito como outro nome de `enforce`; no `model_guard` ele pede que você confirme a troca, em vez de só avisar. |
+| `[guard_read]`, `[guard_search]`, `[session_check]`, `[model_guard]` | Limites dos hooks de mesmo nome. Os `deny_globs` são comparados com o caminho relativo à pasta da sessão. |
 | `[update]` | `off` nunca verifica novas versões; `notify` imprime um aviso (no máximo uma requisição por dia, veja [tarefas em segundo plano](#tarefas-em-segundo-plano)). `auto` é aceito e se comporta como `notify`: nada se atualiza sozinho, rode `tokred update`. |
 | `[pricing]` | Com `auto_sync = false`, os preços só mudam com `tokred pricing sync`. |
 | `[cache]` | As durações aceitam `s`, `m`, `h` ou `d` (`90s`, `30m`, `4h`, `7d`). |

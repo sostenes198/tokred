@@ -110,7 +110,7 @@ fn quickstart_configure_doctor_unconfigure() {
         .stdout(predicate::str::contains("tokred-dev.md"))
         .stdout(predicate::str::contains("rtk detected"));
 
-    assert_eq!(tokred_hook_count(&sb.settings_json()), 6);
+    assert_eq!(tokred_hook_count(&sb.settings_json()), 7);
     assert!(sb.data().join("tokred.db").exists());
     assert!(sb.data().join("tokred.toml").exists());
     let logs: Vec<_> = std::fs::read_dir(sb.data().join("logs")).unwrap().collect();
@@ -261,6 +261,7 @@ fn hooks_are_fail_open_with_unusable_input() {
         "guard-search",
         "session-check",
         "session-start",
+        "model-guard",
     ] {
         sb.tokred()
             .args(["hook", event])
@@ -844,7 +845,7 @@ fn uninstall_removes_everything_without_asking() {
         .success()
         .stdout(predicate::str::contains("The tokred proxy is not running."))
         .stdout(predicate::str::contains(
-            "hooks removed from settings.json: 6",
+            "hooks removed from settings.json: 7",
         ))
         .stdout(predicate::str::contains("data folder deleted"))
         .stdout(predicate::str::contains("tokred is removed"));

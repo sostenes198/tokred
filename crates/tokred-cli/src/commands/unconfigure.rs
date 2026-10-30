@@ -126,7 +126,7 @@ mod tests {
         let sb = configured();
         let (result, out) = unconfigure_cmd(&sb, false);
         result.unwrap();
-        assert!(out.contains("hooks removed from settings.json: 6"));
+        assert!(out.contains("hooks removed from settings.json: 7"));
         assert!(out.contains("agents removed: 6"));
         assert!(!out.contains("kept"));
         assert!(!sb.agent("tokred-dev.md").exists());

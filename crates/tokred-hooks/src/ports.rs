@@ -63,7 +63,7 @@ pub struct HookResponse {
 pub struct EventNote {
     /// Session id.
     pub session_id: String,
-    /// `allow`, `warn`, `deny`, `none` or, for `route`, the task class.
+    /// `allow`, `warn`, `deny`, `ask`, `none` or, for `route`, the task class.
     pub decision: &'static str,
     /// Why.
     pub reason: &'static str,

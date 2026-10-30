@@ -49,6 +49,8 @@ pub mod decision {
     pub const WARN: &str = "warn";
     /// The hook denied the action.
     pub const DENY: &str = "deny";
+    /// The hook asked the user to confirm the action.
+    pub const ASK: &str = "ask";
     /// The hook did nothing (mode `off`, or nothing to say).
     pub const NONE: &str = "none";
 }

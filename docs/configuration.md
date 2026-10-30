@@ -57,12 +57,13 @@ Besides their own job, `doctor`, `stats`, `metrics`, `audit`, `pricing` and `cac
 [claude]
 dir = "/Users/you/.claude"   # saved by `tokred configure`
 
-[modes]                      # off | warn | enforce, one per hook
+[modes]                      # off | warn | enforce (or on), one per hook
 route = "warn"
 enforce = "warn"
 guard_read = "enforce"
 guard_search = "warn"
 session_check = "warn"
+model_guard = "warn"         # warn: say what a model switch costs; on: ask to confirm it
 
 [guard_read]
 max_read_bytes = 204800      # larger files need offset/limit
@@ -75,6 +76,9 @@ large_repo_files = 5000      # a repository with more files counts as large
 
 [session_check]
 context_warn_tokens = 120000 # warn the user when the context passes this
+
+[model_guard]
+min_context_tokens = 100000  # report a model switch only from this context size
 
 [update]
 mode = "notify"              # off | notify | auto (auto is accepted and behaves like notify)
@@ -137,8 +141,8 @@ response_cache = true                  # count exact repeated requests
 
 | Section | What to know |
 |---|---|
-| `[modes]` | What each mode does is in [hooks and agents](hooks-and-agents.md). `route` and `session_check` never deny, so `enforce` behaves like `warn` for them. |
-| `[guard_read]`, `[guard_search]`, `[session_check]` | Thresholds of the hooks of the same name. `deny_globs` are matched against the path relative to the session's folder. |
+| `[modes]` | What each mode does is in [hooks and agents](hooks-and-agents.md). `route` and `session_check` never deny, so `enforce` behaves like `warn` for them. `on` is accepted as another name for `enforce`; for `model_guard` it asks you to confirm the switch instead of only telling you. |
+| `[guard_read]`, `[guard_search]`, `[session_check]`, `[model_guard]` | Thresholds of the hooks of the same name. `deny_globs` are matched against the path relative to the session's folder. |
 | `[update]` | `off` never checks for new versions; `notify` prints a notice (at most one request a day, see [background tasks](#background-tasks)). `auto` is accepted and behaves like `notify`: nothing updates itself, run `tokred update`. |
 | `[pricing]` | With `auto_sync = false` prices change only with `tokred pricing sync`. |
 | `[cache]` | Durations take `s`, `m`, `h` or `d` (`90s`, `30m`, `4h`, `7d`). |

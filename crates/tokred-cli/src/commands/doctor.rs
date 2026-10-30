@@ -452,7 +452,7 @@ mod tests {
             tokred_store::Store::latest_schema_version()
         );
         assert_eq!(value["config"], true);
-        assert_eq!(value["install"]["hooks"].as_array().unwrap().len(), 6);
+        assert_eq!(value["install"]["hooks"].as_array().unwrap().len(), 7);
     }
 
     #[test]

@@ -15,17 +15,20 @@ pub enum HookEvent {
     SessionCheck,
     /// Registers the session (`SessionStart`).
     SessionStart,
+    /// Reports what a model switch costs in prompt cache (`PreModelSwitch`).
+    ModelGuard,
 }
 
 impl HookEvent {
     /// Every hook, in registration order.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Route,
         Self::Enforce,
         Self::GuardRead,
         Self::GuardSearch,
         Self::SessionCheck,
         Self::SessionStart,
+        Self::ModelGuard,
     ];
 
     /// Argument of `tokred hook <arg>`.
@@ -38,6 +41,7 @@ impl HookEvent {
             Self::GuardSearch => "guard-search",
             Self::SessionCheck => "session-check",
             Self::SessionStart => "session-start",
+            Self::ModelGuard => "model-guard",
         }
     }
 
@@ -55,6 +59,7 @@ impl HookEvent {
             Self::Enforce | Self::GuardRead | Self::GuardSearch => "PreToolUse",
             Self::SessionCheck => "Stop",
             Self::SessionStart => "SessionStart",
+            Self::ModelGuard => "PreModelSwitch",
         }
     }
 
@@ -67,7 +72,7 @@ impl HookEvent {
             Self::Enforce => Some("Agent|Task"),
             Self::GuardRead => Some("Read"),
             Self::GuardSearch => Some("Grep|Glob"),
-            Self::Route | Self::SessionCheck | Self::SessionStart => None,
+            Self::Route | Self::SessionCheck | Self::SessionStart | Self::ModelGuard => None,
         }
     }
 }
@@ -82,6 +87,16 @@ mod tests {
             assert_eq!(HookEvent::from_arg(event.arg()), Some(event));
         }
         assert_eq!(HookEvent::from_arg("bash"), None);
+    }
+
+    #[test]
+    fn model_guard_is_registered_on_pre_model_switch_without_a_matcher() {
+        let guard = HookEvent::ModelGuard;
+        assert_eq!(guard.arg(), "model-guard");
+        assert_eq!(guard.claude_event(), "PreModelSwitch");
+        assert_eq!(guard.matcher(), None);
+        assert_eq!(HookEvent::from_arg("model-guard"), Some(guard));
+        assert!(HookEvent::ALL.contains(&guard));
     }
 
     #[test]

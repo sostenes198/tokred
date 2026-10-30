@@ -38,5 +38,11 @@ expression: "json[\"install\"][\"hooks\"]"
     "event": "SessionStart",
     "state": "ok",
     "binary_missing": false
+  },
+  {
+    "hook": "model-guard",
+    "event": "PreModelSwitch",
+    "state": "ok",
+    "binary_missing": false
   }
 ]

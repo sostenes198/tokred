@@ -14,7 +14,8 @@ pub enum Mode {
     Off,
     /// The hook allows the action and only advises.
     Warn,
-    /// The hook denies the action.
+    /// The hook denies the action. `on` is accepted as another name for it.
+    #[serde(alias = "on")]
     Enforce,
 }
 
@@ -41,6 +42,8 @@ pub struct Modes {
     pub guard_search: Mode,
     /// `session-check` hook mode.
     pub session_check: Mode,
+    /// `model-guard` hook mode.
+    pub model_guard: Mode,
 }
 
 impl Default for Modes {
@@ -51,6 +54,7 @@ impl Default for Modes {
             guard_read: Mode::Enforce,
             guard_search: Mode::Warn,
             session_check: Mode::Warn,
+            model_guard: Mode::Warn,
         }
     }
 }
@@ -116,6 +120,23 @@ impl Default for SessionCheck {
     fn default() -> Self {
         Self {
             context_warn_tokens: 120_000,
+        }
+    }
+}
+
+/// `[model_guard]` section.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModelGuard {
+    /// Context size (tokens) from which a model switch is reported: below it the switch is
+    /// cheap and `model-guard` stays quiet.
+    pub min_context_tokens: u64,
+}
+
+impl Default for ModelGuard {
+    fn default() -> Self {
+        Self {
+            min_context_tokens: 100_000,
         }
     }
 }
@@ -434,6 +455,8 @@ pub struct Config {
     pub guard_search: GuardSearch,
     /// `[session_check]`.
     pub session_check: SessionCheck,
+    /// `[model_guard]`.
+    pub model_guard: ModelGuard,
     /// `[update]`.
     pub update: Update,
     /// `[pricing]`.
@@ -536,6 +559,34 @@ mod tests {
         assert_eq!(cfg.update.mode, UpdateMode::Notify);
         assert!(cfg.pricing.auto_sync);
         assert_eq!(cfg.cache.l2_hits, 3);
+    }
+
+    #[test]
+    fn the_model_guard_warns_by_default_and_on_is_another_name_for_enforce() {
+        let cfg = Config::default();
+        assert_eq!(cfg.modes.model_guard, Mode::Warn);
+        assert_eq!(cfg.model_guard.min_context_tokens, 100_000);
+        for (text, mode) in [
+            ("on", Mode::Enforce),
+            ("enforce", Mode::Enforce),
+            ("warn", Mode::Warn),
+            ("off", Mode::Off),
+        ] {
+            let cfg =
+                Config::from_toml_str(&format!("[modes]\nmodel_guard = \"{text}\"\n")).unwrap();
+            assert_eq!(cfg.modes.model_guard, mode, "{text}");
+        }
+    }
+
+    #[test]
+    fn a_merge_adds_the_model_guard_keys_and_keeps_the_values_already_set() {
+        let existing =
+            "[modes]\nguard_read = \"off\"\n\n[session_check]\ncontext_warn_tokens = 5\n";
+        let cfg = Config::from_toml_str(&merge_config(existing, None).unwrap()).unwrap();
+        assert_eq!(cfg.modes.guard_read, Mode::Off);
+        assert_eq!(cfg.session_check.context_warn_tokens, 5);
+        assert_eq!(cfg.modes.model_guard, Mode::Warn);
+        assert_eq!(cfg.model_guard.min_context_tokens, 100_000);
     }
 
     #[test]

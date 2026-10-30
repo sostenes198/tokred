@@ -83,6 +83,17 @@ expression: "merged(\"settings-rtk.json\")"
           }
         ]
       }
+    ],
+    "PreModelSwitch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/opt/homebrew/bin/tokred\" hook model-guard",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   },
   "theme": "dark"
