@@ -6,6 +6,8 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+## [1.4.0-rc.1] - 2026-10-30
+
 ### Adicionado
 
 - `tokred model-guard on | warn | off | limit <tokens> | status` define o modo e o limite do hook `model-guard` sem editar o `tokred.toml`. Vale na hora.
