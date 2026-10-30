@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.5.0-rc.1] - 2026-10-30
+
 ### Changed
 
 - `tokred stats` and the HTML report no longer call the distance to an "everything on opus" run a routing saving. That figure comes from the models you run, not from tokred, so it has its own line (**Model choice vs opus**), and the total became **Saved by tokred**: the saving of the routing decisions that were applied plus the guards, which is $0.00 while routing only observes. The efficiency meter is now **Below all-opus cost**. In `tokred stats --json`, `routing_saving_usd` holds what the applied decisions saved, the old value is `model_choice_saving_usd`, and `total_saving_usd` is always a number. `tokred stats latency` says "saved by tokred" in its trade-off line.

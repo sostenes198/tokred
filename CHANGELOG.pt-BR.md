@@ -6,6 +6,8 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato se
 
 ## [Não lançado]
 
+## [1.5.0-rc.1] - 2026-10-30
+
 ### Alterado
 
 - O `tokred stats` e o relatório HTML não chamam mais de economia do roteamento a distância até uma execução "toda no opus". Esse valor vem dos modelos que você usa, não do tokred, então tem linha própria (**Model choice vs opus**), e o total virou **Saved by tokred**: a economia das decisões de roteamento aplicadas mais a dos guards, que é $0,00 enquanto o roteamento só observa. O medidor de eficiência agora é **Below all-opus cost**. No `tokred stats --json`, `routing_saving_usd` traz o que as decisões aplicadas economizaram, o valor antigo é `model_choice_saving_usd`, e `total_saving_usd` é sempre um número. O `tokred stats latency` diz "saved by tokred" na linha de trade-off.
