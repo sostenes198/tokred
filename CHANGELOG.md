@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- `tokred model-guard on | warn | off | limit <tokens> | status` sets the mode and the limit of the `model-guard` hook without editing `tokred.toml`. It applies at once.
+
 ## [1.3.0] - 2026-10-30
 
 ### Added

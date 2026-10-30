@@ -201,6 +201,24 @@ pub enum RoutingCommand {
     },
 }
 
+/// Sub-commands of `tokred model-guard`.
+#[derive(Debug, Subcommand)]
+pub enum ModelGuardCommand {
+    /// Ask you to confirm a costly model switch (`on`).
+    On,
+    /// Say what a costly model switch costs and let it go ahead (`warn`, the default).
+    Warn,
+    /// Do nothing when the model is switched (`off`).
+    Off,
+    /// Set the context size, in tokens, from which a model switch is reported.
+    Limit {
+        /// Tokens of context (`100000` by default).
+        tokens: u64,
+    },
+    /// The mode and the limit.
+    Status,
+}
+
 /// Sub-commands of `tokred compression`.
 #[derive(Debug, Subcommand)]
 pub enum CompressionCommand {
@@ -374,6 +392,13 @@ pub enum Command {
         /// What to do.
         #[command(subcommand)]
         command: CompressionCommand,
+    },
+    /// What a model switch costs in prompt cache: tell you, or ask you to confirm it.
+    #[command(name = "model-guard")]
+    ModelGuard {
+        /// What to do.
+        #[command(subcommand)]
+        command: ModelGuardCommand,
     },
     /// Cheaper-model suggestions for the main loop, with the evidence.
     Suggest {
@@ -749,6 +774,31 @@ mod tests {
                 command: CompressionCommand::Status
             }
         ));
+    }
+
+    #[test]
+    fn the_model_guard_commands_parse() {
+        for (word, expected) in [
+            ("on", "On"),
+            ("warn", "Warn"),
+            ("off", "Off"),
+            ("status", "Status"),
+        ] {
+            let Command::ModelGuard { command } = parse(&["model-guard", word]) else {
+                panic!("{word} is not a model-guard command");
+            };
+            assert_eq!(format!("{command:?}"), expected);
+        }
+        assert!(matches!(
+            parse(&["model-guard", "limit", "50000"]),
+            Command::ModelGuard {
+                command: ModelGuardCommand::Limit { tokens: 50_000 }
+            }
+        ));
+        assert!(Cli::try_parse_from(["tokred", "model-guard", "limit"]).is_err());
+        assert!(Cli::try_parse_from(["tokred", "model-guard", "limit", "-5"]).is_err());
+        assert!(Cli::try_parse_from(["tokred", "model-guard", "enforce"]).is_err());
+        assert!(Cli::try_parse_from(["tokred", "model-guard"]).is_err());
     }
 
     #[test]

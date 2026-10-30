@@ -141,7 +141,7 @@ response_cache = true                  # count exact repeated requests
 
 | Section | What to know |
 |---|---|
-| `[modes]` | What each mode does is in [hooks and agents](hooks-and-agents.md). `route` and `session_check` never deny, so `enforce` behaves like `warn` for them. `on` is accepted as another name for `enforce`; for `model_guard` it asks you to confirm the switch instead of only telling you. |
+| `[modes]` | What each mode does is in [hooks and agents](hooks-and-agents.md). `route` and `session_check` never deny, so `enforce` behaves like `warn` for them. `on` is accepted as another name for `enforce`; for `model_guard` it asks you to confirm the switch instead of only telling you. `tokred model-guard` sets both `model_guard` keys for you. |
 | `[guard_read]`, `[guard_search]`, `[session_check]`, `[model_guard]` | Thresholds of the hooks of the same name. `deny_globs` are matched against the path relative to the session's folder. |
 | `[update]` | `off` never checks for new versions; `notify` prints a notice (at most one request a day, see [background tasks](#background-tasks)). `auto` is accepted and behaves like `notify`: nothing updates itself, run `tokred update`. |
 | `[pricing]` | With `auto_sync = false` prices change only with `tokred pricing sync`. |

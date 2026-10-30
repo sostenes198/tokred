@@ -14,6 +14,7 @@ mod doctor;
 mod housekeeping;
 mod initialize;
 mod metrics;
+mod model_guard;
 pub(crate) mod port;
 mod pricing;
 mod proxy;
@@ -297,6 +298,7 @@ fn dispatch(
             Ok(())
         }
         Command::Compression { command } => run_compression(env, io, &command),
+        Command::ModelGuard { command } => model_guard::run(env, io, &command),
         Command::Suggest { since, json } => advice::suggest(env, io, &since, json),
         Command::Statusline => advice::statusline(env, io),
         Command::Mcp => advice::mcp(env, io, version),

@@ -25,6 +25,7 @@ Reference for every `tokred` command and its flags. `tokred <command> --help` pr
 | [`dashboard`](#dashboard) | Open the proxy's [live dashboard](dashboard.md) |
 | [`routing status` / `on` / `off` / `explain`](#routing) | [Model routing](routing.md) of subagent and auxiliary requests |
 | [`compression on` / `off` / `status`](#compression) | Reversible compression of large tool results |
+| [`model-guard on` / `warn` / `off` / `limit` / `status`](#model-guard) | What a model switch costs in prompt cache: tell you, or ask you to confirm |
 | [`suggest`](#suggest) | Cheaper-model suggestions for the main loop |
 | [`statusline`](#statusline) | One short line for Claude Code's status line |
 | `hook <event>`, `mcp` | Internal: started by Claude Code, never by hand |
@@ -312,6 +313,30 @@ tokred compression status
 ```
 
 `on` registers the `tokred_retrieve` MCP server in Claude Code's user config (`.claude.json` in the Claude Code folder if it exists there, else `~/.claude.json`; the previous file is saved next to it as `.tokred.bak`) and sets `[compression] mode = "enforce"`: large tool results are replaced by a preview and the model reads the original back with `tokred_retrieve`. `off` unregisters the server and sets `"observe"` (measure only). Restart the proxy and Claude Code to apply `on`. `status` shows the mode, whether the server is registered, whether the circuit breaker tripped and, while it is still in `observe`, what compression would have kept out of the requests in the last 7 days (the share of the input tokens, so you can tell whether it is worth turning on). Nothing is edited unless you run `on` or `off`.
+
+## model-guard
+
+```sh
+tokred model-guard on
+```
+
+```sh
+tokred model-guard warn
+```
+
+```sh
+tokred model-guard off
+```
+
+```sh
+tokred model-guard limit <TOKENS>
+```
+
+```sh
+tokred model-guard status
+```
+
+Sets the mode and the limit of the `model-guard` [hook](hooks-and-agents.md#what-each-hook-decides) in `tokred.toml`. `on` asks you to confirm a model switch that would throw away a warm prompt cache, `warn` (the default) only says what it costs and lets the switch go ahead, and `off` does nothing. `limit` sets `[model_guard] min_context_tokens`, the context size from which a switch is reported (100,000 by default). `status` prints the mode and the limit. The hook reads the file every time it runs, so a change applies at once: nothing is restarted. It needs Claude Code 2.1.251 or later.
 
 ## suggest
 

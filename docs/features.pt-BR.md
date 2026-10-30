@@ -10,6 +10,7 @@ Cada parte opcional do tokred se liga e desliga com um comando ou uma linha do `
 |---|---|---|---|
 | Hooks e agentes | `tokred configure` | `tokred unconfigure` | Depois de reiniciar o Claude Code |
 | Um hook | a chave de `[modes]` em `warn` ou `enforce` | a chave em `"off"` | Na próxima vez que o hook rodar |
+| Guarda de troca de modelo | `tokred model-guard on` (pergunta) ou `warn` (diz quanto custa) | `tokred model-guard off` | Na próxima vez que o hook rodar |
 | Funcionalidades do proxy | `tokred proxy enable` | `tokred proxy disable` | Na hora |
 | O processo do proxy | `tokred proxy start` | `tokred proxy stop` | Na hora; `tokred proxy restart` o reinicia |
 | Iniciar no login | `tokred proxy service install` | `tokred proxy service uninstall` | No próximo login |

@@ -25,6 +25,7 @@ Referência de todos os comandos do `tokred` e das suas flags. `tokred <comando>
 | [`dashboard`](#dashboard) | Abre o [dashboard ao vivo](dashboard.pt-BR.md) do proxy |
 | [`routing status` / `on` / `off` / `explain`](#routing) | [Roteamento de modelos](routing.pt-BR.md) das requisições de subagentes e auxiliares |
 | [`compression on` / `off` / `status`](#compression) | Compressão reversível de resultados grandes de ferramentas |
+| [`model-guard on` / `warn` / `off` / `limit` / `status`](#model-guard) | O que uma troca de modelo custa em cache de prompt: avisa, ou pede que você confirme |
 | [`suggest`](#suggest) | Sugestões de modelo mais barato para o loop principal |
 | [`statusline`](#statusline) | Uma linha curta para a barra de status do Claude Code |
 | `hook <evento>`, `mcp` | Internos: iniciados pelo Claude Code, nunca à mão |
@@ -312,6 +313,30 @@ tokred compression status
 ```
 
 `on` registra o servidor MCP `tokred_retrieve` na config de usuário do Claude Code (`.claude.json` na pasta do Claude Code, se existir lá, senão `~/.claude.json`; o arquivo anterior é salvo ao lado como `.tokred.bak`) e define `[compression] mode = "enforce"`: resultados grandes de ferramentas são trocados por uma prévia e o modelo lê o original de volta com `tokred_retrieve`. `off` remove o registro do servidor e define `"observe"` (só mede). Reinicie o proxy e o Claude Code para aplicar o `on`. `status` mostra o modo, se o servidor está registrado, se o disjuntor disparou e, enquanto ainda está em `observe`, o que a compressão teria tirado das requisições nos últimos 7 dias (a parcela dos tokens de entrada, para você saber se vale a pena ligar). Nada é editado a menos que você rode `on` ou `off`.
+
+## model-guard
+
+```sh
+tokred model-guard on
+```
+
+```sh
+tokred model-guard warn
+```
+
+```sh
+tokred model-guard off
+```
+
+```sh
+tokred model-guard limit <TOKENS>
+```
+
+```sh
+tokred model-guard status
+```
+
+Define o modo e o limite do [hook](hooks-and-agents.pt-BR.md#o-que-cada-hook-decide) `model-guard` no `tokred.toml`. `on` pede que você confirme uma troca de modelo que jogaria fora um cache de prompt quente, `warn` (o padrão) só diz quanto custa e deixa a troca seguir, e `off` não faz nada. `limit` define `[model_guard] min_context_tokens`, o tamanho de contexto a partir do qual uma troca é reportada (100.000 por padrão). `status` mostra o modo e o limite. O hook lê o arquivo a cada execução, então a mudança vale na hora: nada é reiniciado. Exige o Claude Code 2.1.251 ou mais novo.
 
 ## suggest
 

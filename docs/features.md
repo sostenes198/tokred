@@ -10,6 +10,7 @@ Every optional part of tokred is switched with one command or one line of `tokre
 |---|---|---|---|
 | Hooks and agents | `tokred configure` | `tokred unconfigure` | After you restart Claude Code |
 | One hook | `[modes]` key set to `warn` or `enforce` | the key set to `"off"` | The next time that hook runs |
+| Model-switch guard | `tokred model-guard on` (asks) or `warn` (says what it costs) | `tokred model-guard off` | The next time the hook runs |
 | Proxy features | `tokred proxy enable` | `tokred proxy disable` | At once |
 | The proxy process | `tokred proxy start` | `tokred proxy stop` | At once; `tokred proxy restart` restarts it |
 | Start at login | `tokred proxy service install` | `tokred proxy service uninstall` | At the next login |
