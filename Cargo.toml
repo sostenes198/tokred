@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "1.5.0-rc.1"
+version = "1.5.0"
 edition = "2024"
 rust-version = "1.89"
 license = "MIT OR Apache-2.0"
@@ -13,19 +13,19 @@ authors = ["Sóstenes Souza"]
 
 [workspace.dependencies]
 # Internal crates
-tokred-core = { path = "crates/tokred-core", version = "1.5.0-rc.1" }
-tokred-install = { path = "crates/tokred-install", version = "1.5.0-rc.1" }
-tokred-hooks = { path = "crates/tokred-hooks", version = "1.5.0-rc.1" }
-tokred-metrics = { path = "crates/tokred-metrics", version = "1.5.0-rc.1" }
-tokred-pricing = { path = "crates/tokred-pricing", version = "1.5.0-rc.1" }
-tokred-audit = { path = "crates/tokred-audit", version = "1.5.0-rc.1" }
-tokred-update = { path = "crates/tokred-update", version = "1.5.0-rc.1" }
-tokred-report = { path = "crates/tokred-report", version = "1.5.0-rc.1" }
-tokred-store = { path = "crates/tokred-store", version = "1.5.0-rc.1" }
-tokred-proxy = { path = "crates/tokred-proxy", version = "1.5.0-rc.1" }
-tokred-routing = { path = "crates/tokred-routing", version = "1.5.0-rc.1" }
-tokred-suggest = { path = "crates/tokred-suggest", version = "1.5.0-rc.1" }
-tokred-compress = { path = "crates/tokred-compress", version = "1.5.0-rc.1" }
+tokred-core = { path = "crates/tokred-core", version = "1.5.0" }
+tokred-install = { path = "crates/tokred-install", version = "1.5.0" }
+tokred-hooks = { path = "crates/tokred-hooks", version = "1.5.0" }
+tokred-metrics = { path = "crates/tokred-metrics", version = "1.5.0" }
+tokred-pricing = { path = "crates/tokred-pricing", version = "1.5.0" }
+tokred-audit = { path = "crates/tokred-audit", version = "1.5.0" }
+tokred-update = { path = "crates/tokred-update", version = "1.5.0" }
+tokred-report = { path = "crates/tokred-report", version = "1.5.0" }
+tokred-store = { path = "crates/tokred-store", version = "1.5.0" }
+tokred-proxy = { path = "crates/tokred-proxy", version = "1.5.0" }
+tokred-routing = { path = "crates/tokred-routing", version = "1.5.0" }
+tokred-suggest = { path = "crates/tokred-suggest", version = "1.5.0" }
+tokred-compress = { path = "crates/tokred-compress", version = "1.5.0" }
 
 # External crates
 anyhow = "1.0.104"
