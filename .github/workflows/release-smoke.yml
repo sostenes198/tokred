@@ -53,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       # The test runs a small fake API in Python: use the runner's own, not whatever the image has.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Smoke test (macOS and Linux)
